@@ -163,9 +163,10 @@ def main() -> None:
             dialogue = []
             doctor_initial_option = ""
             agent_initial_option = ""
+            termination_reason = "max_agent_turns"
             for turn in range(1, a.rounds + 1):
                 final_turn_instruction = "\nThis is the final collaboration turn. Give your best-supported final answer explicitly." if turn == a.rounds else ""
-                prompt = f"{case_text(case)}\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nRespond naturally as the physician. This is discussion turn {turn} of {a.rounds}.{final_turn_instruction}"
+                prompt = f"{case_text(case)}\n\nGrounding constraint: Use only the question, answer choices, dialogue, and established domain knowledge. If no patient vignette or event description is provided, do not invent one or add symptoms, injuries, tests, treatments, or events.\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nRespond naturally as the physician. This is discussion turn {turn} of {a.rounds}.{final_turn_instruction}"
                 doctor = doctor_call(key, a.doctor_model, doctor_system, prompt, a.max_tokens)
                 if turn == 1:
                     doctor_initial_option = option(doctor)
@@ -207,17 +208,20 @@ def main() -> None:
                     agent_initial_option = option(response)
                 dialogue.append({"speaker": "agent", "text": response, "round": turn, "reconstruction": reconstruction, "judgment": judgment})
                 if re.search(r"final answer\s*:\s*(?:option\s*)?[A-D]", response, re.I):
+                    termination_reason = "agent_final_answer"
                     break
                 if turn >= 2:
-                    recent = [option(x["text"]) for x in dialogue[-4:] if option(x["text"])]
-                    if len(recent) >= 4 and len(set(recent)) == 1:
+                    doctor_ready = bool(re.search(r"ready to conclude|comfortable concluding|ready to finalize|can conclude", doctor, re.I))
+                    agent_ready = bool(re.search(r"ready to conclude|comfortable concluding|ready to finalize|can conclude", response, re.I))
+                    if doctor_ready and agent_ready:
+                        termination_reason = "mutual_conclusion"
                         break
             final_prompt = f"{case_text(case)}\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nThis is the final decision. State the option best supported by the complete discussion. End with exactly: Final answer: option <A-D> - <answer text>"
             final = doctor_call(key, a.doctor_model, doctor_system, final_prompt, a.max_tokens)
             dialogue.append({"speaker": "doctor", "text": final, "round": a.rounds + 1, "final": True})
             final_option = option(final)
             actual_rounds = sum(1 for item in dialogue if item["speaker"] == "agent")
-            record = {"case_id": case["case_id"], "trajectory_id": f"pilot_{case['case_id']}", "question": case["question"], "options": case["options"], "ground_truth": case["ground_truth"], "final_option": final_option, "is_correct": final_option == case["ground_truth"]["correct_option"], "num_discussion_rounds": actual_rounds, "max_discussion_rounds": a.rounds, "max_agent_turns": a.rounds, "claim_order": a.claim_order, "doctor_initial_option": doctor_initial_option, "agent_initial_option": agent_initial_option, "doctor_final_option": final_option, "condition": "collaboration_with_local_judgment", "turns": dialogue, "models": {"doctor": a.doctor_model, "reconstructor": a.reconstructor_model, "agent": a.model}, "max_tokens": a.max_tokens}
+            record = {"case_id": case["case_id"], "trajectory_id": f"pilot_{case['case_id']}", "question": case["question"], "options": case["options"], "ground_truth": case["ground_truth"], "final_option": final_option, "is_correct": final_option == case["ground_truth"]["correct_option"], "num_discussion_rounds": actual_rounds, "max_discussion_rounds": a.rounds, "max_agent_turns": a.rounds, "termination_reason": termination_reason, "claim_order": a.claim_order, "doctor_initial_option": doctor_initial_option, "agent_initial_option": agent_initial_option, "agent_first_response_option": agent_initial_option, "belief_transition": {"doctor_option": doctor_initial_option, "agent_first_response_option": agent_initial_option, "changed": bool(doctor_initial_option and agent_initial_option and doctor_initial_option != agent_initial_option)}, "doctor_final_option": final_option, "condition": "collaboration_with_local_judgment", "turns": dialogue, "models": {"doctor": a.doctor_model, "reconstructor": a.reconstructor_model, "agent": a.model}, "max_tokens": a.max_tokens}
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             handle.flush()
             print(f"{n}/{len(cases)} {case['case_id']} final={final_option or '?'} correct={record['is_correct']}", flush=True)
