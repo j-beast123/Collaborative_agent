@@ -29,7 +29,11 @@ def make_state(
     """
     if not trajectory_id:
         raise ValueError("trajectory_id is required")
-    if type(turn_id) is not int or type(max_agent_turns) is not int or max_agent_turns <= 0:
+    if (
+        type(turn_id) is not int
+        or type(max_agent_turns) is not int
+        or max_agent_turns <= 0
+    ):
         raise ValueError("turn_id and max_agent_turns must be positive integers")
     completed_agent_turns = sum(1 for turn in history if turn.get("speaker") == "agent")
     if state_type not in {"before_agent", "after_agent"}:
@@ -61,7 +65,9 @@ def make_state(
         "history": history,
     }
     state["state_hash"] = hashlib.sha256(
-        json.dumps(state, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        json.dumps(
+            state, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
     ).hexdigest()
     return state
 
@@ -69,9 +75,18 @@ def make_state(
 def validate_pair(before: dict[str, Any], after: dict[str, Any]) -> None:
     if before["pair_id"] != after["pair_id"]:
         raise ValueError("before/after pair_id mismatch")
-    if before["case_id"] != after["case_id"] or before.get("trajectory_id") != after.get("trajectory_id"):
+    if before["case_id"] != after["case_id"] or before.get(
+        "trajectory_id"
+    ) != after.get("trajectory_id"):
         raise ValueError("before/after trajectory identity mismatch")
-    for key in ("turn_id", "agent_turn_id", "question", "options", "pair_id"):
+    for key in (
+        "turn_id",
+        "agent_turn_id",
+        "scenario",
+        "question",
+        "options",
+        "pair_id",
+    ):
         if before.get(key) != after.get(key):
             raise ValueError(f"before/after {key} mismatch")
     if after.get("parent_state_id") != before.get("state_id"):
@@ -86,30 +101,55 @@ def validate_pair(before: dict[str, Any], after: dict[str, Any]) -> None:
         raise ValueError("agent_response_text must match final history turn")
 
 
-def build_agent_state_pair(trajectory: dict[str, Any], agent_turn_index: int) -> tuple[dict[str, Any], dict[str, Any]]:
+def build_agent_state_pair(
+    trajectory: dict[str, Any], agent_turn_index: int
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Build an auditable pair around one original agent turn."""
     turns = trajectory.get("turns", [])
-    if not 0 <= agent_turn_index < len(turns) or turns[agent_turn_index].get("speaker") != "agent":
+    if (
+        not 0 <= agent_turn_index < len(turns)
+        or turns[agent_turn_index].get("speaker") != "agent"
+    ):
         raise ValueError("agent_turn_index must point to an agent turn")
+    max_agent_turns = trajectory.get("max_agent_turns", 4)
+    if type(max_agent_turns) is not int or max_agent_turns <= 0:
+        raise ValueError("trajectory max_agent_turns must be a positive integer")
+    agent_ordinal = sum(
+        1 for turn in turns[: agent_turn_index + 1] if turn.get("speaker") == "agent"
+    )
+    turn_id = int(turns[agent_turn_index].get("round", agent_ordinal))
+    if turn_id <= 0:
+        turn_id = agent_ordinal
+
+    def value_history(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {
+                "speaker": item.get("speaker", ""),
+                "text": item.get("text", ""),
+                "round": item.get("round", 0),
+            }
+            for item in items
+        ]
+
     common = {
         "case_id": trajectory["case_id"],
         "trajectory_id": trajectory.get("trajectory_id", ""),
         "question": trajectory["question"],
         "scenario": trajectory.get("scenario", ""),
         "options": trajectory.get("options", {}),
+        "max_agent_turns": max_agent_turns,
     }
-    turn_id = int(turns[agent_turn_index].get("turn_id", agent_turn_index))
     before = make_state(
         state_id=f"{common['trajectory_id']}:{turn_id}:before",
         turn_id=turn_id,
-        history=[dict(turn) for turn in turns[:agent_turn_index]],
+        history=value_history(turns[:agent_turn_index]),
         state_type="before_agent",
         **common,
     )
     after = make_state(
         state_id=f"{common['trajectory_id']}:{turn_id}:after",
         turn_id=turn_id,
-        history=[dict(turn) for turn in turns[: agent_turn_index + 1]],
+        history=value_history(turns[: agent_turn_index + 1]),
         state_type="after_agent",
         parent_state_id=before["state_id"],
         response_label=turns[agent_turn_index].get("text", ""),
