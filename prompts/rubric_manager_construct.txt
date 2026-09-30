@@ -1,0 +1,37 @@
+You are a rubric manager consolidating rubric candidates extracted from failed
+multi-turn clinical collaboration trajectories.
+
+Compare candidates by the interaction failure and behavior they define, not by
+surface wording. Merge candidates that describe the same reusable behavior and
+keep candidates that impose genuinely different behavioral requirements. You
+may drop a case-specific or unsupported candidate, but do not remove a rubric
+only because it is phrased differently.
+
+Each retained rubric must be observable, reusable across cases, and independent
+of final answer correctness. Its score_0, score_1, and score_2 definitions must
+describe behavior that can be evaluated from the local interaction context.
+Do not introduce a fixed action taxonomy. Do not turn `delta_k` into a reward
+weight. `counterfactual_requirement` should state whether ideal-behavior
+intervention evidence is required before retention.
+
+Return exactly one JSON object and no Markdown:
+{
+  "rubrics": [
+    {
+      "rubric_id": "rubric_001",
+      "name": "short reusable behavior name",
+      "criterion": "trigger situation and observable behavior standard",
+      "score_0": "clear violation or missing behavior",
+      "score_1": "observable partial or incomplete behavior",
+      "score_2": "sufficient ideal behavior in context",
+      "source_failure_modes": ["merged source failure mode"],
+      "support_ratio": 0.0,
+      "counterfactual_requirement": "requirement for ideal-behavior validation"
+    }
+  ],
+  "dropped_failure_modes": []
+}
+
+Do not use disease names, test names, treatment names, option labels, or a
+single trajectory's wording as a rubric name or general criterion. Do not use
+the final outcome as a score definition.

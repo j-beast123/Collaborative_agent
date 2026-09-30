@@ -1,0 +1,53 @@
+experiment:
+  name: effectiveness_expected_success_pilot_v1
+  cases: 100
+  states_per_case: 3
+  rollout_budgets: [4, 8, 16, 32]
+  primary_pilot_rollouts: 16
+  max_turns: 3
+  final_outcome: exact_option_match
+
+state_types:
+  - original
+  - ideal_response_result
+  - poor_response_result
+
+paths:
+  input_cases: data/interim/medmcqa/normalized_sample_100.jsonl
+  states: outputs/effectiveness/states
+  rollouts: outputs/effectiveness/rollouts
+  empirical_values: outputs/effectiveness/empirical_values
+  paired_effectiveness: outputs/effectiveness/paired_effectiveness
+  reports: outputs/effectiveness/reports
+
+prompts:
+  value_judge: prompts/value_judge.txt
+
+continuation:
+  policy_name: configured_agent_clinician_simulator_v1
+  simulator_name: configured_clinician_simulator
+  temperature: 0.7
+  top_p: 0.9
+  max_new_tokens: 512
+  paired_seed_matching: true
+
+value_predictor:
+  enabled: true
+  model_name: "configured-value-encoder"
+  target: empirical_value
+  loss: binomial_nll
+  input_excludes:
+    - ground_truth
+    - final_answer
+    - future_turns
+    - rollout_outcomes
+
+validation:
+  split_by: case_id
+  metrics:
+    - mae
+    - rmse
+    - pearson
+    - spearman
+    - sign_agreement
+    - pairwise_ranking_accuracy

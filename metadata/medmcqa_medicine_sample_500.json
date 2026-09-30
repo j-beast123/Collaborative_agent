@@ -1,0 +1,11 @@
+{
+  "source_dataset": "openlifescienceai/medmcqa",
+  "source_split": "train",
+  "filter": {
+    "field": "subject_name",
+    "value": "Medicine"
+  },
+  "count": 500,
+  "evaluation_mode": "zero_shot_standalone_once",
+  "path": "data/interim/medmcqa/medicine_sample_500.jsonl"
+}

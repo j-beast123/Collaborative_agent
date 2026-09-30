@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+outputs/
+data/raw/
+data/interim/*
+!data/interim/medmcqa/
+data/interim/medmcqa/*
+!data/interim/medmcqa/Effectivness_train_data.jsonl
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+.env
+secrets*
