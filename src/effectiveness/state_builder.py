@@ -19,6 +19,7 @@ def make_state(
     question: str = "",
     options: dict[str, str] | None = None,
     trajectory_id: str = "",
+    max_agent_turns: int = 4,
 ) -> dict[str, Any]:
     """Create a leakage-safe state record.
 
@@ -27,6 +28,9 @@ def make_state(
     """
     if not trajectory_id:
         raise ValueError("trajectory_id is required")
+    if type(turn_id) is not int or type(max_agent_turns) is not int or max_agent_turns <= 0:
+        raise ValueError("turn_id and max_agent_turns must be positive integers")
+    completed_agent_turns = sum(1 for turn in history if turn.get("speaker") == "agent")
     if state_type not in {"before_agent", "after_agent"}:
         raise ValueError("state_type must be before_agent or after_agent")
     if state_type == "after_agent":
@@ -41,6 +45,10 @@ def make_state(
         "trajectory_id": trajectory_id,
         "turn_id": turn_id,
         "agent_turn_id": turn_id,
+        "round_id": turn_id,
+        "completed_agent_turns": completed_agent_turns,
+        "max_agent_turns": max_agent_turns,
+        "remaining_agent_turns": max(0, max_agent_turns - completed_agent_turns),
         "pair_id": pair_id,
         "parent_state_id": parent_state_id,
         "state_type": state_type,

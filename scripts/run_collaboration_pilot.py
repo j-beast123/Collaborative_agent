@@ -30,7 +30,7 @@ def args() -> argparse.Namespace:
     p.add_argument("--doctor-model", default="google/gemma-3-4b-it")
     p.add_argument("--reconstructor-model", default="google/gemini-2.5-flash-lite")
     p.add_argument("--max-cases", type=int, default=10)
-    p.add_argument("--rounds", type=int, default=6)
+    p.add_argument("--rounds", type=int, default=4, help="Maximum agent responses/collaboration rounds")
     p.add_argument("--max-tokens", type=int, default=512)
     p.add_argument("--shard-index", type=int, default=0)
     p.add_argument("--num-shards", type=int, default=1)
@@ -164,7 +164,8 @@ def main() -> None:
             doctor_initial_option = ""
             agent_initial_option = ""
             for turn in range(1, a.rounds + 1):
-                prompt = f"{case_text(case)}\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nRespond naturally as the physician. This is discussion turn {turn} of {a.rounds}."
+                final_turn_instruction = "\nThis is the final collaboration turn. Give your best-supported final answer explicitly." if turn == a.rounds else ""
+                prompt = f"{case_text(case)}\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nRespond naturally as the physician. This is discussion turn {turn} of {a.rounds}.{final_turn_instruction}"
                 doctor = doctor_call(key, a.doctor_model, doctor_system, prompt, a.max_tokens)
                 if turn == 1:
                     doctor_initial_option = option(doctor)
@@ -205,6 +206,8 @@ def main() -> None:
                 if turn == 1:
                     agent_initial_option = option(response)
                 dialogue.append({"speaker": "agent", "text": response, "round": turn, "reconstruction": reconstruction, "judgment": judgment})
+                if re.search(r"final answer\s*:\s*(?:option\s*)?[A-D]", response, re.I):
+                    break
                 if turn >= 2:
                     recent = [option(x["text"]) for x in dialogue[-4:] if option(x["text"])]
                     if len(recent) >= 4 and len(set(recent)) == 1:
@@ -214,7 +217,7 @@ def main() -> None:
             dialogue.append({"speaker": "doctor", "text": final, "round": a.rounds + 1, "final": True})
             final_option = option(final)
             actual_rounds = sum(1 for item in dialogue if item["speaker"] == "agent")
-            record = {"case_id": case["case_id"], "trajectory_id": f"pilot_{case['case_id']}", "question": case["question"], "options": case["options"], "ground_truth": case["ground_truth"], "final_option": final_option, "is_correct": final_option == case["ground_truth"]["correct_option"], "num_discussion_rounds": actual_rounds, "max_discussion_rounds": a.rounds, "claim_order": a.claim_order, "doctor_initial_option": doctor_initial_option, "agent_initial_option": agent_initial_option, "doctor_final_option": final_option, "condition": "collaboration_with_local_judgment", "turns": dialogue, "models": {"doctor": a.doctor_model, "reconstructor": a.reconstructor_model, "agent": a.model}, "max_tokens": a.max_tokens}
+            record = {"case_id": case["case_id"], "trajectory_id": f"pilot_{case['case_id']}", "question": case["question"], "options": case["options"], "ground_truth": case["ground_truth"], "final_option": final_option, "is_correct": final_option == case["ground_truth"]["correct_option"], "num_discussion_rounds": actual_rounds, "max_discussion_rounds": a.rounds, "max_agent_turns": a.rounds, "claim_order": a.claim_order, "doctor_initial_option": doctor_initial_option, "agent_initial_option": agent_initial_option, "doctor_final_option": final_option, "condition": "collaboration_with_local_judgment", "turns": dialogue, "models": {"doctor": a.doctor_model, "reconstructor": a.reconstructor_model, "agent": a.model}, "max_tokens": a.max_tokens}
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             handle.flush()
             print(f"{n}/{len(cases)} {case['case_id']} final={final_option or '?'} correct={record['is_correct']}", flush=True)
