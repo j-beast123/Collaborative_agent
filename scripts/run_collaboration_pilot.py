@@ -35,6 +35,8 @@ def args() -> argparse.Namespace:
     p.add_argument("--shard-index", type=int, default=0)
     p.add_argument("--num-shards", type=int, default=1)
     p.add_argument("--claim-order", choices=("doctor_first", "agent_first"), default="doctor_first")
+    p.add_argument("--prompt-version", default="grounded-collaboration-v2")
+    p.add_argument("--seed", default="0")
     return p.parse_args()
 
 
@@ -44,7 +46,8 @@ def load(path: Path) -> list[dict]:
 
 def case_text(case: dict) -> str:
     options = "\n".join(f"{k}. {v}" for k, v in case["options"].items())
-    return f"Question:\n{case['question']}\n\nAnswer choices:\n{options}"
+    scenario = case.get("scenario", "") or "(No separate patient vignette is provided.)"
+    return f"Case/vignette:\n{scenario}\n\nQuestion:\n{case['question']}\n\nAnswer choices:\n{options}"
 
 
 def dialogue_text(dialogue: list[dict]) -> str:
@@ -202,6 +205,10 @@ def main() -> None:
                     options=case["options"],
                     reconstructed_context=reconstructed_context,
                     judgment=judgment,
+                    dialogue_history=dialogue_text(dialogue),
+                    current_round=turn,
+                    max_rounds=a.rounds,
+                    is_final_round=turn == a.rounds,
                 )
                 response = agent_call(model, tokenizer, agent_system, agent_prompt, a.max_tokens)
                 if turn == 1:
@@ -221,7 +228,7 @@ def main() -> None:
             dialogue.append({"speaker": "doctor", "text": final, "round": a.rounds + 1, "final": True})
             final_option = option(final)
             actual_rounds = sum(1 for item in dialogue if item["speaker"] == "agent")
-            record = {"case_id": case["case_id"], "trajectory_id": f"pilot_{case['case_id']}", "question": case["question"], "options": case["options"], "ground_truth": case["ground_truth"], "final_option": final_option, "is_correct": final_option == case["ground_truth"]["correct_option"], "num_discussion_rounds": actual_rounds, "max_discussion_rounds": a.rounds, "max_agent_turns": a.rounds, "termination_reason": termination_reason, "claim_order": a.claim_order, "doctor_initial_option": doctor_initial_option, "agent_initial_option": agent_initial_option, "agent_first_response_option": agent_initial_option, "belief_transition": {"doctor_option": doctor_initial_option, "agent_first_response_option": agent_initial_option, "changed": bool(doctor_initial_option and agent_initial_option and doctor_initial_option != agent_initial_option)}, "doctor_final_option": final_option, "condition": "collaboration_with_local_judgment", "turns": dialogue, "models": {"doctor": a.doctor_model, "reconstructor": a.reconstructor_model, "agent": a.model}, "max_tokens": a.max_tokens}
+            record = {"case_id": case["case_id"], "trajectory_id": f"pilot_{case['case_id']}_seed_{a.seed}", "question": case["question"], "options": case["options"], "ground_truth": case["ground_truth"], "final_option": final_option, "is_correct": final_option == case["ground_truth"]["correct_option"], "num_discussion_rounds": actual_rounds, "max_discussion_rounds": a.rounds, "max_agent_turns": a.rounds, "termination_reason": termination_reason, "claim_order": a.claim_order, "doctor_initial_option": doctor_initial_option, "agent_initial_option": agent_initial_option, "agent_first_response_option": agent_initial_option, "initial_disagreement": bool(doctor_initial_option and agent_initial_option and doctor_initial_option != agent_initial_option), "doctor_final_option": final_option, "condition": "collaboration_with_local_judgment", "turns": dialogue, "models": {"doctor": a.doctor_model, "reconstructor": a.reconstructor_model, "agent": a.model}, "generation": {"doctor_temperature": 0.4, "agent_do_sample": False, "max_tokens": a.max_tokens, "prompt_version": a.prompt_version, "seed": a.seed}}
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             handle.flush()
             print(f"{n}/{len(cases)} {case['case_id']} final={final_option or '?'} correct={record['is_correct']}", flush=True)

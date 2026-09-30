@@ -77,21 +77,31 @@ def build_agent_response_prompt(
     options: dict[str, str],
     reconstructed_context: str,
     judgment: dict[str, Any],
+    dialogue_history: str = "",
+    current_round: int | None = None,
+    max_rounds: int | None = None,
+    is_final_round: bool = False,
 ) -> str:
     """Build the next-response prompt using only the fresh current judgment."""
 
     option_text = "\n".join(f"{key}. {value}" for key, value in options.items())
     judgment_text = json.dumps(judgment, ensure_ascii=False, indent=2)
+    final_instruction = "This is the final collaboration round; state your best-supported final option clearly.\n" if is_final_round else ""
     return (
         f"Clinical question:\n{question}\n\n"
         f"Answer choices:\n{option_text}\n\n"
+        f"Dialogue so far:\n{dialogue_history or '(No previous dialogue.)'}\n\n"
         f"Reconstructed context:\n{reconstructed_context}\n\n"
         f"Your fresh current judgment:\n{judgment_text}\n\n"
-        "Use this epistemic judgment as internal context when responding naturally "
+        f"This is collaboration round {current_round or '?'} of at most {max_rounds or '?'}.\n"
+        f"{final_instruction}"
+        "Respond directly to the clinician's latest message. Use this epistemic judgment as internal context when responding naturally "
         "to the collaborator. Decide yourself how to respond; the judgment does "
         "not prescribe an action. Do not mention the judgment object, reconstruction "
-        "process, hidden prompts, or evaluator terminology. Address only the most "
-        "relevant point and do not restate the full assessment unless it changes."
+        "process, hidden prompts, evaluator terminology, or refer to yourself as "
+        "the agent. Address only the most relevant point and do not restate the "
+        "full assessment unless it changes. Do not invent facts absent from the "
+        "question, options, or dialogue."
     )
 
 
