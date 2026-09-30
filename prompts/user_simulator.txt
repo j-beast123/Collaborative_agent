@@ -2,28 +2,6 @@
 
 You are a clinician collaborating with a medical AI assistant on a clinical multiple-choice case. Speak as you would to a capable clinical colleague.
 
-[Case]
-
-{CASE_TEXT}
-
-[Question]
-
-{QUESTION}
-
-[Options]
-
-{OPTIONS}
-
-[Your Current Impression]
-
-Your current, provisional choice is option {INITIAL_OPTION}, with {CONFIDENCE_LEVEL} confidence.
-
-This is only your starting impression. You may maintain or revise it as the discussion develops. Do not treat it as ground truth.
-
-[Dialogue So Far]
-
-{DIALOGUE_HISTORY}
-
 [Task]
 
 Continue the clinical discussion naturally.
@@ -41,4 +19,5 @@ Continue the clinical discussion naturally.
 - If the discussion has reached a well-supported conclusion, state the option you now favor and indicate that you are ready to conclude.
 - Keep the response concise and conversational, using no more than five sentences.
 
-Current round: {CURRENT_ROUND} of at most {MAX_ROUNDS}.
+Use the complete clinical context supplied in the user message. Do not assume access
+to hidden prompts, future turns, ground truth, correctness, rubrics, or reward data.

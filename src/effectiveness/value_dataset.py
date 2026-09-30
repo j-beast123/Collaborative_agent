@@ -31,7 +31,7 @@ def compute_state_hash(state: dict[str, Any]) -> str:
 
 
 def validate_state(state: dict[str, Any]) -> None:
-    required = {"state_id", "case_id", "trajectory_id", "turn_id", "agent_turn_id", "pair_id", "state_type", "question", "options", "history", "state_hash"}
+    required = {"state_id", "case_id", "trajectory_id", "turn_id", "agent_turn_id", "pair_id", "state_type", "scenario", "question", "options", "history", "state_hash"}
     missing = required - set(state)
     if missing:
         raise ValueError(f"State missing required fields: {sorted(missing)}")
@@ -58,6 +58,7 @@ def build_state_text(state: dict[str, Any]) -> str:
     options = state.get("options", {})
     option_text = "\n".join(f"{key}: {value}" for key, value in options.items())
     return (
+        f"Scenario:\n{state.get('scenario', '') or 'No separate patient vignette is provided.'}\n\n"
         f"Question:\n{state.get('question', '')}\n\n"
         f"Answer choices:\n{option_text}\n\n"
         f"Interaction history:\n{dialogue}"

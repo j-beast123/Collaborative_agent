@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -19,7 +20,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.belief import build_agent_response_prompt, build_local_judgment_prompt, parse_local_judgment
+from src.belief import (
+    build_agent_response_prompt,
+    build_initial_agent_response_prompt,
+    build_plain_agent_response_prompt,
+    build_local_judgment_prompt,
+    map_judgment_to_roles,
+    parse_local_judgment,
+)
 
 
 def args() -> argparse.Namespace:
@@ -36,7 +44,9 @@ def args() -> argparse.Namespace:
     p.add_argument("--num-shards", type=int, default=1)
     p.add_argument("--claim-order", choices=("doctor_first", "agent_first"), default="doctor_first")
     p.add_argument("--prompt-version", default="grounded-collaboration-v2")
-    p.add_argument("--seed", default="0")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--resume", action="store_true", help="Skip trajectory IDs already present in the output.")
+    p.add_argument("--disable-belief", action="store_true", help="Run the raw-history agent baseline without reconstruction or Q1/Q2.")
     return p.parse_args()
 
 
@@ -84,45 +94,69 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int) -
             time.sleep(delay)
 
 
-def reconstruct_call(key: str, model: str, case: dict, dialogue: list[dict], max_tokens: int) -> dict:
+RECONSTRUCTION_FIELDS = {
+    "focal_claim", "clinician_current_position", "agent_current_position",
+    "clinician_claims_so_far", "clinician_evidence_so_far",
+    "agent_claims_so_far", "agent_evidence_so_far", "shared_evidence",
+    "resolved_points", "unresolved_points", "unsupported_case_details",
+}
+
+
+def parse_reconstruction(raw: str) -> dict:
+    try:
+        stripped = raw.strip()
+        if stripped.startswith("```"):
+            lines = stripped.splitlines()
+            stripped = "\n".join(lines[1:-1]).strip()
+        value = json.loads(stripped)
+    except (json.JSONDecodeError, IndexError):
+        return {"raw_response": raw, "parse_status": "invalid"}
+    if not isinstance(value, dict) or set(value) != RECONSTRUCTION_FIELDS:
+        return {"raw_response": raw, "parse_status": "invalid"}
+    for field in RECONSTRUCTION_FIELDS - {"focal_claim", "clinician_current_position", "agent_current_position"}:
+        if not isinstance(value[field], list) or not all(isinstance(item, str) for item in value[field]):
+            return {"raw_response": raw, "parse_status": "invalid", "invalid_field": field}
+        value[field] = value[field][:12]
+    for field in ("focal_claim", "clinician_current_position", "agent_current_position"):
+        if not isinstance(value[field], str):
+            return {"raw_response": raw, "parse_status": "invalid", "invalid_field": field}
+        value[field] = value[field][:1000]
+    value.update({"raw_response": raw, "parse_status": "valid"})
+    return value
+
+
+def reconstruct_call(key: str, model: str, case: dict, dialogue: list[dict], max_tokens: int, retries: int = 2) -> dict:
     system = (
-        "Extract only explicit claims and evidence from the latest utterances. "
-        "Do not infer unstated beliefs, fill gaps, judge correctness, or answer. "
-        "Resolve pronouns such as it, that, and this to the relevant numbered "
-        "statement using the supplied recent context. Return compact JSON only "
-        "with focal_claim, doctor_position, agent_position, doctor_claims, "
-        "doctor_evidence, agent_claims, and agent_evidence. The focal_claim "
-        "must be a standalone proposition. Do not invent a position when a "
-        "speaker is silent; use an empty string. Each array item must be short."
+        "Reconstruct the complete raw dialogue into the current interaction state. "
+        "Preserve relevant earlier claims and evidence, resolve references, distinguish "
+        "claims from evidence, and do not decide who is correct. Mark details absent "
+        "from the source problem as unsupported_case_details. A participant's assertion "
+        "is not evidence merely because it was stated. Case-specific evidence must be "
+        "traceable to the source scenario, question, or options. Do not use ground truth. "
+        "Return strict JSON with exactly the requested cumulative schema. Deduplicate "
+        "semantically equivalent claims and evidence. Include at most five concise "
+        "items per list and preserve only information relevant to the current focal "
+        "disagreement. The focal_claim must identify the active disputed proposition "
+        "or decision boundary, not merely repeat the source question unless the whole "
+        "question is the active disagreement. Evaluate whether each fact directly "
+        "supports the exact claim; do not treat a general association, comorbidity, "
+        "or risk factor as evidence for a specific longitudinal, causal, or incidence "
+        "claim. Eliminating another option does not automatically support the remaining one."
     )
     user = (
         f"Clinical question:\n{case['question']}\n\n"
         f"Answer choices:\n{json.dumps(case['options'], ensure_ascii=False)}\n\n"
-        f"Prior turn for resolving references only:\n{dialogue_text(dialogue[-2:-1])}\n\n"
-        f"Current doctor utterance:\n{dialogue_text(dialogue[-1:])}"
+        f"Scenario:\n{case.get('scenario', '') or 'No separate patient vignette is provided.'}\n\n"
+        f"Complete raw dialogue through the latest clinician message:\n{dialogue_text(dialogue)}\n\n"
+        "Required JSON schema:\n" + json.dumps({field: [] if field.endswith(("claims_so_far", "evidence_so_far", "evidence", "points", "details")) else "" for field in RECONSTRUCTION_FIELDS}, indent=2)
     )
-    raw = doctor_call(key, model, system, user, max_tokens)
-    match = re.search(r"\{.*?\}", raw, re.DOTALL)
-    if not match:
-        return {"raw_response": raw, "parse_status": "invalid"}
-    try:
-        value = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return {"raw_response": raw, "parse_status": "invalid"}
-    required = {"focal_claim", "doctor_position", "agent_position", "doctor_claims", "doctor_evidence", "agent_claims", "agent_evidence"}
-    if not isinstance(value, dict) or not required.issubset(value):
-        return {"raw_response": raw, "parse_status": "invalid"}
-    for field in ("doctor_claims", "doctor_evidence", "agent_claims", "agent_evidence"):
-        if not isinstance(value[field], list) or not all(isinstance(item, str) for item in value[field]):
-            return {"raw_response": raw, "parse_status": "invalid", "invalid_field": field}
-        value[field] = value[field][:5]
-    for field in ("focal_claim", "doctor_position", "agent_position"):
-        if not isinstance(value[field], str):
-            return {"raw_response": raw, "parse_status": "invalid", "invalid_field": field}
-        value[field] = value[field][:500]
-    value["raw_response"] = raw
-    value["parse_status"] = "valid"
-    return value
+    for attempt in range(retries + 1):
+        raw = doctor_call(key, model, system, user, max_tokens)
+        parsed = parse_reconstruction(raw)
+        if parsed["parse_status"] == "valid":
+            return parsed
+        print(f"reconstruction parse failure attempt={attempt + 1}/{retries + 1}", flush=True)
+    return parsed
 
 
 def agent_call(model, tokenizer, system: str, user: str, max_tokens: int) -> str:
@@ -134,17 +168,50 @@ def agent_call(model, tokenizer, system: str, user: str, max_tokens: int) -> str
     return tokenizer.decode(output[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True).strip()
 
 
-def option(text: str) -> str:
-    hits = re.findall(r"(?:final answer|answer|option|choice)\s*[:\-]?\s*(?:is\s*)?(?:\*\*)?([A-D])\b", text, re.I)
+def option(text: str, *, first: bool = False) -> str:
+    patterns = (
+        r"(?:final answer|answer|option|choice)\s*[:\-]?\s*(?:is\s*)?(?:\*\*)?([A-D])\b",
+        r"(?:^|\n)\s*(?:\*\*)?([A-D])(?:\*\*)?\s*[.):-]",
+        r"(?:leaning|prefer|favor|support|choose|select)\s+(?:toward\s+|for\s+|option\s+)?([A-D])\b",
+    )
+    hits = [hit for pattern in patterns for hit in re.findall(pattern, text, re.I)]
     if not hits:
-        hits = re.findall(r"(?:^|\n)\s*(?:\*\*)?([A-D])(?:\*\*)?\s*[.):-]", text, re.I)
-    if not hits:
-        hits = re.findall(r"(?:leaning|prefer|favor|support|choose|select)[^A-D\n]{0,30}\b([A-D])\b", text, re.I)
-    return hits[-1].upper() if hits else ""
+        return ""
+    return (hits[0] if first else hits[-1]).upper()
+
+
+def initial_option(text: str) -> str:
+    """Extract the stated initial choice, avoiding option-list enumeration."""
+    cue_patterns = (
+        r"(?:initial thought|initial impression|initial choice|leaning|favor(?:s|ed)?|most likely)"
+        r"[^.\n]{0,100}?(?:option\s+)?([A-D])\b",
+        r"(?:option\s+)?([A-D])\b[^.\n]{0,40}(?:most likely|strongest contender|best choice)",
+    )
+    hits = [hit for pattern in cue_patterns for hit in re.findall(pattern, text, re.I)]
+    if hits:
+        return hits[-1].upper()
+    # If the response has an explicit question boundary, use the last option
+    # mentioned before the question rather than the first enumerated option.
+    prefix = re.split(r"\?", text, maxsplit=1)[0]
+    return option(prefix)
+
+
+def signals_conclusion(text: str) -> bool:
+    """Conservative natural-language fallback for early stopping."""
+    patterns = (
+        r"ready to conclude", r"comfortable concluding", r"ready to finalize",
+        r"can conclude", r"sufficiently established", r"resolved the main uncertainty",
+        r"satisfied with (?:this|the) (?:answer|conclusion)",
+    )
+    return any(re.search(pattern, text, re.I) for pattern in patterns)
 
 
 def main() -> None:
     a = args()
+    random.seed(a.seed)
+    torch.manual_seed(a.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(a.seed)
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise SystemExit("OPENROUTER_API_KEY is not set")
@@ -161,8 +228,21 @@ def main() -> None:
     model.eval()
     out = root / a.output
     out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("w", encoding="utf-8") as handle:
+    failure_out = out.with_name(out.stem + "_failures.jsonl")
+    existing_ids = set()
+    if a.resume and out.exists():
+        existing_ids = {
+            json.loads(line).get("trajectory_id")
+            for line in out.read_text(encoding="utf-8").splitlines() if line.strip()
+        }
+    mode = "a" if a.resume else "w"
+    with out.open(mode, encoding="utf-8") as handle, failure_out.open("a" if a.resume else "w", encoding="utf-8") as failure_handle:
         for n, case in enumerate(cases, 1):
+            condition_name = "baseline" if a.disable_belief else "belief"
+            trajectory_id = f"pilot_{case['case_id']}_seed_{a.seed}_{condition_name}"
+            if trajectory_id in existing_ids:
+                print(f"skip existing {trajectory_id}", flush=True)
+                continue
             dialogue = []
             doctor_initial_option = ""
             agent_initial_option = ""
@@ -172,63 +252,100 @@ def main() -> None:
                 prompt = f"{case_text(case)}\n\nGrounding constraint: Use only the question, answer choices, dialogue, and established domain knowledge. If no patient vignette or event description is provided, do not invent one or add symptoms, injuries, tests, treatments, or events.\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nRespond naturally as the physician. This is discussion turn {turn} of {a.rounds}.{final_turn_instruction}"
                 doctor = doctor_call(key, a.doctor_model, doctor_system, prompt, a.max_tokens)
                 if turn == 1:
-                    doctor_initial_option = option(doctor)
+                    doctor_initial_option = initial_option(doctor)
                 dialogue.append({"speaker": "doctor", "text": doctor, "round": turn})
-                reconstruction = reconstruct_call(key, a.reconstructor_model, case, dialogue, 384)
-                if reconstruction.get("parse_status") != "valid":
-                    # Do not turn a parser failure into fabricated empty evidence.
-                    reconstruction = {
-                        "doctor_claims": [], "doctor_evidence": [],
-                        "agent_claims": [], "agent_evidence": [],
-                        "parse_status": "invalid",
-                        "raw_response": reconstruction.get("raw_response", ""),
+                if turn == 1:
+                    agent_prompt = build_initial_agent_response_prompt(
+                        scenario=case.get("scenario", ""), question=case["question"],
+                        options=case["options"], clinician_message=doctor,
+                    )
+                    reconstruction = None
+                    judgment = None
+                    judgment_status = "not_applicable_turn_1"
+                elif a.disable_belief:
+                    reconstruction = None
+                    judgment = None
+                    judgment_status = "not_applicable_belief_disabled"
+                    agent_prompt = build_plain_agent_response_prompt(
+                        scenario=case.get("scenario", ""), question=case["question"], options=case["options"],
+                        dialogue_history=dialogue_text(dialogue), current_round=turn,
+                        max_rounds=a.rounds, is_final_round=turn == a.rounds,
+                    )
+                else:
+                    reconstruction = reconstruct_call(key, a.reconstructor_model, case, dialogue, 1024)
+                    if reconstruction.get("parse_status") != "valid":
+                        termination_reason = "reconstruction_failure"
+                        print(f"{case['case_id']} reconstruction_failure", flush=True)
+                        break
+                    clean_reconstruction = {k: reconstruction[k] for k in RECONSTRUCTION_FIELDS}
+                    reconstructed_context = json.dumps(clean_reconstruction, ensure_ascii=False, indent=2)
+                    judgment_prompt = build_local_judgment_prompt(
+                        question=case["question"], options=case["options"],
+                        reconstruction=clean_reconstruction,
+                        scenario=case.get("scenario", ""), claim_order=a.claim_order,
+                    )
+                    judgment_raw = agent_call(model, tokenizer, judgment_system, judgment_prompt, 384)
+                    judgment = parse_local_judgment(judgment_raw)
+                    if judgment.get("parse_status") != "valid":
+                        termination_reason = "judgment_failure"
+                        print(f"{case['case_id']} judgment_failure", flush=True)
+                        break
+                    judgment_status = "valid"
+                    clean_judgment = map_judgment_to_roles(judgment, a.claim_order)
+                    clean_judgment = {
+                        name: {key: value for key, value in clean_judgment[name].items()}
+                        for name in ("q1", "q2")
                     }
-                reconstructed_context = json.dumps(
-                    {key: reconstruction.get(key, []) for key in ("doctor_claims", "doctor_evidence", "agent_claims", "agent_evidence")},
-                    ensure_ascii=False,
-                    indent=2,
-                )
-                judgment_prompt = build_local_judgment_prompt(
-                    question=case["question"],
-                    options=case["options"],
-                    doctor_claims=reconstruction.get("doctor_claims", []),
-                    agent_claims=reconstruction.get("agent_claims", []),
-                    focal_claim=reconstruction.get("focal_claim", ""),
-                    doctor_position=reconstruction.get("doctor_position", ""),
-                    agent_position=reconstruction.get("agent_position", ""),
-                    claim_order=a.claim_order,
-                )
-                judgment_raw = agent_call(model, tokenizer, judgment_system, judgment_prompt, 256)
-                judgment = parse_local_judgment(judgment_raw)
-                agent_prompt = build_agent_response_prompt(
-                    question=case["question"],
-                    options=case["options"],
-                    reconstructed_context=reconstructed_context,
-                    judgment=judgment,
-                    dialogue_history=dialogue_text(dialogue),
-                    current_round=turn,
-                    max_rounds=a.rounds,
-                    is_final_round=turn == a.rounds,
-                )
+                    agent_prompt = build_agent_response_prompt(
+                        question=case["question"], options=case["options"],
+                        reconstructed_context=reconstructed_context, judgment=clean_judgment,
+                        dialogue_history=dialogue_text(dialogue), scenario=case.get("scenario", ""),
+                        current_round=turn, max_rounds=a.rounds, is_final_round=turn == a.rounds,
+                    )
                 response = agent_call(model, tokenizer, agent_system, agent_prompt, a.max_tokens)
                 if turn == 1:
-                    agent_initial_option = option(response)
-                dialogue.append({"speaker": "agent", "text": response, "round": turn, "reconstruction": reconstruction, "judgment": judgment})
+                    agent_initial_option = initial_option(response)
+                dialogue.append({"speaker": "agent", "text": response, "round": turn,
+                                 "reconstruction": reconstruction, "local_judgment": judgment,
+                                 "local_judgment_status": judgment_status})
                 if re.search(r"final answer\s*:\s*(?:option\s*)?[A-D]", response, re.I):
                     termination_reason = "agent_final_answer"
                     break
                 if turn >= 2:
-                    doctor_ready = bool(re.search(r"ready to conclude|comfortable concluding|ready to finalize|can conclude", doctor, re.I))
-                    agent_ready = bool(re.search(r"ready to conclude|comfortable concluding|ready to finalize|can conclude", response, re.I))
+                    doctor_choice = option(doctor)
+                    agent_choice = option(response)
+                    if doctor_choice and agent_choice and doctor_choice == agent_choice:
+                        termination_reason = "mutual_agreement"
+                        break
+                    doctor_ready = signals_conclusion(doctor)
+                    agent_ready = signals_conclusion(response)
                     if doctor_ready and agent_ready:
                         termination_reason = "mutual_conclusion"
                         break
+            if termination_reason in {"reconstruction_failure", "judgment_failure"}:
+                failure_record = {
+                    "case_id": case["case_id"], "trajectory_id": trajectory_id,
+                    "trajectory_status": "invalid", "eligible_for_training": False,
+                    "termination_reason": termination_reason,
+                    "failure": {
+                        "stage": "reconstruction" if termination_reason == "reconstruction_failure" else "judgment",
+                        "round": len([item for item in dialogue if item["speaker"] == "doctor"]),
+                        "parse_status": (reconstruction or {}).get("parse_status", "not_run"),
+                        "invalid_field": (reconstruction or {}).get("invalid_field", ""),
+                        "attempts": 3 if termination_reason == "reconstruction_failure" else 1,
+                        "raw_response": (reconstruction or {}).get("raw_response", ""),
+                    },
+                    "turns": dialogue,
+                }
+                failure_handle.write(json.dumps(failure_record, ensure_ascii=False) + "\n")
+                failure_handle.flush()
+                continue
             final_prompt = f"{case_text(case)}\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nThis is the final decision. State the option best supported by the complete discussion. End with exactly: Final answer: option <A-D> - <answer text>"
             final = doctor_call(key, a.doctor_model, doctor_system, final_prompt, a.max_tokens)
-            dialogue.append({"speaker": "doctor", "text": final, "round": a.rounds + 1, "final": True})
-            final_option = option(final)
             actual_rounds = sum(1 for item in dialogue if item["speaker"] == "agent")
-            record = {"case_id": case["case_id"], "trajectory_id": f"pilot_{case['case_id']}_seed_{a.seed}", "question": case["question"], "options": case["options"], "ground_truth": case["ground_truth"], "final_option": final_option, "is_correct": final_option == case["ground_truth"]["correct_option"], "num_discussion_rounds": actual_rounds, "max_discussion_rounds": a.rounds, "max_agent_turns": a.rounds, "termination_reason": termination_reason, "claim_order": a.claim_order, "doctor_initial_option": doctor_initial_option, "agent_initial_option": agent_initial_option, "agent_first_response_option": agent_initial_option, "initial_disagreement": bool(doctor_initial_option and agent_initial_option and doctor_initial_option != agent_initial_option), "doctor_final_option": final_option, "condition": "collaboration_with_local_judgment", "turns": dialogue, "models": {"doctor": a.doctor_model, "reconstructor": a.reconstructor_model, "agent": a.model}, "generation": {"doctor_temperature": 0.4, "agent_do_sample": False, "max_tokens": a.max_tokens, "prompt_version": a.prompt_version, "seed": a.seed}}
+            dialogue.append({"speaker": "doctor", "text": final, "round": actual_rounds + 1, "final": True})
+            final_option = option(final)
+            record = {"case_id": case["case_id"], "trajectory_id": trajectory_id, "trajectory_status": "valid", "eligible_for_training": True, "belief_enabled": not a.disable_belief, "question": case["question"], "options": case["options"], "ground_truth": case["ground_truth"], "final_option": final_option, "is_correct": final_option == case["ground_truth"]["correct_option"], "num_discussion_rounds": actual_rounds, "max_discussion_rounds": a.rounds, "max_agent_turns": a.rounds, "termination_reason": termination_reason, "claim_order": a.claim_order, "doctor_initial_option": doctor_initial_option, "agent_initial_option": agent_initial_option, "agent_first_response_option": agent_initial_option, "initial_disagreement": bool(doctor_initial_option and agent_initial_option and doctor_initial_option != agent_initial_option), "doctor_final_option": final_option, "condition": "collaboration_without_belief" if a.disable_belief else "collaboration_with_local_judgment", "turns": dialogue, "models": {"doctor": a.doctor_model, "reconstructor": a.reconstructor_model, "agent": a.model}, "generation": {"doctor_temperature": 0.4, "agent_do_sample": False, "max_tokens": a.max_tokens, "prompt_version": a.prompt_version, "seed": a.seed}}
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             handle.flush()
             print(f"{n}/{len(cases)} {case['case_id']} final={final_option or '?'} correct={record['is_correct']}", flush=True)

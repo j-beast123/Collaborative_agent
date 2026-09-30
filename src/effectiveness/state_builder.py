@@ -17,6 +17,7 @@ def make_state(
     parent_state_id: str | None = None,
     response_label: str | None = None,
     question: str = "",
+    scenario: str = "",
     options: dict[str, str] | None = None,
     trajectory_id: str = "",
     max_agent_turns: int = 4,
@@ -55,6 +56,7 @@ def make_state(
         "response_label": response_label,
         "agent_response_text": response_label,
         "question": question,
+        "scenario": scenario,
         "options": options or {},
         "history": history,
     }
@@ -93,6 +95,7 @@ def build_agent_state_pair(trajectory: dict[str, Any], agent_turn_index: int) ->
         "case_id": trajectory["case_id"],
         "trajectory_id": trajectory.get("trajectory_id", ""),
         "question": trajectory["question"],
+        "scenario": trajectory.get("scenario", ""),
         "options": trajectory.get("options", {}),
     }
     turn_id = int(turns[agent_turn_index].get("turn_id", agent_turn_index))

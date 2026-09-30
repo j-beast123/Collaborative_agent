@@ -1,129 +1,115 @@
-"""Build and parse fresh local epistemic judgments from reconstructed context."""
+"""Prompt builders and strict parsers for turn-local epistemic judgments."""
 
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 
-def build_local_judgment_prompt(
-    *,
-    question: str,
-    options: dict[str, str],
-    doctor_claims: list[str],
-    agent_claims: list[str],
-    focal_claim: str = "",
-    doctor_position: str = "",
-    agent_position: str = "",
-    claim_order: str = "doctor_first",
-) -> str:
+def _json_only(text: str) -> Any:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        stripped = "\n".join(lines[1:-1]).strip()
+    return json.loads(stripped)
+
+
+def build_local_judgment_prompt(*, question: str, options: dict[str, str], doctor_claims: list[str] | None = None, agent_claims: list[str] | None = None, focal_claim: str = "", doctor_position: str = "", agent_position: str = "", reconstruction: dict[str, Any] | None = None, scenario: str = "", claim_order: str = "doctor_first") -> str:
+    source = reconstruction or {"focal_claim": focal_claim, "clinician_current_position": doctor_position, "agent_current_position": agent_position, "clinician_claims_so_far": doctor_claims or [], "agent_claims_so_far": agent_claims or []}
+    # Deliberately remove speaker identity from the judgment model's input.
+    if claim_order == "doctor_first":
+        first, second = "clinician", "agent"
+    else:
+        first, second = "agent", "clinician"
+    def pick(prefix: str) -> dict[str, Any]:
+        return {
+            "position": source.get(f"{prefix}_current_position", ""),
+            "claims": source.get(f"{prefix}_claims_so_far", []),
+            "evidence": source.get(f"{prefix}_evidence_so_far", []),
+        }
+    state = {
+        "focal_claim": source.get("focal_claim", ""),
+        "A1": pick(first),
+        "A2": pick(second),
+        "shared_evidence": source.get("shared_evidence", []),
+        "resolved_points": source.get("resolved_points", []),
+        "unresolved_points": source.get("unresolved_points", []),
+        "unsupported_case_details": source.get("unsupported_case_details", []),
+    }
     option_text = "\n".join(f"{key}. {value}" for key, value in options.items())
-    doctor_text = "\n".join(f"- {item}" for item in doctor_claims) or "- None reconstructed"
-    agent_text = "\n".join(f"- {item}" for item in agent_claims) or "- None reconstructed"
-    claims = (
-        f"A1 (Doctor claim and evidence):\n{doctor_text}\n\nA2 (Agent claim and evidence):\n{agent_text}"
-        if claim_order == "doctor_first"
-        else f"A1 (Agent claim and evidence):\n{agent_text}\n\nA2 (Doctor claim and evidence):\n{doctor_text}"
-    )
-    focal = focal_claim or "Not resolved"
-    return (
-        f"Clinical question:\n{question}\n\n"
-        f"Answer choices:\n{option_text}\n\n"
-        f"Focal claim for this turn:\n{focal}\n"
-        f"Doctor position on focal claim: {doctor_position or 'Not resolved'}\n"
-        f"Agent position on focal claim: {agent_position or 'Not resolved'}\n\n"
-        f"{claims}\n\n"
-        "Make a fresh local judgment about the focal claim only. Use the "
-        "reconstructed claims and evidence as the complete conversational "
-        "context. You may rely on your own clinical knowledge, but do not "
-        "assume access to other conversation turns, hidden state, future turns, "
-        "or the ground-truth answer. Do not choose an answer option or produce "
-        "an A-D answer. Evidence sufficiency concerns this focal claim only, "
-        "not unresolved statements elsewhere in the question."
-    )
+    return ("Make a fresh, stateless turn-local epistemic judgment.\n\n"
+        f"Scenario:\n{scenario or 'No separate patient vignette is provided.'}\n\n"
+        f"Question:\n{question}\n\nAnswer choices:\n{option_text}\n\n"
+        "Current cumulative reconstruction (the complete conversational context):\n"
+        f"{json.dumps(state, ensure_ascii=False, indent=2)}\n\n"
+        "Do not use raw dialogue, previous reconstructions, previous judgments, future turns, ground truth, correctness, final outcome, or rubric information.\n"
+        "The two displayed positions are anonymized as A1 and A2. Their participant "
+        "identities are intentionally withheld. Evaluate only claims and supporting evidence.\n"
+        "Q1: Which displayed position is better supported on the focal claim: A1, A2, aligned, or unclear? Use aligned when both positions substantively support the same claim; do not choose a side merely because one response is more detailed.\n"
+        "Q2: Is the currently available evidence, together with established clinical knowledge, sufficient to make, maintain, or revise a decision on the focal claim?\n\n"
+        "Answer each independently. Give a separate concise, evidence-grounded reason for each. Do not solve the multiple-choice item or prescribe an action.\n"
+        'Return JSON only: {"q1":{"answer":"A1"|"A2"|"aligned"|"unclear","reason":"..."},"q2":{"answer":"Y"|"N","reason":"..."}}')
+
+
+def map_judgment_to_roles(judgment: dict[str, Any], claim_order: str) -> dict[str, Any]:
+    """Expose role semantics to the response agent without leaking them to the judge."""
+    mapped = {"q1": dict(judgment["q1"]), "q2": dict(judgment["q2"])}
+    display_to_role = {"A1": "clinician", "A2": "agent"} if claim_order == "doctor_first" else {"A1": "agent", "A2": "clinician"}
+    display_answer = mapped["q1"]["answer"]
+    mapped["q1"]["display_answer"] = display_answer
+    mapped["q1"]["better_supported_position"] = display_to_role.get(display_answer, display_answer)
+    return mapped
 
 
 def parse_local_judgment(text: str) -> dict[str, Any]:
-    """Parse a JSON-only judgment without silently inventing a decision."""
-
     try:
-        value = json.loads(text.strip())
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*?\}", text, re.DOTALL)
-        if not match:
-            return {"raw_response": text, "parse_status": "invalid"}
-        try:
-            value = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            return {"raw_response": text, "parse_status": "invalid"}
-    if not isinstance(value, dict):
+        value = _json_only(text)
+    except (json.JSONDecodeError, IndexError):
         return {"raw_response": text, "parse_status": "invalid"}
-    required = {"reason", "better_supported_claim", "evidence_sufficient", "missing_evidence"}
-    if not required.issubset(value):
-        return {"raw_response": text, "parse_status": "invalid", "missing_fields": sorted(required - set(value))}
-    if value["better_supported_claim"] not in {"doctor", "agent", "unclear"}:
-        return {"raw_response": text, "parse_status": "invalid", "invalid_field": "better_supported_claim"}
-    if value["evidence_sufficient"] not in {"yes", "no"}:
-        return {"raw_response": text, "parse_status": "invalid", "invalid_field": "evidence_sufficient"}
+    if not isinstance(value, dict) or set(value) != {"q1", "q2"}:
+        return {"raw_response": text, "parse_status": "invalid"}
+    for name in ("q1", "q2"):
+        item = value[name]
+        if not isinstance(item, dict) or set(item) != {"answer", "reason"}:
+            return {"raw_response": text, "parse_status": "invalid", "invalid_field": name}
+        allowed = {"A1", "A2", "aligned", "unclear"} if name == "q1" else {"Y", "N"}
+        if item["answer"] not in allowed:
+            return {"raw_response": text, "parse_status": "invalid", "invalid_field": f"{name}.answer"}
+        if not isinstance(item["reason"], str) or not item["reason"].strip():
+            return {"raw_response": text, "parse_status": "invalid", "invalid_field": f"{name}.reason"}
     value["raw_response"] = text
     value["parse_status"] = "valid"
     return value
 
 
-def build_agent_response_prompt(
-    *,
-    question: str,
-    options: dict[str, str],
-    reconstructed_context: str,
-    judgment: dict[str, Any],
-    dialogue_history: str = "",
-    current_round: int | None = None,
-    max_rounds: int | None = None,
-    is_final_round: bool = False,
-) -> str:
-    """Build the next-response prompt using only the fresh current judgment."""
-
+def build_initial_agent_response_prompt(*, scenario: str, question: str, options: dict[str, str], clinician_message: str) -> str:
     option_text = "\n".join(f"{key}. {value}" for key, value in options.items())
-    judgment_text = json.dumps(judgment, ensure_ascii=False, indent=2)
-    final_instruction = "This is the final collaboration round; state your best-supported final option clearly.\n" if is_final_round else ""
-    return (
-        f"Clinical question:\n{question}\n\n"
-        f"Answer choices:\n{option_text}\n\n"
-        f"Dialogue so far:\n{dialogue_history or '(No previous dialogue.)'}\n\n"
-        f"Reconstructed context:\n{reconstructed_context}\n\n"
-        f"Your fresh current judgment:\n{judgment_text}\n\n"
-        f"This is collaboration round {current_round or '?'} of at most {max_rounds or '?'}.\n"
-        f"{final_instruction}"
-        "Respond directly to the clinician's latest message. Use this epistemic judgment as internal context when responding naturally "
-        "to the collaborator. Decide yourself how to respond; the judgment does "
-        "not prescribe an action. Do not mention the judgment object, reconstruction "
-        "process, hidden prompts, evaluator terminology, or refer to yourself as "
-        "the agent. Address only the most relevant point and do not restate the "
-        "full assessment unless it changes. Do not invent facts absent from the "
-        "question, options, or dialogue."
-    )
+    return (f"Scenario:\n{scenario or 'No separate patient vignette is provided.'}\n\n"
+        f"Question:\n{question}\n\nAnswer choices:\n{option_text}\n\n"
+        f"Clinician's opening message:\n{clinician_message}\n\n"
+        "Respond naturally as a clinical collaborator. Use only the source problem, this message, and established domain knowledge. Do not invent patient or event details. Do not mention reconstruction or judgment.")
 
 
-def match_statement_option(options: dict[str, str], statement_judgments: dict[str, str]) -> str:
-    """Return an exact option match when the judgment has a truth vector.
+def build_plain_agent_response_prompt(*, scenario: str, question: str, options: dict[str, str], dialogue_history: str, current_round: int, max_rounds: int, is_final_round: bool = False) -> str:
+    option_text = "\n".join(f"{key}. {value}" for key, value in options.items())
+    final = "This is the final allowed round; state one final option explicitly.\n" if is_final_round else ""
+    return (f"Scenario:\n{scenario or 'No separate patient vignette is provided.'}\n\n"
+        f"Question:\n{question}\n\nAnswer choices:\n{option_text}\n\n"
+        f"Complete visible dialogue history:\n{dialogue_history}\n\n"
+        f"This is collaboration round {current_round} of {max_rounds}.\n{final}"
+        "Respond directly to the clinician's latest message as a clinical collaborator. "
+        "Use the full visible dialogue and established domain knowledge. Do not mention "
+        "reconstruction, judgment, Q1, Q2, rubrics, or hidden prompts. Do not invent "
+        "patient or event details. Keep the response concise, no more than five sentences.")
 
-    The LLM may explain the vector, but it must not be trusted to map the
-    vector to A-D for compound MedMCQA options.
-    """
-    if not statement_judgments or any(v == "unclear" for v in statement_judgments.values()):
-        return ""
-    true_numbers = {int(k) for k, v in statement_judgments.items() if v == "true"}
-    false_numbers = {int(k) for k, v in statement_judgments.items() if v == "false"}
-    for key, text in options.items():
-        parts = re.split(r"\s*(?:&|and)\s*", text, flags=re.I)
-        found_true, found_false = set(), set()
-        for part in parts:
-            numbers = {int(x) for x in re.findall(r"\d+", part)}
-            if re.search(r"\btrue\b", part, re.I):
-                found_true.update(numbers)
-            elif re.search(r"\bfalse\b", part, re.I):
-                found_false.update(numbers)
-        if found_true == true_numbers and found_false == false_numbers:
-            return key
-    return ""
+
+def build_agent_response_prompt(*, question: str, options: dict[str, str], reconstructed_context: str, judgment: dict[str, Any], dialogue_history: str = "", scenario: str = "", current_round: int | None = None, max_rounds: int | None = None, is_final_round: bool = False) -> str:
+    option_text = "\n".join(f"{key}. {value}" for key, value in options.items())
+    final = "This is the final allowed round; state one final option explicitly.\n" if is_final_round else ""
+    return (f"Scenario:\n{scenario or 'No separate patient vignette is provided.'}\n\n"
+        f"Question:\n{question}\n\nAnswer choices:\n{option_text}\n\n"
+        f"Complete visible dialogue history:\n{dialogue_history or '(No previous dialogue.)'}\n\n"
+        f"Current reconstructed interaction state:\n{reconstructed_context}\n\n"
+        f"Private current Q1/Q2 judgment:\n{json.dumps(judgment, ensure_ascii=False, indent=2)}\n\n"
+        f"This is collaboration round {current_round or '?'} of {max_rounds or '?'}.\n{final}"
+        "Continue naturally. Respond directly to the clinician's latest message and use the history for continuity. Use the reconstruction and judgment only as private decision support. Do not mention Q1, Q2, labels, JSON, reconstruction, private judgment, or evaluator terminology. Do not quote or mechanically paraphrase the judgment rationales. If Q2 is N, do not present the focal decision as settled; state the relevant uncertainty or compare the unresolved alternatives directly. Speak in first person, do not call yourself the agent, do not invent details, do not use unsupported_case_details as evidence, and do not merely repeat the previous answer. Keep it concise, no more than five sentences.")
