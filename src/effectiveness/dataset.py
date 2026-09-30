@@ -33,9 +33,12 @@ def write_split_rows(rows: list[dict], output_dir: str | Path, seed: int = 42) -
     output.mkdir(parents=True, exist_ok=True)
     examples = [make_value_example(row["state"], row["target"]) for row in rows]
     case_splits = split_by_case(examples, seed=seed)
-    allowed = {split: {example.state_id for example in values} for split, values in case_splits.items()}
-    for split in allowed:
-        selected = [row for row in rows if row["state"]["state_id"] in allowed[split]]
+    allowed = {split: {example.case_id for example in values} for split, values in case_splits.items()}
+    for split, case_ids in allowed.items():
+        selected = [row for row in rows if str(row["state"]["case_id"]) in case_ids]
+        selected_cases = {str(row["state"]["case_id"]) for row in selected}
+        if selected_cases != case_ids:
+            raise ValueError(f"Split {split} does not preserve its case set")
         (output / f"{split}.jsonl").write_text(
             "\n".join(json.dumps(row, ensure_ascii=False) for row in selected) + "\n",
             encoding="utf-8",

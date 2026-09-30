@@ -99,6 +99,7 @@ class CollaborationValueModel(torch.nn.Module):
         if config["use_lora"]:
             from peft import PeftModel
             model.backbone = PeftModel.from_pretrained(model.backbone, path / "backbone", is_trainable=False)
+            model.use_lora = True
         model.value_head.load_state_dict(torch.load(path / "value_head.pt", map_location=model.device))
         model.eval()
         for parameter in model.parameters():

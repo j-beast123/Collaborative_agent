@@ -35,8 +35,20 @@ def evaluate_predictions(predictions: Iterable[float], examples) -> dict[str, fl
 
 
 def evaluate_effectiveness(before_predictions, after_predictions, before_examples, after_examples, neutral_threshold=1e-8):
-    if len(before_predictions) != len(after_predictions) or len(before_examples) != len(after_examples):
+    if len(before_predictions) != len(before_examples):
+        raise ValueError("Before prediction/example lengths differ")
+    if len(after_predictions) != len(after_examples):
+        raise ValueError("After prediction/example lengths differ")
+    if len(before_predictions) != len(after_predictions):
         raise ValueError("Before/after lengths differ")
+    if any(example.state_type != "before_agent" for example in before_examples):
+        raise ValueError("Before examples must have state_type=before_agent")
+    if any(example.state_type != "after_agent" for example in after_examples):
+        raise ValueError("After examples must have state_type=after_agent")
+    before_ids = [example.pair_id for example in before_examples]
+    after_ids = [example.pair_id for example in after_examples]
+    if len(before_ids) != len(set(before_ids)) or len(after_ids) != len(set(after_ids)):
+        raise ValueError("Duplicate pair_id in effectiveness inputs")
     before = {example.pair_id: (prediction, example.empirical_value) for prediction, example in zip(before_predictions, before_examples)}
     after = {example.pair_id: (prediction, example.empirical_value) for prediction, example in zip(after_predictions, after_examples)}
     pairs = sorted(set(before) & set(after))
