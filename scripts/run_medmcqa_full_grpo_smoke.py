@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from collections import defaultdict
@@ -31,6 +32,7 @@ try:
     from run_medmcqa_full_trajectory_smoke import (
         generate_trajectory,
         load_cases,
+        resolve_generation_top_k,
         score_agent_turn,
         visible_case,
     )
@@ -39,12 +41,14 @@ except ModuleNotFoundError:
     from scripts.run_medmcqa_full_trajectory_smoke import (
         generate_trajectory,
         load_cases,
+        resolve_generation_top_k,
         score_agent_turn,
         visible_case,
     )
     from scripts.run_medmcqa_grpo_pilot import load_rubrics
 from src.judges.jev import JevClient
-from src.judges.reward import soft_min
+from src.judges.reward import soft_min, weighted_soft_min
+from src.judges.rubric_schema import normalize_score
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,12 +74,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-tokens-doctor", type=int, default=512)
     parser.add_argument("--generation-temperature", type=float, default=0.7)
     parser.add_argument("--top-p", type=float, default=0.9)
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=None,
+        help="generation top-k; when omitted, use the model generation_config value",
+    )
     parser.add_argument("--rubric-temperature", type=float, default=0.5)
     parser.add_argument("--rubric-weight", type=float, default=0.3)
     parser.add_argument("--outcome-weight", type=float, default=0.4)
     parser.add_argument("--beta", type=float, default=0.04)
     parser.add_argument("--learning-rate", type=float, default=1e-5)
     parser.add_argument("--clip-epsilon", type=float, default=0.2)
+    parser.add_argument(
+        "--pre-update-ratio-tolerance",
+        type=float,
+        default=1e-3,
+        help="integrity tolerance for the initial new/old policy ratio; not a training reward threshold",
+    )
     parser.add_argument("--jev-workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--overwrite", action="store_true")
@@ -92,20 +108,73 @@ def outcome_value(case: dict, final_option: str) -> float | None:
     return float(option == correct_option)
 
 
+def require_outcome(outcome: float | None, outcome_weight: float, identifier: str) -> None:
+    if outcome_weight > 0 and outcome is None:
+        raise ValueError(
+            f"outcome-weight is positive but outcome is unavailable for {identifier}; "
+            "ground_truth.correct_option and final_option are both required"
+        )
+
+
+def _label_for_rubric(row: dict, rubric_id: str) -> object:
+    labels = row.get("normalized_labels") or row.get("labels") or {}
+    if rubric_id not in labels:
+        raise ValueError(
+            f"turn {row.get('turn_id')} is missing selected rubric {rubric_id}; "
+            "the saved trajectory was not scored with a compatible rubric set"
+        )
+    value = labels[rubric_id]
+    if isinstance(value, str) and value in {"0", "1", "2"}:
+        return int(value)
+    return value
+
+
+def selected_turn_adherence(row: dict, rubric_ids: set[str], rubric_temperature: float) -> float | None:
+    applicable = []
+    for rubric_id in sorted(rubric_ids):
+        value = _label_for_rubric(row, rubric_id)
+        if value == "NA":
+            continue
+        applicable.append(normalize_score(value))
+    return weighted_soft_min(
+        applicable,
+        [1.0] * len(applicable),
+        rubric_temperature,
+    ) if applicable else None
+
+
+def prepare_turn_scores(turn_scores: list[dict], rubric_ids: set[str] | None,
+                        rubric_temperature: float) -> list[dict]:
+    prepared = []
+    for row in turn_scores:
+        updated = dict(row)
+        if rubric_ids is not None:
+            updated["raw_rubric_adherence_all"] = row.get("raw_rubric_adherence")
+            updated["raw_rubric_adherence"] = selected_turn_adherence(
+                row, rubric_ids, rubric_temperature,
+            )
+            updated["selected_rubric_ids"] = sorted(rubric_ids)
+        prepared.append(updated)
+    return prepared
+
+
 def refresh_reward(record: dict, rubric_weight: float, outcome_weight: float,
-                   rubric_temperature: float) -> dict:
+                   rubric_temperature: float, rubric_ids: set[str]) -> dict:
     """Recompute reward fields from saved turn scores without calling Jev."""
-    turn_scores = record.get("turn_scores") or []
+    turn_scores = prepare_turn_scores(record.get("turn_scores") or [], rubric_ids, rubric_temperature)
     available = [row["raw_rubric_adherence"] for row in turn_scores
                  if row.get("raw_rubric_adherence") is not None]
     conversation_value = soft_min(available, rubric_temperature) if available else None
     outcome = outcome_value(record, record.get("final_option", ""))
+    require_outcome(outcome, outcome_weight, str(record.get("trajectory_id")))
     scaled_rubric_reward = None if conversation_value is None else rubric_weight * conversation_value
     scaled_outcome_reward = None if outcome is None else outcome_weight * outcome
     reward_parts = [value for value in (scaled_rubric_reward, scaled_outcome_reward)
                     if value is not None]
     refreshed = dict(record)
     refreshed.update(
+        turn_scores=turn_scores,
+        rubric_ids_used=sorted(rubric_ids),
         conversation_rubric_adherence=conversation_value,
         scaled_rubric_reward=scaled_rubric_reward,
         outcome=outcome,
@@ -117,7 +186,8 @@ def refresh_reward(record: dict, rubric_weight: float, outcome_weight: float,
 
 def load_saved_records(path: Path, rubric_weight: float, outcome_weight: float,
                        rubric_temperature: float, expected_rollouts: int,
-                       sampling_temperature: float, sampling_top_p: float) -> list[dict]:
+                       sampling_temperature: float, sampling_top_p: float,
+                       sampling_top_k: int, rubric_ids: set[str]) -> list[dict]:
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     if not rows:
         raise ValueError(f"trajectory file is empty: {path}")
@@ -145,19 +215,22 @@ def load_saved_records(path: Path, rubric_weight: float, outcome_weight: float,
             # are the only valid fallback when the collection used the defaults.
             trace.setdefault("sampling_temperature", sampling_temperature)
             trace.setdefault("sampling_top_p", sampling_top_p)
+            trace.setdefault("sampling_top_k", sampling_top_k)
     wrong = {case_id: count for case_id, count in counts.items() if count != expected_rollouts}
     if wrong:
         raise ValueError(f"each saved case must have exactly {expected_rollouts} rollouts: {wrong}")
-    return [refresh_reward(row, rubric_weight, outcome_weight, rubric_temperature) for row in rows]
+    return [refresh_reward(row, rubric_weight, outcome_weight, rubric_temperature, rubric_ids) for row in rows]
 
 
 def record_trajectory(case: dict, case_index: int, rollout_index: int, trajectory: dict,
                       turn_scores: list[dict], rubric_weight: float, outcome_weight: float,
-                      rubric_temperature: float) -> dict:
+                      rubric_temperature: float, rubric_ids: set[str]) -> dict:
+    turn_scores = prepare_turn_scores(turn_scores, rubric_ids, rubric_temperature)
     available = [row["raw_rubric_adherence"] for row in turn_scores
                  if row["raw_rubric_adherence"] is not None]
     conversation_value = soft_min(available, rubric_temperature) if available else None
     outcome = outcome_value(case, trajectory["final_option"])
+    require_outcome(outcome, outcome_weight, f"{case['case_id']}:rollout_{rollout_index}")
     scaled_rubric_reward = None if conversation_value is None else rubric_weight * conversation_value
     scaled_outcome_reward = None if outcome is None else outcome_weight * outcome
     reward_parts = [value for value in (scaled_rubric_reward, scaled_outcome_reward)
@@ -173,6 +246,7 @@ def record_trajectory(case: dict, case_index: int, rollout_index: int, trajector
         "dialogue": trajectory["dialogue"],
         "agent_traces": trajectory["agent_traces"],
         "turn_scores": turn_scores,
+        "rubric_ids_used": sorted(rubric_ids),
         "conversation_rubric_adherence": conversation_value,
         "scaled_rubric_reward": scaled_rubric_reward,
         "outcome": outcome,
@@ -184,10 +258,14 @@ def record_trajectory(case: dict, case_index: int, rollout_index: int, trajector
 
 
 def sequence_logprobs(model, prompt_ids: list[int], completion_ids: list[int], *, grad: bool,
-                      temperature: float, top_p: float):
+                      temperature: float, top_p: float, top_k: int):
     import torch
     import torch.nn.functional as F
-    from transformers.generation.logits_process import TemperatureLogitsWarper, TopPLogitsWarper
+    from transformers.generation.logits_process import (
+        TemperatureLogitsWarper,
+        TopKLogitsWarper,
+        TopPLogitsWarper,
+    )
 
     if not completion_ids:
         return torch.empty(0, device=next(model.parameters()).device)
@@ -195,19 +273,23 @@ def sequence_logprobs(model, prompt_ids: list[int], completion_ids: list[int], *
         raise ValueError("temperature must be positive")
     if not 0 < top_p <= 1:
         raise ValueError("top_p must be in (0, 1]")
+    if top_k < 0:
+        raise ValueError("top_k must be non-negative")
     full_ids = torch.tensor([prompt_ids + completion_ids], dtype=torch.long, device=next(model.parameters()).device)
     attention = torch.ones_like(full_ids)
     context = torch.enable_grad() if grad else torch.no_grad()
     with context:
         logits = model(input_ids=full_ids, attention_mask=attention, use_cache=False).logits[:, :-1]
         targets = full_ids[:, 1:]
-        # `generate(..., temperature, top_p)` stores transition scores after these
+        # `generate(..., temperature, top_k, top_p)` stores transition scores after these
         # same warpers. Apply them here so current and rollout log-probs share a
         # distribution before the GRPO update.
         flat_logits = logits.reshape(-1, logits.shape[-1])
         warper_input_ids = torch.zeros((flat_logits.shape[0], 1), dtype=torch.long, device=flat_logits.device)
         if temperature != 1.0:
             flat_logits = TemperatureLogitsWarper(float(temperature))(warper_input_ids, flat_logits)
+        if top_k > 0:
+            flat_logits = TopKLogitsWarper(int(top_k))(warper_input_ids, flat_logits)
         if top_p < 1.0:
             flat_logits = TopPLogitsWarper(float(top_p))(warper_input_ids, flat_logits)
         processed_logits = flat_logits.reshape_as(logits)
@@ -220,18 +302,19 @@ def sequence_logprobs(model, prompt_ids: list[int], completion_ids: list[int], *
 
 
 def reference_logprobs(model, prompt_ids: list[int], completion_ids: list[int], *,
-                       temperature: float, top_p: float):
+                       temperature: float, top_p: float, top_k: int):
     if not hasattr(model, "disable_adapter"):
         raise RuntimeError("the LoRA model does not expose disable_adapter for KL reference scoring")
     with model.disable_adapter():
         return sequence_logprobs(
             model, prompt_ids, completion_ids, grad=False,
-            temperature=temperature, top_p=top_p,
+            temperature=temperature, top_p=top_p, top_k=top_k,
         )
 
 
 def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: float, *,
-                      temperature: float, top_p: float, backward: bool = False):
+                      temperature: float, top_p: float, top_k: int,
+                      backward: bool = False):
     import torch
 
     grouped = defaultdict(list)
@@ -281,9 +364,10 @@ def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: flo
     for trajectory_id, trace, advantage in jobs:
         trace_temperature = float(trace.get("sampling_temperature", temperature))
         trace_top_p = float(trace.get("sampling_top_p", top_p))
+        trace_top_k = int(trace.get("sampling_top_k", top_k))
         current = sequence_logprobs(
             model, trace["prompt_input_ids"], trace["completion_ids"], grad=True,
-            temperature=trace_temperature, top_p=trace_top_p,
+            temperature=trace_temperature, top_p=trace_top_p, top_k=trace_top_k,
         )
         old = torch.tensor(trace["completion_logprobs"], dtype=current.dtype, device=current.device)
         if current.numel() == 0:
@@ -293,7 +377,11 @@ def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: flo
                 f"old/new token logprob length mismatch at {trajectory_id}:{trace.get('stage')}: "
                 f"old={old.numel()} new={current.numel()}"
             )
+        if not torch.isfinite(current).all().item() or not torch.isfinite(old).all().item():
+            raise RuntimeError(f"non-finite old/new log-probability at {trajectory_id}:{trace.get('stage')}")
         ratio = torch.exp(current - old)
+        if not torch.isfinite(ratio).all().item():
+            raise RuntimeError(f"non-finite new/old policy ratio at {trajectory_id}:{trace.get('stage')}")
         ratio_values = ratio.detach().float()
         ratio_sum += float(ratio_values.sum())
         ratio_sq_sum += float((ratio_values * ratio_values).sum())
@@ -306,10 +394,12 @@ def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: flo
 
         ref = reference_logprobs(
             model, trace["prompt_input_ids"], trace["completion_ids"],
-            temperature=trace_temperature, top_p=trace_top_p,
+            temperature=trace_temperature, top_p=trace_top_p, top_k=trace_top_k,
         )
         log_ratio = ref - current
         kl_term = (torch.exp(log_ratio) - log_ratio - 1.0).mean()
+        if not torch.isfinite(policy_term).item() or not torch.isfinite(kl_term).item():
+            raise RuntimeError(f"non-finite loss term at {trajectory_id}:{trace.get('stage')}")
         if backward:
             ((policy_term + beta * kl_term) / len(jobs)).backward()
         policy_values.append(policy_term.detach())
@@ -329,7 +419,12 @@ def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: flo
         "std": ratio_variance ** 0.5 if ratio_variance is not None else None,
         "min": ratio_min if ratio_count else None,
         "max": ratio_max if ratio_count else None,
+        "max_abs_deviation": max(
+            abs(ratio_min - 1.0), abs(ratio_max - 1.0),
+        ) if ratio_count else None,
     }
+    if not torch.isfinite(policy_loss).item() or not torch.isfinite(kl_loss).item() or not torch.isfinite(total_loss).item():
+        raise RuntimeError("non-finite GRPO loss")
     return total_loss, policy_loss, kl_loss, used, ratio_stats
 
 
@@ -341,6 +436,8 @@ def main() -> None:
         raise ValueError("num-cases must be positive")
     if args.rounds < 1:
         raise ValueError("rounds must be positive")
+    if args.pre_update_ratio_tolerance < 0:
+        raise ValueError("pre-update-ratio-tolerance must be non-negative")
     if args.rubric_weight < 0 or args.outcome_weight < 0 or args.rubric_weight + args.outcome_weight <= 0:
         raise ValueError("rubric-weight and outcome-weight must be non-negative with a positive sum")
     source_path = ROOT / args.trajectories if args.trajectories else None
@@ -356,6 +453,7 @@ def main() -> None:
             (output / name).unlink(missing_ok=True)
 
     rubrics = load_rubrics(ROOT / args.rubric_set)
+    rubric_ids = {rubric["rubric_id"] for rubric in rubrics}
     key = None
     client = None
     if source_path is None:
@@ -388,12 +486,13 @@ def main() -> None:
     model.to(torch.device("cuda:0"))
     model.gradient_checkpointing_enable()
     model.enable_input_require_grads()
+    args.top_k = resolve_generation_top_k(model, args.top_k)
     model.eval()
     trajectory_path = output / "trajectories.jsonl"
     if source_path is not None:
         records = load_saved_records(
             source_path, args.rubric_weight, args.outcome_weight, args.rubric_temperature,
-            args.rollouts_per_case, args.generation_temperature, args.top_p,
+            args.rollouts_per_case, args.generation_temperature, args.top_p, args.top_k, rubric_ids,
         )
         case_ids = sorted({row["case_id"] for row in records})
         if num_cases is not None and len(case_ids) != num_cases:
@@ -424,7 +523,7 @@ def main() -> None:
                     record = record_trajectory(
                         case, args.start_index + case_number - 1, rollout_index,
                         trajectory, turn_scores, args.rubric_weight, args.outcome_weight,
-                        args.rubric_temperature,
+                        args.rubric_temperature, rubric_ids,
                     )
                     records.append(record)
                     handle.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -440,9 +539,28 @@ def main() -> None:
     optimizer.zero_grad(set_to_none=True)
     total_loss, policy_loss, kl_loss, used_completions, ratio_stats = compute_grpo_loss(
         model, records, args.beta, args.clip_epsilon,
-        temperature=args.generation_temperature, top_p=args.top_p, backward=True,
+        temperature=args.generation_temperature, top_p=args.top_p, top_k=args.top_k, backward=True,
     )
-    torch.nn.utils.clip_grad_norm_(trainable, 1.0)
+    finite_stats = {
+        "loss": total_loss,
+        "policy_loss": policy_loss,
+        "kl_loss": kl_loss,
+    }
+    if any(not torch.isfinite(value).item() for value in finite_stats.values()):
+        raise RuntimeError("refusing optimizer step because a GRPO loss is non-finite")
+    if not ratio_stats["count"] or ratio_stats["max_abs_deviation"] is None:
+        raise RuntimeError("refusing optimizer step because no pre-update policy ratios were measured")
+    if not math.isfinite(ratio_stats["max_abs_deviation"]):
+        raise RuntimeError("refusing optimizer step because the pre-update ratio is non-finite")
+    if ratio_stats["max_abs_deviation"] > args.pre_update_ratio_tolerance:
+        raise RuntimeError(
+            "refusing optimizer step because new/old policy ratio is not near 1: "
+            f"max_abs_deviation={ratio_stats['max_abs_deviation']:.8g}, "
+            f"tolerance={args.pre_update_ratio_tolerance:.8g}"
+        )
+    grad_norm = torch.nn.utils.clip_grad_norm_(trainable, 1.0)
+    if not torch.isfinite(grad_norm).item():
+        raise RuntimeError("refusing optimizer step because the gradient norm is non-finite")
     optimizer.step()
     model.save_pretrained(output / "adapter")
     tokenizer.save_pretrained(output / "adapter")
@@ -456,7 +574,13 @@ def main() -> None:
         "learning_rate": args.learning_rate,
         "used_agent_completions": used_completions,
         "pre_update_ratio": ratio_stats,
-        "sampling": {"temperature": args.generation_temperature, "top_p": args.top_p},
+        "sampling": {
+            "temperature": args.generation_temperature,
+            "top_p": args.top_p,
+            "top_k": args.top_k,
+        },
+        "pre_update_ratio_tolerance": args.pre_update_ratio_tolerance,
+        "gradient_norm_before_step": float(grad_norm.detach().cpu()),
         "cases": num_cases,
         "trajectories": len(records),
     }
@@ -479,10 +603,17 @@ def main() -> None:
         "start_index": args.start_index, "num_cases": num_cases,
         "rollouts_per_case": args.rollouts_per_case, "rounds": args.rounds,
         "rubric_set": args.rubric_set, "rubrics": len(rubrics),
+        "rubric_ids": sorted(rubric_ids),
         "rubric_temperature": args.rubric_temperature, "rubric_weight": args.rubric_weight,
         "outcome_weight": args.outcome_weight,
         "beta": args.beta, "learning_rate": args.learning_rate,
         "clip_epsilon": args.clip_epsilon, "training": True,
+        "sampling": {
+            "temperature": args.generation_temperature,
+            "top_p": args.top_p,
+            "top_k": args.top_k,
+        },
+        "pre_update_ratio_tolerance": args.pre_update_ratio_tolerance,
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))

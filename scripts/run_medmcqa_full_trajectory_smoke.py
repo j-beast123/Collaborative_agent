@@ -60,6 +60,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-tokens-doctor", type=int, default=512)
     parser.add_argument("--generation-temperature", type=float, default=0.7)
     parser.add_argument("--top-p", type=float, default=0.9)
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=None,
+        help="generation top-k; when omitted, use the model generation_config value",
+    )
     parser.add_argument("--rubric-temperature", type=float, default=0.5)
     parser.add_argument("--rubric-weight", type=float, default=0.3)
     parser.add_argument("--jev-workers", type=int, default=4)
@@ -93,8 +99,18 @@ def chat_prompt(tokenizer: Any, system: str, user: str) -> str:
         return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
 
+def resolve_generation_top_k(model: Any, requested: int | None) -> int:
+    value = requested
+    if value is None:
+        value = getattr(getattr(model, "generation_config", None), "top_k", 0)
+    value = 0 if value is None else int(value)
+    if value < 0:
+        raise ValueError("top-k must be non-negative; use 0 to disable top-k filtering")
+    return value
+
+
 def generate_with_trace(model: Any, tokenizer: Any, prompt: str, max_new_tokens: int,
-                        temperature: float, top_p: float) -> dict:
+                        temperature: float, top_p: float, top_k: int) -> dict:
     import torch
 
     encoded = tokenizer(prompt, return_tensors="pt", truncation=True)
@@ -107,6 +123,7 @@ def generate_with_trace(model: Any, tokenizer: Any, prompt: str, max_new_tokens:
             do_sample=True,
             temperature=temperature,
             top_p=top_p,
+            top_k=top_k,
             max_new_tokens=max_new_tokens,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
@@ -128,6 +145,7 @@ def generate_with_trace(model: Any, tokenizer: Any, prompt: str, max_new_tokens:
         "completion_logprobs": transition_scores[0].detach().cpu().tolist(),
         "sampling_temperature": temperature,
         "sampling_top_p": top_p,
+        "sampling_top_k": top_k,
         "completion_text": completion_text,
     }
 
@@ -205,7 +223,7 @@ def generate_trajectory(model: Any, tokenizer: Any, case: dict, doctor_system: s
         prompt = chat_prompt(tokenizer, agent_system, user_prompt)
         trace = generate_with_trace(
             model, tokenizer, prompt, args.max_completion_length,
-            args.generation_temperature, args.top_p,
+            args.generation_temperature, args.top_p, args.top_k,
         )
         agent_index = len(dialogue)
         dialogue.append({
@@ -258,6 +276,18 @@ def main() -> None:
     rubrics = load_rubrics(ROOT / args.rubric_set)
     doctor_system = (ROOT / "prompts/user_simulator.txt").read_text(encoding="utf-8")
     agent_system = (ROOT / "prompts/agent.txt").read_text(encoding="utf-8")
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is not available; launch this smoke test on the GPU server")
+    tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16, trust_remote_code=True)
+    model.to(torch.device("cuda:0"))
+    model.eval()
+    args.top_k = resolve_generation_top_k(model, args.top_k)
     (output / "config.json").write_text(json.dumps({
         "input": args.input,
         "start_index": args.start_index,
@@ -273,20 +303,13 @@ def main() -> None:
         "rubric_weight": args.rubric_weight,
         "outcome_weight": 0.0,
         "effectiveness_weight": 0.0,
+        "sampling": {
+            "temperature": args.generation_temperature,
+            "top_p": args.top_p,
+            "top_k": args.top_k,
+        },
         "training": False,
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA is not available; launch this smoke test on the GPU server")
-    tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16, trust_remote_code=True)
-    model.to(torch.device("cuda:0"))
-    model.eval()
     client = JevClient(endpoint=args.jev_endpoint, model=args.jev_model, api_key_env=args.api_key_env)
 
     records = []
