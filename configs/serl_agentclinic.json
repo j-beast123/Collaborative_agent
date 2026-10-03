@@ -130,7 +130,7 @@
   "grpo_notes": "Passed to trl.GRPOConfig as is. Values are starting points for one 24 GB GPU and have not been tuned. per_device_train_batch_size counts completions: 4 with num_generations 4 is one sample per optimizer step. The dataset holds the A1 samples and the A2 samples (training_samples.stages), so one epoch is about twice the number of TRAIN histories.",
   "reward": {
     "weights": {
-      "outcome": 0.0,
+      "outcome": 0.4,
       "appropriateness": 0.3,
       "effectiveness": 0.0
     },

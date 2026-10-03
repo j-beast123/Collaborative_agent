@@ -126,6 +126,8 @@ def generate_with_trace(model: Any, tokenizer: Any, prompt: str, max_new_tokens:
         "prompt_attention_mask": encoded["attention_mask"][0].detach().cpu().tolist(),
         "completion_ids": completion_ids[0].detach().cpu().tolist(),
         "completion_logprobs": transition_scores[0].detach().cpu().tolist(),
+        "sampling_temperature": temperature,
+        "sampling_top_p": top_p,
         "completion_text": completion_text,
     }
 
