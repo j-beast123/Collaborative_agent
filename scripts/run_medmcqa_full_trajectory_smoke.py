@@ -36,10 +36,11 @@ from src.collaboration.generator import (
 from src.judges.jev import JevClient
 from src.judges.reward import soft_min, weighted_soft_min
 from src.judges.rubric_schema import normalize_score
+from src.judges.rubric_scoring import TWO_STAGE_JEV_PROTOCOL, two_stage_jev_score
 try:
-    from run_medmcqa_grpo_pilot import jev_questions, load_rubrics, visible_case
+    from run_medmcqa_grpo_pilot import load_rubrics, rubric_set_metadata, visible_case
 except ModuleNotFoundError:
-    from scripts.run_medmcqa_grpo_pilot import jev_questions, load_rubrics, visible_case
+    from scripts.run_medmcqa_grpo_pilot import load_rubrics, rubric_set_metadata, visible_case
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rounds", type=int, default=2)
     parser.add_argument("--output", default="outputs/medmcqa_full_trajectory_smoke")
     parser.add_argument("--model", default="/home/kai/models/Qwen3-8B")
-    parser.add_argument("--rubric-set", default="outputs/rubric_candidates/rubric_guidance_set_11.json")
+    parser.add_argument("--rubric-set", default="configs/rubrics/rubric_guidance_set_11_observable_v2.json")
     parser.add_argument("--doctor-model", default="google/gemma-3-12b-it")
     parser.add_argument("--jev-endpoint", default="https://openrouter.ai/api/alpha/decisions")
     parser.add_argument("--jev-model", default="typesafe/jev-1.13")
@@ -70,6 +71,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rubric-weight", type=float, default=0.3)
     parser.add_argument("--jev-workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--allow-unvalidated-rubrics", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -166,19 +168,39 @@ def final_option(text: str) -> str:
     return matches[-1].upper() if matches else ""
 
 
+def final_outcome(case: dict, option: str) -> float | None:
+    correct = str((case.get("ground_truth") or {}).get("correct_option") or "").strip().upper()
+    selected = str(option or "").strip().upper()
+    if not correct or not selected:
+        return None
+    return float(selected == correct)
+
+
 def score_agent_turn(client: JevClient, case: dict, dialogue: list[dict], target_index: int,
-                     rubrics: list[dict], rubric_temperature: float) -> dict:
+                     rubrics: list[dict], rubric_temperature: float,
+                     rubric_metadata: dict | None = None) -> dict:
     target = dialogue[target_index]
-    state = json.dumps({
+    history_state = {
+        "trajectory_id": f"full_smoke:{case['case_id']}",
+        "turn_id": target_index,
+        "dialogue_before_target_turn": dialogue[:target_index],
+        "case_context": visible_case(case),
+    }
+    target_state = {
         "trajectory_id": f"full_smoke:{case['case_id']}",
         "turn_id": target_index,
         "dialogue_through_target_turn": dialogue[: target_index + 1],
         "target_turn": target,
-        "agent_pre_response_state": None,
         "case_context": visible_case(case),
-    }, ensure_ascii=False)
-    answers, call = client.decide(state, jev_questions(rubrics), purpose="medmcqa_full_trajectory_rubric")
-    labels = {rid: answer["value"] for rid, answer in answers.items()}
+    }
+    scored = two_stage_jev_score(
+        client,
+        history_state=history_state,
+        target_state=target_state,
+        rubrics=rubrics,
+        purpose="medmcqa_full_trajectory_rubric",
+    )
+    labels = scored["labels"]
     numeric_labels = {
         rid: int(value) if isinstance(value, str) and value in {"0", "1", "2"} else value
         for rid, value in labels.items()
@@ -191,7 +213,15 @@ def score_agent_turn(client: JevClient, case: dict, dialogue: list[dict], target
         "labels": labels,
         "normalized_labels": numeric_labels,
         "raw_rubric_adherence": raw,
-        "jev_call": call,
+        "applicability_labels": scored["applicability_labels"],
+        "applicability_probabilities": scored["applicability_probabilities"],
+        "behavior_scores": scored["behavior_scores"],
+        "behavior_probabilities": scored["behavior_probabilities"],
+        "jev_calls": scored["calls"],
+        "jev_call": scored["calls"],
+        "jev_call_count": scored["call_count"],
+        "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
+        **(rubric_metadata or {}),
     }
 
 
@@ -273,7 +303,15 @@ def main() -> None:
         trajectory_path.unlink(missing_ok=True)
 
     cases = load_cases(ROOT / args.input, args.start_index, args.num_cases)
-    rubrics = load_rubrics(ROOT / args.rubric_set)
+    rubric_path = ROOT / args.rubric_set
+    rubrics = load_rubrics(rubric_path)
+    rubric_metadata = rubric_set_metadata(rubric_path)
+    validation_status = rubric_metadata.get("rubric_set_validation_status")
+    if validation_status and validation_status not in {"validated", "passed"} and not args.allow_unvalidated_rubrics:
+        raise ValueError(
+            f"rubric set is not validated for rollout collection: {validation_status}; "
+            "revalidate it first or use --allow-unvalidated-rubrics only for an audit run"
+        )
     doctor_system = (ROOT / "prompts/user_simulator.txt").read_text(encoding="utf-8")
     agent_system = (ROOT / "prompts/agent.txt").read_text(encoding="utf-8")
     import torch
@@ -281,6 +319,7 @@ def main() -> None:
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is not available; launch this smoke test on the GPU server")
+    torch.manual_seed(args.seed)
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -296,7 +335,10 @@ def main() -> None:
         "rounds": args.rounds,
         "total_trajectories": args.num_cases * args.rollouts_per_case,
         "rubric_set": args.rubric_set,
+        **rubric_metadata,
         "rubrics": len(rubrics),
+        "rubric_ids": [rubric["rubric_id"] for rubric in rubrics],
+        "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
         "rubric_aggregation": "weighted_softmin_with_equal_rubric_weights",
         "turn_aggregation": "soft_min_over_available_agent_turns",
         "rubric_temperature": args.rubric_temperature,
@@ -308,7 +350,9 @@ def main() -> None:
             "top_p": args.top_p,
             "top_k": args.top_k,
         },
+        "seed": args.seed,
         "training": False,
+        "allow_unvalidated_rubrics": args.allow_unvalidated_rubrics,
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     client = JevClient(endpoint=args.jev_endpoint, model=args.jev_model, api_key_env=args.api_key_env)
 
@@ -328,6 +372,7 @@ def main() -> None:
                     futures = [pool.submit(
                         score_agent_turn,
                         client, case, trajectory["dialogue"], index, rubrics, args.rubric_temperature,
+                        rubric_metadata,
                     ) for index in agent_indices]
                     turn_scores = [future.result() for future in futures]
                 available = [row["raw_rubric_adherence"] for row in turn_scores
@@ -345,11 +390,14 @@ def main() -> None:
                     "dialogue": trajectory["dialogue"],
                     "agent_traces": trajectory["agent_traces"],
                     "turn_scores": turn_scores,
+                    **rubric_metadata,
+                    "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
                     "conversation_rubric_adherence": conversation_value,
                     "scaled_rubric_reward": None if conversation_value is None else args.rubric_weight * conversation_value,
                     "final_decision_text": trajectory["final_decision_text"],
                     "final_option": trajectory["final_option"],
-                    "jev_calls": len(turn_scores),
+                    "outcome": final_outcome(case, trajectory["final_option"]),
+                    "jev_calls": sum(row["jev_call_count"] for row in turn_scores),
                 }
                 records.append(record)
                 handle.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -373,6 +421,8 @@ def main() -> None:
         "conversation_rubric_adherence_mean": sum(rewards) / len(rewards) if rewards else None,
         "conversation_rubric_adherence_min": min(rewards) if rewards else None,
         "conversation_rubric_adherence_max": max(rewards) if rewards else None,
+        "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
+        **rubric_metadata,
         "output": str(output.relative_to(ROOT)),
         "training": False,
     }

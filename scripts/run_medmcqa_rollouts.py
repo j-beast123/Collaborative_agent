@@ -26,8 +26,10 @@ if str(ROOT) not in sys.path:
 from src.belief import build_initial_agent_response_prompt
 from src.collaboration.generator import doctor_call, doctor_turn_prompt
 from src.judges.jev import JevClient
+from src.judges.rubric_scoring import TWO_STAGE_JEV_PROTOCOL
 from run_medmcqa_grpo_pilot import (
     load_rubrics,
+    rubric_set_metadata,
     score_one,
     visible_case,
 )
@@ -45,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default="/home/kai/models/Qwen3-8B")
     parser.add_argument(
         "--rubric-set",
-        default="outputs/rubric_candidates/rubric_guidance_set_11.json",
+        default="configs/rubrics/rubric_guidance_set_11_observable_v2.json",
     )
     parser.add_argument("--doctor-model", default="google/gemma-3-12b-it")
     parser.add_argument("--jev-endpoint", default="https://openrouter.ai/api/alpha/decisions")
@@ -145,14 +147,22 @@ def score_rollout(
 ) -> dict:
     try:
         result = score_one(client, case, doctor_text, response, rubrics, rubric_temperature)
-        raw = result["raw_rubric_reward"]
+        raw = result["raw_rubric_adherence"]
         return {
             "status": "scored",
             "labels": result["labels"],
             "normalized_labels": result["normalized_labels"],
             "raw_rubric_reward": raw,
+            "raw_rubric_adherence": raw,
             "scaled_rubric_reward": None if raw is None else rubric_weight * raw,
-            "jev_call": result["jev_call"],
+            "applicability_labels": result["applicability_labels"],
+            "applicability_probabilities": result["applicability_probabilities"],
+            "behavior_scores": result["behavior_scores"],
+            "behavior_probabilities": result["behavior_probabilities"],
+            "jev_calls": result["jev_calls"],
+            "jev_call": result["jev_calls"],
+            "jev_call_count": result["jev_call_count"],
+            "scoring_protocol": result["scoring_protocol"],
         }
     except Exception as exc:  # keep one failed API call from losing all rollouts
         return {
@@ -161,8 +171,11 @@ def score_rollout(
             "labels": {},
             "normalized_labels": {},
             "raw_rubric_reward": None,
+            "raw_rubric_adherence": None,
             "scaled_rubric_reward": None,
+            "jev_calls": None,
             "jev_call": None,
+            "jev_call_count": 0,
         }
 
 
@@ -204,7 +217,9 @@ def main() -> None:
     if not key:
         raise RuntimeError(f"{args.api_key_env} is not set")
     cases = load_cases(ROOT / args.input, args.start_index, args.num_cases)
-    rubrics = load_rubrics(ROOT / args.rubric_set)
+    rubric_path = ROOT / args.rubric_set
+    rubrics = load_rubrics(rubric_path)
+    rubric_metadata = rubric_set_metadata(rubric_path)
     doctor_system = (ROOT / "prompts/user_simulator.txt").read_text(encoding="utf-8")
     agent_system = (ROOT / "prompts/agent.txt").read_text(encoding="utf-8")
 
@@ -217,6 +232,7 @@ def main() -> None:
         "model": args.model,
         "doctor_model": args.doctor_model,
         "rubric_set": args.rubric_set,
+        **rubric_metadata,
         "rubrics": len(rubrics),
         "jev_model": args.jev_model,
         "max_completion_length": args.max_completion_length,
@@ -225,6 +241,7 @@ def main() -> None:
         "effectiveness_weight": 0.0,
         "seed": args.seed,
         "training": False,
+        "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
     }
     (output / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -328,14 +345,15 @@ def main() -> None:
                         "doctor_text": doctor_text,
                         "response": response,
                         "ground_truth": case.get("ground_truth"),
+                        **rubric_metadata,
                         **score,
                     }
                     handle.write(json.dumps(record, ensure_ascii=False) + "\n")
                     completed += 1
                     if score["status"] == "error":
                         errors += 1
-                    elif score["raw_rubric_reward"] is not None:
-                        raw_rewards.append(score["raw_rubric_reward"])
+                    elif score["raw_rubric_adherence"] is not None:
+                        raw_rewards.append(score["raw_rubric_adherence"])
                         label_counts.update(str(value) for value in score["labels"].values())
                 handle.flush()
             print(
@@ -351,9 +369,14 @@ def main() -> None:
         "rollouts_written_this_run": completed,
         "score_errors": errors,
         "rubric_score_counts": dict(label_counts),
+        "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
+        **rubric_metadata,
         "raw_rubric_reward_mean": sum(raw_rewards) / len(raw_rewards) if raw_rewards else None,
         "raw_rubric_reward_min": min(raw_rewards) if raw_rewards else None,
         "raw_rubric_reward_max": max(raw_rewards) if raw_rewards else None,
+        "raw_rubric_adherence_mean": sum(raw_rewards) / len(raw_rewards) if raw_rewards else None,
+        "raw_rubric_adherence_min": min(raw_rewards) if raw_rewards else None,
+        "raw_rubric_adherence_max": max(raw_rewards) if raw_rewards else None,
         "jev_calls": client.calls,
         "output": str(output.relative_to(ROOT)),
         "training": False,

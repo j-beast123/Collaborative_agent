@@ -74,6 +74,21 @@ def main() -> None:
         key=lambda record: str(record["rubric_id"]),
     )
     shard_records = records[args.shard_index :: args.num_shards]
+    rubric_set_versions = {record.get("rubric_set_version") for record in records if record.get("rubric_set_version")}
+    rubric_content_hashes = {
+        record.get("rubric_set_content_sha256")
+        for record in records
+        if record.get("rubric_set_content_sha256")
+    }
+    if len(rubric_set_versions) > 1 or len(rubric_content_hashes) > 1:
+        raise SystemExit("Candidate input mixes multiple rubric-set versions or content hashes")
+    validation_metadata = {
+        **({"rubric_set_version": next(iter(rubric_set_versions))} if rubric_set_versions else {}),
+        **({"rubric_set_content_sha256": next(iter(rubric_content_hashes))} if rubric_content_hashes else {}),
+        "validation_protocol": "ideal_behavior_task_recovery_v2",
+        "validation_requested_reruns": args.num_reruns,
+        "validation_min_successes": args.min_successes,
+    }
     missing = [record["source_trajectory_id"] for record in shard_records
                if record["source_trajectory_id"] not in by_trajectory]
     if missing:
@@ -121,6 +136,7 @@ def main() -> None:
             num_reruns=args.num_reruns,
             min_successes=args.min_successes,
             output_path=ROOT / args.validation_output,
+            validation_metadata=validation_metadata,
         )
     finally:
         if runtime.close:

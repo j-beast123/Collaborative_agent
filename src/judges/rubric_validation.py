@@ -38,12 +38,28 @@ def validate_candidates(
     output_path: str | Path,
     intervene: Callable[[dict, dict, str], dict] | None = None,
     behavior: Callable[[dict, dict, str], dict] | None = None,
+    validation_metadata: dict | None = None,
 ) -> dict[str, int]:
     """rerun(trajectory, turn_index, instruction, rerun_index) -> rerun result."""
     if type(num_reruns) is not int or num_reruns < 1 or not 1 <= min_successes <= num_reruns:
         raise ValueError("Need num_reruns >= 1 and 1 <= min_successes <= num_reruns")
     output = Path(output_path)
-    done = {rid for rid, r in load_validations(output).items() if r["validation_status"] in DECIDED}
+    existing = load_validations(output)
+    if validation_metadata:
+        identity_fields = (
+            "rubric_set_version", "rubric_set_content_sha256", "validation_protocol",
+        )
+        for rubric_id, row in existing.items():
+            mismatches = {
+                key: (row.get(key), validation_metadata.get(key))
+                for key in identity_fields
+                if validation_metadata.get(key) is not None and row.get(key) != validation_metadata.get(key)
+            }
+            if mismatches:
+                raise ValueError(
+                    f"existing validation output has incompatible metadata for {rubric_id}: {mismatches}"
+                )
+    done = {rid for rid, r in existing.items() if r["validation_status"] in DECIDED}
     counts = {"pass": 0, "fail": 0, "error": 0, "skipped_done": 0, **({GENERATION_FAILURE: 0} if intervene else {})}
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("a", encoding="utf-8") as handle:
@@ -95,6 +111,7 @@ def validate_candidates(
                 status = "pass" if behavioral["passed"] else "fail"
             counts[status] += 1
             handle.write(json.dumps({
+                **(validation_metadata or {}),
                 "rubric_id": record["rubric_id"],
                 "source_trajectory_id": record["source_trajectory_id"],
                 "intervention_turn_id": analysis["intervention_turn_id"],

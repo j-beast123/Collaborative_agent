@@ -111,6 +111,29 @@ def test_validate_candidates_pass_fail_error_and_resume(tmp_path):
         validate_candidates(records, trajectories, rerun, num_reruns=1, min_successes=2, output_path=tmp_path / "x")
 
 
+def test_validation_resume_requires_matching_rubric_metadata(tmp_path):
+    records = [valid_record("t1")]
+    trajectories = {"t1": rich_trajectory("t1")}
+    rerun = lambda trajectory, turn, instruction, index: {"status": "completed", "correct": True}  # noqa: E731
+    output = tmp_path / "versioned.jsonl"
+    metadata = {
+        "rubric_set_version": "v2",
+        "rubric_set_content_sha256": "hash-v2",
+        "validation_protocol": "ideal_behavior_task_recovery_v2",
+    }
+    validate_candidates(
+        records, trajectories, rerun, num_reruns=1, min_successes=1,
+        output_path=output, validation_metadata=metadata,
+    )
+    assert load_validations(output)["cand-t1"]["rubric_set_content_sha256"] == "hash-v2"
+    with pytest.raises(ValueError, match="incompatible metadata"):
+        validate_candidates(
+            records, trajectories, rerun, num_reruns=1, min_successes=1,
+            output_path=output,
+            validation_metadata={**metadata, "rubric_set_content_sha256": "different"},
+        )
+
+
 def test_build_rubrics_consolidates_only_validated_candidates(tmp_path):
     rows = [rich_trajectory("t1"), rich_trajectory("t2")]
     (tmp_path / "traj.jsonl").write_text("\n".join(json.dumps(r) for r in rows))

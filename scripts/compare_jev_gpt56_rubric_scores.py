@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -14,7 +15,12 @@ if str(ROOT) not in sys.path:
 
 from src.judges.jev import JevClient
 from src.judges.llm import CachedChat, build_chat_backend, parse_json_object
-from src.judges.rubric_scoring import ChatRubricScorer, ScoringItem
+from src.judges.rubric_scoring import (
+    TWO_STAGE_JEV_PROTOCOL,
+    ChatRubricScorer,
+    ScoringItem,
+    two_stage_jev_score,
+)
 
 
 def read_jsonl(path: Path):
@@ -23,9 +29,10 @@ def read_jsonl(path: Path):
             yield json.loads(line)
 
 
-def load_trajectories(pattern: str, limit: int | None) -> list[dict]:
+def load_trajectories(pattern: str, limit: int | None) -> tuple[list[dict], list[str]]:
     rows, seen = [], set()
-    for name in sorted(glob.glob(str(ROOT / pattern))):
+    names = sorted(glob.glob(str(ROOT / pattern)))
+    for name in names:
         for row in read_jsonl(Path(name)):
             trajectory_id = str(row.get("trajectory_id", ""))
             if not trajectory_id or trajectory_id in seen or row.get("trajectory_status") != "valid":
@@ -33,11 +40,11 @@ def load_trajectories(pattern: str, limit: int | None) -> list[dict]:
             seen.add(trajectory_id)
             rows.append(row)
             if limit and len(rows) >= limit:
-                return rows
-    return rows
+                return rows, names
+    return rows, names
 
 
-def load_rubrics(path: str) -> list[dict]:
+def load_rubrics(path: str) -> tuple[list[dict], dict]:
     payload = json.loads((ROOT / path).read_text(encoding="utf-8"))
     rubrics = []
     for raw in payload.get("rubrics", []):
@@ -56,13 +63,23 @@ def load_rubrics(path: str) -> list[dict]:
             # Only the visible dialogue condition is shared by both judges.
             "applicability_condition": raw["applicability_condition"],
             "scores": {
-                level: {"behavior": behavior}
+                level: behavior
                 for level, behavior in score_behaviors.items()
             },
         })
     if not rubrics:
         raise ValueError(f"no rubrics in {path}")
-    return rubrics
+    if len({rubric["rubric_id"] for rubric in rubrics}) != len(rubrics):
+        raise ValueError(f"duplicate rubric_id values in {path}")
+    return rubrics, payload
+
+
+def display_path(path: str) -> str:
+    resolved = Path(path).resolve()
+    try:
+        return str(resolved.relative_to(ROOT.resolve()))
+    except ValueError:
+        return str(resolved)
 
 
 def visible_turn(turn: dict) -> dict:
@@ -108,51 +125,40 @@ def items(trajectories: list[dict], rubrics: list[dict], include_initial: bool) 
 
 
 def jev_score(client: JevClient, item: ScoringItem) -> dict:
-    questions = {}
-    for rubric in item.rubrics:
-        rid = rubric["rubric_id"]
-        questions[rid] = {
-            "type": "choice",
-            "instructions": (
-                "Judge only this target Agent turn. First determine whether the "
-                "visible applicability condition occurred before the target turn. "
-                "Do not use later turns, ground truth, final correctness, or hidden "
-                "state. If it does not apply, choose NA; otherwise choose the level "
-                "whose behavior the target response shows.\n"
-                f"Applicability condition: {rubric['applicability_condition']}"
-            ),
-            "criteria": {
-                "NA": "The applicability condition is absent or unsupported before the target turn.",
-                **{level: rubric["scores"][level]["behavior"] for level in ("0", "1", "2")},
-            },
-        }
-    state = json.dumps(item.payload(), ensure_ascii=False)
-    answers, call = client.decide(state, questions, purpose="rubric_compare_jev")
+    scored = two_stage_jev_score(
+        client,
+        history_state=item.pre_target_payload(),
+        target_state=item.target_payload(),
+        rubrics=list(item.rubrics),
+        purpose="rubric_compare_jev",
+    )
+    calls = scored.pop("calls")
     return {
         "item_id": item.item_id,
         "scorer": "jev",
         "status": "scored",
-        "labels": {rid: answer["value"] for rid, answer in answers.items()},
-        "probabilities": {rid: answer.get("probabilities") for rid, answer in answers.items()},
-        "call": call,
+        **scored,
+        "call": calls,
     }
 
 
-def compare(jev_rows: list[dict], gpt_rows: list[dict], items_by_id: dict[str, ScoringItem], rubric_ids: list[str]) -> dict:
+def compare(jev_rows: list[dict], gpt_rows: list[dict], rubric_ids: list[str]) -> dict:
     gpt = {row["item_id"]: row for row in gpt_rows}
     jev = {row["item_id"]: row for row in jev_rows}
     counts = {"units": 0, "label_agreement": 0, "applicability_agreement": 0, "numeric_score_agreement_when_both_applicable": 0,
-              "both_applicable": 0, "jev_only_applicable": 0, "gpt_only_applicable": 0}
+              "both_applicable": 0, "jev_only_applicable": 0, "gpt_only_applicable": 0,
+              "skipped_invalid_units": 0}
     disagreements = []
     for item_id in sorted(set(jev) & set(gpt)):
+        if jev[item_id].get("status") != "scored" or gpt[item_id].get("status") != "scored":
+            counts["skipped_invalid_units"] += len(rubric_ids)
+            continue
         for rid in rubric_ids:
             jl = canonical_label(jev[item_id]["labels"].get(rid))
-            gl = canonical_label(next(
-                (s["score"] if s.get("applicable") else "NA"
-                 for s in gpt[item_id].get("raw_scores", [])
-                 if s.get("rubric_id") == rid),
-                gpt[item_id].get("labels", {}).get(rid),
-            ))
+            gl = canonical_label(gpt[item_id].get("labels", {}).get(rid))
+            if jl not in {"NA", 0, 1, 2} or gl not in {"NA", 0, 1, 2}:
+                counts["skipped_invalid_units"] += 1
+                continue
             counts["units"] += 1
             if jl == gl:
                 counts["label_agreement"] += 1
@@ -192,13 +198,38 @@ def main() -> None:
     parser.add_argument("--jev-endpoint", default="https://openrouter.ai/api/alpha/decisions")
     parser.add_argument("--jev-model", default="typesafe/jev-1.13")
     parser.add_argument("--jev-api-key-env", default="OPENROUTER_API_KEY")
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
-    trajectories = load_trajectories(args.trajectory_glob, args.max_trajectories)
-    rubrics = load_rubrics(args.rubric_set)
+    trajectories, trajectory_files = load_trajectories(args.trajectory_glob, args.max_trajectories)
+    rubrics, rubric_payload = load_rubrics(args.rubric_set)
     scoring_items = items(trajectories, rubrics, args.include_initial_turn)
     out = ROOT / args.output_dir
     out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()) and not args.overwrite:
+        raise FileExistsError(f"output directory is not empty: {out}; use --overwrite or a new directory")
+    if args.overwrite:
+        for name in ("scores_jev.jsonl", "scores_gpt56_sol.jsonl", "comparison.json", "run_metadata.json"):
+            (out / name).unlink(missing_ok=True)
+
+    rubric_path = ROOT / args.rubric_set
+    rubric_sha256 = hashlib.sha256(rubric_path.read_bytes()).hexdigest()
+    rubric_content_sha256 = hashlib.sha256(json.dumps(
+        rubric_payload.get("rubrics") or [], ensure_ascii=False,
+        sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
+    rubric_set_version = rubric_payload.get("rubric_set_version")
+    if rubric_set_version and rubric_set_version != rubric_content_sha256[:len(str(rubric_set_version))]:
+        raise ValueError(
+            f"rubric_set_version does not match rubric content: declared={rubric_set_version} "
+            f"computed={rubric_content_sha256[:len(str(rubric_set_version))]}"
+        )
+    trajectory_versions = {
+        str(row["trajectory_id"]): (
+            row.get("rubric_set_version") or (row.get("generation") or {}).get("rubric_set_version")
+        )
+        for row in trajectories
+    }
 
     gpt_system = (ROOT / "prompts/rubric_scorer_visible_only.txt").read_text(encoding="utf-8")
     gpt_chat = CachedChat(
@@ -216,9 +247,19 @@ def main() -> None:
     jev_client = JevClient(endpoint=args.jev_endpoint, model=args.jev_model, api_key_env=args.jev_api_key_env)
     jev_rows, gpt_rows = [], []
     for item in scoring_items:
-        jev_rows.append(jev_score(jev_client, item))
+        metadata = {
+            "rubric_set": args.rubric_set,
+            "rubric_set_version": rubric_set_version,
+            "rubric_set_sha256": rubric_sha256,
+            "rubric_set_content_sha256": rubric_content_sha256,
+            "trajectory_rubric_set_version": trajectory_versions.get(item.trajectory_id),
+        }
+        jev_rows.append({
+            **jev_score(jev_client, item), **metadata,
+            "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
+        })
         gpt_result = gpt_scorer.score(item)
-        gpt_row = gpt_result.to_dict()
+        gpt_row = {**gpt_result.to_dict(), **metadata, "scoring_protocol": "single_call_gpt_visible_only_v1"}
         # Keep the raw structured score entries for applicability/label comparison.
         if gpt_result.raw_response:
             parsed, _ = parse_json_object(gpt_result.raw_response)
@@ -227,10 +268,27 @@ def main() -> None:
 
     for name, rows in (("scores_jev.jsonl", jev_rows), ("scores_gpt56_sol.jsonl", gpt_rows)):
         (out / name).write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8")
-    report = compare(jev_rows, gpt_rows, {item.item_id: item for item in scoring_items},
-                     [rubric["rubric_id"] for rubric in rubrics])
+    report = compare(jev_rows, gpt_rows, [rubric["rubric_id"] for rubric in rubrics])
     report.update({"trajectories": len(trajectories), "items": len(scoring_items), "rubrics": len(rubrics),
-                   "gpt_model": args.gpt_model, "jev_model": args.jev_model})
+                   "gpt_model": args.gpt_model, "jev_model": args.jev_model,
+                   "rubric_set": args.rubric_set, "rubric_set_version": rubric_set_version,
+                   "rubric_set_sha256": rubric_sha256,
+                   "rubric_set_content_sha256": rubric_content_sha256,
+                   "trajectory_rubric_set_versions": sorted({v for v in trajectory_versions.values() if v})})
+    metadata = {
+        "trajectory_glob": args.trajectory_glob,
+        "trajectory_files": [display_path(name) for name in trajectory_files],
+        "max_trajectories": args.max_trajectories,
+        "include_initial_turn": args.include_initial_turn,
+        "rubric_set": args.rubric_set,
+        "rubric_set_version": rubric_set_version,
+        "rubric_set_sha256": rubric_sha256,
+        "rubric_set_content_sha256": rubric_content_sha256,
+        "trajectory_rubric_set_versions": report["trajectory_rubric_set_versions"],
+        "jev_scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
+        "gpt_scoring_protocol": "single_call_gpt_visible_only_v1",
+    }
+    (out / "run_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (out / "comparison.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({key: report[key] for key in ("trajectories", "items", "rubrics", "label_agreement_rate",
                                                     "applicability_agreement_rate", "numeric_score_agreement_rate_when_both_applicable")}, ensure_ascii=False, indent=2))

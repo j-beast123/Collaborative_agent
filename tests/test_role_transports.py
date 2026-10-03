@@ -14,7 +14,7 @@ from src.agentclinic.protocol import ASSESSMENT, ProtocolSpec, continue_dialogue
 from src.agentclinic.trajectory import collaborate
 from src.common.config import IntegrationUnavailable, read_config
 from src.judges.jev import JevClient, parse_answers
-from src.judges.rubric_scoring import JevRubricScorer, ScoringItem
+from src.judges.rubric_scoring import TWO_STAGE_JEV_PROTOCOL, JevRubricScorer, ScoringItem
 from test_agentclinic import GOLD, cases, diagnosis_judge, fake_runtime  # noqa: F401 (cases is a fixture)
 from test_judges import schema_rubric
 
@@ -86,23 +86,50 @@ def test_jev_rubric_scorer_returns_labels_and_probabilities_without_text(monkeyp
                                              {"turn_id": 1, "speaker": "agent", "text": "A answers"}), rubrics,
                        pre_response_state={"better_supported_position": "agent"})
     sent = []
-    scorer = JevRubricScorer("jev", {}, client=client(lambda p: typed(p, lambda qid, q: {"r0": "2", "r1": "NA", "r2": "0"}[qid]), sent))
+    def two_stage_answer(payload):
+        def choose(qid, question):
+            if set(question["criteria"]) == {"Y", "N"}:
+                return {"r0": "Y", "r1": "N", "r2": "Y"}[qid]
+            return {"r0": "2", "r2": "0"}[qid]
+        return typed(payload, choose)
+
+    scorer = JevRubricScorer("jev", {}, client=client(two_stage_answer, sent))
     result = scorer.score(item)
     assert result.status == "scored" and result.labels == {"r0": 2, "r1": "NA", "r2": 0} and result.rationales == {}
-    assert result.probabilities["r0"]["2"] == 0.7 and set(result.probabilities["r1"]) == {"NA", "0", "1", "2"}
-    payload = sent[0]["payload"]
-    assert set(payload["questions"]) == {"r0", "r1", "r2"} and list(payload["questions"]["r0"]["criteria"]) == ["NA", "0", "1", "2"]
-    assert "level 2" in payload["questions"]["r0"]["criteria"]["2"] and "clinician repeats a claim" in payload["questions"]["r0"]["instructions"]
+    assert result.applicability_labels == {"r0": "Y", "r1": "N", "r2": "Y"}
+    assert result.behavior_scores == {"r0": 2, "r2": 0}
+    assert result.call_count == 2 and result.scoring_protocol == TWO_STAGE_JEV_PROTOCOL
+    assert result.call["applicability"] and result.call["behavior"]
+    assert result.probabilities["r0"]["2"] == 0.7 and result.probabilities["r1"] == {"NA": 0.7}
+    applicability_payload, behavior_payload = sent[0]["payload"], sent[1]["payload"]
+    assert set(applicability_payload["questions"]) == {"r0", "r1", "r2"}
+    assert list(applicability_payload["questions"]["r0"]["criteria"]) == ["Y", "N"]
+    assert set(behavior_payload["questions"]) == {"r0", "r2"}
+    assert list(behavior_payload["questions"]["r0"]["criteria"]) == ["0", "1", "2"]
+    assert "level 2" in behavior_payload["questions"]["r0"]["criteria"]["2"]
+    assert "clinician repeats a claim" in applicability_payload["questions"]["r0"]["instructions"]
     # many rubrics go in several calls of max_rubrics_per_call (Jev's context is limited); the labels are the same
-    split = JevRubricScorer("jev", {"max_rubrics_per_call": 2}, client=client(lambda p: typed(p, lambda qid, q: {"r0": "2", "r1": "NA", "r2": "0"}[qid]), sent))
-    assert split.score(item).labels == result.labels and [len(s["payload"]["questions"]) for s in sent[1:]] == [2, 1]
-    state = json.loads(payload["state"])  # what the scorer sees: the dialogue up to the target turn and the pre-turn state
-    assert [t["text"] for t in state["dialogue_through_target_turn"]] == ["D says X", "A answers"] and "rubrics" not in state
-    assert state["agent_pre_response_state"] == {"better_supported_position": "agent"}
+    split = JevRubricScorer("jev", {"max_rubrics_per_call": 2}, client=client(two_stage_answer, sent))
+    assert split.score(item).labels == result.labels
+    assert [len(s["payload"]["questions"]) for s in sent[2:]] == [2, 1, 2]
+    applicability_state = json.loads(applicability_payload["state"])
+    behavior_state = json.loads(behavior_payload["state"])
+    assert [t["text"] for t in applicability_state["dialogue_before_target_turn"]] == ["D says X"]
+    assert "A answers" not in applicability_payload["state"] and "target_turn" not in applicability_state
+    assert [t["text"] for t in behavior_state["dialogue_through_target_turn"]] == ["D says X", "A answers"]
+    assert applicability_state["agent_pre_response_state"] == {"better_supported_position": "agent"}
     assert not any(word in sent[0]["payload"]["state"] for word in ("final_diagnosis", "Correct_Diagnosis", GOLD))
     # an unconfigured scorer does not score
     with pytest.raises(IntegrationUnavailable, match="not configured"):
         JevRubricScorer("jev", {"endpoint": None, "model_id": None, "api_key_env": None}).score(item)
+
+    all_n_sent = []
+    all_n = JevRubricScorer(
+        "jev", {}, client=client(lambda payload: typed(payload, lambda qid, question: "N"), all_n_sent),
+    ).score(item)
+    assert all_n.labels == {"r0": "NA", "r1": "NA", "r2": "NA"}
+    assert all_n.behavior_scores == {} and all_n.call_count == 1
+    assert len(all_n_sent) == 1 and all_n.call["behavior"] is None
 
 
 def test_jev_compliance_judge_gives_the_same_row_as_the_written_judge(cases, monkeypatch):

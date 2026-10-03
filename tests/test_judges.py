@@ -7,12 +7,18 @@ import json
 import pytest
 
 from scripts import build_rubrics, compare_scorers
+from scripts.compare_jev_gpt56_rubric_scores import compare as compare_jev_gpt
 from src.common.config import IntegrationUnavailable
 from src.judges.agent_state import pre_response_state
 from src.judges.failure_analysis import analyzer_input, candidate_rubric, select_failures, validate_analysis
 from src.judges.llm import CachedChat, ChatRequest, OpenAICompatibleBackend, ScriptedBackend, parse_json_object
 from src.judges.rubric_consolidation import build_final_rubrics
-from src.judges.rubric_scoring import JevRubricScorer, build_scoring_items, normalize_categorical
+from src.judges.rubric_scoring import (
+    JevRubricScorer,
+    build_scoring_items,
+    final_rubric_view,
+    normalize_categorical,
+)
 from src.judges.scorer_comparison import pair_agreement, quadratic_weighted_kappa
 
 ROOT = build_rubrics.ROOT
@@ -26,6 +32,17 @@ def schema_rubric(name="n", user="clinician repeats a claim", agent="agent judge
 
 
 RUBRIC = dict(schema_rubric(), rubric_id="r1")
+VISIBLE_RUBRIC = {
+    "rubric_id": "visible-r1",
+    "name": "Visible comparison check",
+    "applicability_condition": "The clinician ranks B above A using a shared feature.",
+    "required_behavior": "The agent checks whether the shared feature distinguishes B from A.",
+    "scores": {
+        "0": "The agent accepts the ranking without checking the shared feature.",
+        "1": "The agent notices the shared feature but does not complete the comparison.",
+        "2": "The agent checks whether the shared feature distinguishes B from A and calibrates the ranking.",
+    },
+}
 
 
 def trajectory(tid, correct=False, status="valid", agent_text="I agree, switching to B."):
@@ -206,6 +223,28 @@ def test_compare_scorers_jev_unavailable_and_gpt_vs_human(tmp_path):
     assert (tmp_path / "audit_units.jsonl").exists()
 
 
+def test_compare_scorers_observable_set_hides_legacy_agent_state(tmp_path):
+    rubric_set = {
+        "schema_version": "conditional-rubric-guidance-v2",
+        "rubrics": [VISIBLE_RUBRIC],
+    }
+    backend = ScriptedBackend(scorer_reply({3: 2}))
+
+    def factory(settings, name):
+        return CachedChat(backend, None)
+
+    report = compare_scorers.run(
+        CONFIG, [trajectory("visible")], rubric_set, tmp_path,
+        chat_factory=factory,
+    )
+    assert report["items"] == 1
+    request = backend.calls[0]
+    payload = json.loads(request.user.split("\n\n", 1)[1])
+    assert "USER-SIDE CONTEXT AND AGENT-SIDE STATE" not in request.system
+    assert "agent_pre_response_state" not in payload
+    assert payload["rubrics"][0]["applicability_condition"] == VISIBLE_RUBRIC["applicability_condition"]
+
+
 def test_scoring_items_carry_state_but_hide_future_and_outcome():
     t = trajectory("t1")
     t["turns"] += [{"speaker": "doctor", "text": "FUTURE doctor turn", "round": 3},
@@ -216,6 +255,21 @@ def test_scoring_items_carry_state_but_hide_future_and_outcome():
     assert first["agent_pre_response_state"]["evidence_sufficient"] is True
     text = json.dumps(first)
     assert "FUTURE" not in text and "ground_truth" not in text and "is_correct" not in text
+
+
+def test_observable_rubric_items_exclude_agent_side_state():
+    view = final_rubric_view(VISIBLE_RUBRIC)
+    item = build_scoring_items(trajectory("visible"), [view])[0]
+    assert item.pre_response_state is None
+    assert "agent_pre_response_state" not in item.pre_target_payload()
+    assert "agent_pre_response_state" not in item.payload()
+    assert item.pre_target_payload()["case_context"] == {
+        "question": "q", "scenario": None, "options": {"A": "a", "B": "b"},
+    }
+    assert "ground_truth" not in item.pre_target_payload()["case_context"]
+    assert item.rubrics[0]["applicability_condition"] == VISIBLE_RUBRIC["applicability_condition"]
+    with pytest.raises(ValueError, match="cannot be mixed"):
+        build_scoring_items(trajectory("mixed"), [RUBRIC, view])
 
 
 def test_jev_contract_and_normalization():
@@ -235,6 +289,16 @@ def test_metrics_and_parsing():
     assert agreement["applicability_agreement"] == 0.5 and agreement["both_applicable_units"] == 1
     assert parse_json_object('```json\n{"a": 1}\n```') == ({"a": 1}, "valid")
     assert parse_json_object("no json")[1] == "invalid_json"
+
+
+def test_direct_jev_gpt_comparison_skips_invalid_judge_units():
+    report = compare_jev_gpt(
+        [{"item_id": "i", "labels": {"r1": 2, "r2": "NA"}}],
+        [{"item_id": "i", "status": "invalid", "labels": {"r1": 2}}],
+        ["r1", "r2"],
+    )
+    assert report["counts"]["units"] == 0
+    assert report["counts"]["skipped_invalid_units"] == 2
 
 
 def test_backend_config_and_cache(tmp_path, monkeypatch):

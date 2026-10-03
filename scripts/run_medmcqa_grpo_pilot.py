@@ -9,6 +9,7 @@ future turns, and final outcomes are never sent to Jev.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -24,7 +25,9 @@ if str(ROOT) not in sys.path:
 from src.collaboration.generator import doctor_call, doctor_turn_prompt
 from src.belief import build_initial_agent_response_prompt
 from src.judges.jev import JevClient
-from src.judges.reward import turn_appropriateness
+from src.judges.reward import weighted_soft_min
+from src.judges.rubric_schema import normalize_score
+from src.judges.rubric_scoring import TWO_STAGE_JEV_PROTOCOL, two_stage_jev_score
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default="/home/kai/models/Qwen3-8B")
     parser.add_argument(
         "--rubric-set",
-        default="outputs/rubric_candidates/rubric_guidance_set_11.json",
+        default="configs/rubrics/rubric_guidance_set_11_observable_v2.json",
     )
     parser.add_argument("--doctor-model", default="google/gemma-3-12b-it")
     parser.add_argument("--jev-endpoint", default="https://openrouter.ai/api/alpha/decisions")
@@ -51,6 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rubric-weight", type=float, default=0.3)
     parser.add_argument("--rubric-temperature", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--allow-unvalidated-rubrics", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -91,7 +95,33 @@ def load_rubrics(path: Path) -> list[dict]:
         })
     if not result:
         raise ValueError(f"no rubrics found in {path}")
+    if len({rubric["rubric_id"] for rubric in result}) != len(result):
+        raise ValueError(f"duplicate rubric_id values in {path}")
     return result
+
+
+def rubric_set_metadata(path: Path) -> dict:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    rubrics = payload.get("rubrics") or []
+    canonical = json.dumps(
+        rubrics, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    content_sha256 = hashlib.sha256(canonical).hexdigest()
+    declared_version = payload.get("rubric_set_version")
+    if declared_version and declared_version != content_sha256[: len(str(declared_version))]:
+        raise ValueError(
+            f"rubric_set_version does not match rubric content in {path}: "
+            f"declared={declared_version} computed={content_sha256[:len(str(declared_version))]}"
+        )
+    return {
+        "rubric_set_version": declared_version,
+        "rubric_set_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "rubric_set_content_sha256": content_sha256,
+        "rubric_set_schema_version": payload.get("schema_version"),
+        "rubric_set_validation_status": payload.get("validation_status"),
+        "rubric_set_parent_version": payload.get("parent_rubric_set_version"),
+        "rubric_set_parent_content_sha256": payload.get("parent_rubric_set_content_sha256"),
+    }
 
 
 def completion_text(completion: Any) -> str:
@@ -108,29 +138,6 @@ def visible_case(case: dict) -> dict:
     return {key: case.get(key) for key in ("question", "scenario", "options")}
 
 
-def jev_questions(rubrics: list[dict]) -> dict[str, dict]:
-    questions = {}
-    for rubric in rubrics:
-        questions[rubric["rubric_id"]] = {
-            "type": "choice",
-            "instructions": (
-                "Judge only the target Agent turn. Use the dialogue before and through the target turn. "
-                "First determine whether the applicability condition is observable before the target turn. "
-                "If it is absent or unsupported, choose NA. If it applies, choose the level whose behavior "
-                "the target response actually demonstrates. Mentioning or promising an action is not performing it. "
-                f"Applicability condition: {rubric['applicability_condition']} "
-                f"Required behavior when applicable: {rubric['required_behavior']}"
-            ),
-            "criteria": {
-                "NA": "The applicability condition is absent or unsupported before the target turn.",
-                "0": rubric["scores"]["0"],
-                "1": rubric["scores"]["1"],
-                "2": rubric["scores"]["2"],
-            },
-        }
-    return questions
-
-
 def score_one(
     client: JevClient,
     case: dict,
@@ -139,37 +146,57 @@ def score_one(
     rubrics: list[dict],
     rubric_temperature: float,
 ) -> dict:
-    state = json.dumps(
-        {
-            "trajectory_id": f"grpo_pilot:{case['case_id']}",
-            "turn_id": 1,
-            "dialogue_through_target_turn": [
-                {"turn_id": 0, "speaker": "doctor", "text": doctor_text},
-                {"turn_id": 1, "speaker": "agent", "text": response},
-            ],
-            "target_turn": {"turn_id": 1, "speaker": "agent", "text": response},
-            "agent_pre_response_state": None,
-            "case_context": visible_case(case),
-        },
-        ensure_ascii=False,
-    )
-    answers, call = client.decide(state, jev_questions(rubrics), purpose="grpo_rubric_reward")
-    labels = {rid: answer["value"] for rid, answer in answers.items()}
-    normalized = {
-        rid: (int(label) if isinstance(label, str) and label in {"0", "1", "2"} else label)
-        for rid, label in labels.items()
+    history_state = {
+        "trajectory_id": f"grpo_pilot:{case['case_id']}",
+        "turn_id": 1,
+        "dialogue_before_target_turn": [
+            {"turn_id": 0, "speaker": "doctor", "text": doctor_text},
+        ],
+        "case_context": visible_case(case),
     }
-    raw_value = turn_appropriateness(normalized, method="weighted_softmin", tau=rubric_temperature)
+    target_state = {
+        "trajectory_id": f"grpo_pilot:{case['case_id']}",
+        "turn_id": 1,
+        "dialogue_through_target_turn": [
+            {"turn_id": 0, "speaker": "doctor", "text": doctor_text},
+            {"turn_id": 1, "speaker": "agent", "text": response},
+        ],
+        "target_turn": {"turn_id": 1, "speaker": "agent", "text": response},
+        "case_context": visible_case(case),
+    }
+    scored = two_stage_jev_score(
+        client,
+        history_state=history_state,
+        target_state=target_state,
+        rubrics=rubrics,
+        purpose="grpo_rubric_adherence",
+    )
+    labels = scored["labels"]
+    normalized = dict(labels)
+    applicable = [normalize_score(value) for value in normalized.values() if value != "NA"]
+    raw_value = (
+        weighted_soft_min(applicable, [1.0] * len(applicable), rubric_temperature)
+        if applicable else None
+    )
     return {
         "labels": labels,
         "normalized_labels": normalized,
+        "raw_rubric_adherence": raw_value,
         "raw_rubric_reward": raw_value,
-        "jev_call": call,
+        "applicability_labels": scored["applicability_labels"],
+        "applicability_probabilities": scored["applicability_probabilities"],
+        "behavior_scores": scored["behavior_scores"],
+        "behavior_probabilities": scored["behavior_probabilities"],
+        "jev_calls": scored["calls"],
+        "jev_call": scored["calls"],
+        "jev_call_count": scored["call_count"],
+        "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
         "response": response,
     }
 
 
-def build_reward(case: dict, doctor_text: str, rubrics: list[dict], client: JevClient, output: Path, args: argparse.Namespace):
+def build_reward(case: dict, doctor_text: str, rubrics: list[dict], client: JevClient,
+                 output: Path, args: argparse.Namespace, rubric_metadata: dict | None = None):
     lock = Lock()
     reward_path = output / "reward_log.jsonl"
     reward_path.parent.mkdir(parents=True, exist_ok=True)
@@ -180,14 +207,16 @@ def build_reward(case: dict, doctor_text: str, rubrics: list[dict], client: JevC
             futures = [pool.submit(score_one, client, case, doctor_text, response, rubrics, args.rubric_temperature)
                        for response in responses]
             scored = [future.result() for future in futures]
-        available = [row["raw_rubric_reward"] for row in scored if row["raw_rubric_reward"] is not None]
-        group_mean = sum(available) / len(available) if available else 0.0
+        available = [row["raw_rubric_adherence"] for row in scored if row["raw_rubric_adherence"] is not None]
+        group_mean = sum(available) / len(available) if available else None
         rewards = []
         with lock, reward_path.open("a", encoding="utf-8") as handle:
             for row in scored:
-                raw = row["raw_rubric_reward"]
-                used = group_mean if raw is None else raw
-                reward = args.rubric_weight * used
+                raw = row["raw_rubric_adherence"]
+                # TRL 1.14 treats None as an unscorable completion, excludes it
+                # from the group baseline, and gives it zero advantage. Do not
+                # invent a rubric-adherence value for an all-NA response.
+                reward = None if raw is None else args.rubric_weight * raw
                 rewards.append(reward)
                 handle.write(json.dumps({
                     "global_step": getattr(trainer_state, "global_step", None),
@@ -195,11 +224,20 @@ def build_reward(case: dict, doctor_text: str, rubrics: list[dict], client: JevC
                     "reward": reward,
                     "rubric_weight": args.rubric_weight,
                     "raw_rubric_reward": raw,
+                    "raw_rubric_adherence": raw,
                     "group_mean_rubric_reward": group_mean,
+                    "group_mean_rubric_adherence": group_mean,
                     "no_applicable_rubric": raw is None,
                     "rubric_scores": row["labels"],
+                    "applicability_labels": row["applicability_labels"],
+                    "applicability_probabilities": row["applicability_probabilities"],
+                    "behavior_scores": row["behavior_scores"],
+                    "behavior_probabilities": row["behavior_probabilities"],
                     "response": row["response"],
-                    "jev_call": row["jev_call"],
+                    "jev_calls": row["jev_calls"],
+                    "jev_call_count": row["jev_call_count"],
+                    "scoring_protocol": row["scoring_protocol"],
+                    **(rubric_metadata or {}),
                 }, ensure_ascii=False) + "\n")
         return rewards
 
@@ -221,7 +259,15 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     trainer_output = output / "trainer"
     case = load_case(ROOT / args.input, args.case_index)
-    rubrics = load_rubrics(ROOT / args.rubric_set)
+    rubric_path = ROOT / args.rubric_set
+    rubrics = load_rubrics(rubric_path)
+    rubric_metadata = rubric_set_metadata(rubric_path)
+    validation_status = rubric_metadata.get("rubric_set_validation_status")
+    if validation_status and validation_status not in {"validated", "passed"} and not args.allow_unvalidated_rubrics:
+        raise ValueError(
+            f"rubric set is not validated for training: {validation_status}; "
+            "revalidate it first or use --allow-unvalidated-rubrics only for a deliberate smoke test"
+        )
 
     visible = visible_case(case)
     (output / "case_context.json").write_text(json.dumps(visible, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -231,7 +277,10 @@ def main() -> None:
         "case_id": case["case_id"],
         "model": args.model,
         "rubric_set": args.rubric_set,
+        **rubric_metadata,
         "rubrics": len(rubrics),
+        "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
+        "allow_unvalidated_rubrics": args.allow_unvalidated_rubrics,
         "jev_model": args.jev_model,
         "num_generations": args.num_generations,
         "max_completion_length": args.max_completion_length,
@@ -292,7 +341,7 @@ def main() -> None:
         ],
     }])
     client = JevClient(endpoint=args.jev_endpoint, model=args.jev_model, api_key_env=args.jev_api_key_env)
-    reward = build_reward(case, doctor_text, rubrics, client, output, args)
+    reward = build_reward(case, doctor_text, rubrics, client, output, args, rubric_metadata)
     from src.grpo.callbacks import JsonlLog
 
     trainer_args = GRPOConfig(
@@ -323,6 +372,8 @@ def main() -> None:
         "output": str(output.relative_to(ROOT)),
         "grpo": {"num_generations": args.num_generations, "beta": args.beta, "loss_type": "grpo"},
         "reward": {"rubric": args.rubric_weight, "outcome": 0.0, "effectiveness": 0.0},
+        "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
+        **rubric_metadata,
     }
     (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))

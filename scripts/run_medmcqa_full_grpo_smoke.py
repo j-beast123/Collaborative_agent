@@ -36,7 +36,7 @@ try:
         score_agent_turn,
         visible_case,
     )
-    from run_medmcqa_grpo_pilot import load_rubrics
+    from run_medmcqa_grpo_pilot import load_rubrics, rubric_set_metadata
 except ModuleNotFoundError:
     from scripts.run_medmcqa_full_trajectory_smoke import (
         generate_trajectory,
@@ -45,10 +45,11 @@ except ModuleNotFoundError:
         score_agent_turn,
         visible_case,
     )
-    from scripts.run_medmcqa_grpo_pilot import load_rubrics
+    from scripts.run_medmcqa_grpo_pilot import load_rubrics, rubric_set_metadata
 from src.judges.jev import JevClient
 from src.judges.reward import soft_min, weighted_soft_min
 from src.judges.rubric_schema import normalize_score
+from src.judges.rubric_scoring import TWO_STAGE_JEV_PROTOCOL
 
 
 def parse_args() -> argparse.Namespace:
@@ -65,7 +66,7 @@ def parse_args() -> argparse.Namespace:
         help="reuse saved full-trajectory JSONL; skips Doctor/Jev generation and uses stored old log-probs",
     )
     parser.add_argument("--model", default="/home/kai/models/Qwen3-8B")
-    parser.add_argument("--rubric-set", default="outputs/rubric_candidates/rubric_guidance_set_11.json")
+    parser.add_argument("--rubric-set", default="configs/rubrics/rubric_guidance_set_11_observable_v2.json")
     parser.add_argument("--doctor-model", default="google/gemma-3-12b-it")
     parser.add_argument("--jev-endpoint", default="https://openrouter.ai/api/alpha/decisions")
     parser.add_argument("--jev-model", default="typesafe/jev-1.13")
@@ -94,6 +95,23 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--jev-workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--allow-unvalidated-rubrics", action="store_true")
+    parser.add_argument("--allow-unversioned-rubric-scores", action="store_true")
+    parser.add_argument(
+        "--allow-legacy-rubric-scoring-protocol",
+        action="store_true",
+        help="allow saved rubric scores produced by a missing or different scorer protocol",
+    )
+    parser.add_argument(
+        "--allow-legacy-sampling-metadata",
+        action="store_true",
+        help="allow old traces without explicit temperature/top-p/top-k and use command-line values",
+    )
+    parser.add_argument(
+        "--allow-zero-advantage",
+        action="store_true",
+        help="complete a connectivity smoke test even when every within-case reward is identical",
+    )
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -187,44 +205,119 @@ def refresh_reward(record: dict, rubric_weight: float, outcome_weight: float,
 def load_saved_records(path: Path, rubric_weight: float, outcome_weight: float,
                        rubric_temperature: float, expected_rollouts: int,
                        sampling_temperature: float, sampling_top_p: float,
-                       sampling_top_k: int, rubric_ids: set[str]) -> list[dict]:
+                       sampling_top_k: int, rubric_ids: set[str],
+                       expected_rubric_set_version: str | None,
+                       expected_rubric_content_sha256: str | None,
+                       expected_parent_rubric_set_version: str | None,
+                       expected_parent_rubric_content_sha256: str | None,
+                       allow_unversioned_rubric_scores: bool,
+                       allow_legacy_sampling_metadata: bool,
+                       expected_scoring_protocol: str,
+                       allow_legacy_rubric_scoring_protocol: bool) -> list[dict]:
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     if not rows:
         raise ValueError(f"trajectory file is empty: {path}")
     counts = defaultdict(int)
+    rollout_indices = defaultdict(set)
     seen_ids = set()
     for row in rows:
-        required = {"trajectory_id", "case_id", "ground_truth", "final_option", "turn_scores", "agent_traces"}
+        required = {
+            "trajectory_id", "case_id", "rollout_index", "ground_truth",
+            "final_option", "turn_scores", "agent_traces",
+        }
         missing = sorted(required - set(row))
         if missing:
             raise ValueError(f"saved trajectory {row.get('trajectory_id')} is missing: {missing}")
         if row["trajectory_id"] in seen_ids:
             raise ValueError(f"duplicate trajectory_id in saved file: {row['trajectory_id']}")
         seen_ids.add(row["trajectory_id"])
+        saved_version = row.get("rubric_set_version")
+        saved_content_sha256 = row.get("rubric_set_content_sha256")
+        saved_scoring_protocol = row.get("scoring_protocol")
+        parent_subset_reuse = bool(
+            saved_version and expected_parent_rubric_set_version
+            and saved_version == expected_parent_rubric_set_version
+            and saved_content_sha256 and expected_parent_rubric_content_sha256
+            and saved_content_sha256 == expected_parent_rubric_content_sha256
+        )
+        if rubric_weight > 0 and expected_rubric_set_version:
+            if saved_version is None and not allow_unversioned_rubric_scores:
+                raise ValueError(
+                    f"saved trajectory has unversioned rubric scores: {row['trajectory_id']}; "
+                    "use a versioned collection or explicitly pass --allow-unversioned-rubric-scores"
+                )
+            if (saved_version is not None and saved_version != expected_rubric_set_version
+                    and not parent_subset_reuse):
+                raise ValueError(
+                    f"saved rubric version mismatch at {row['trajectory_id']}: "
+                    f"saved={saved_version} requested={expected_rubric_set_version}"
+                )
+        if rubric_weight > 0 and expected_rubric_content_sha256:
+            if saved_content_sha256 is None and not allow_unversioned_rubric_scores:
+                raise ValueError(
+                    f"saved trajectory has no rubric content hash: {row['trajectory_id']}; "
+                    "use a fully versioned collection or explicitly pass "
+                    "--allow-unversioned-rubric-scores"
+                )
+            if (saved_content_sha256 is not None
+                    and saved_content_sha256 != expected_rubric_content_sha256
+                    and not parent_subset_reuse):
+                raise ValueError(
+                    f"saved rubric content hash mismatch at {row['trajectory_id']}: "
+                    f"saved={saved_content_sha256} requested={expected_rubric_content_sha256}"
+                )
+        if rubric_weight > 0 and saved_scoring_protocol != expected_scoring_protocol:
+            if not allow_legacy_rubric_scoring_protocol:
+                raise ValueError(
+                    f"saved rubric scoring protocol mismatch at {row['trajectory_id']}: "
+                    f"saved={saved_scoring_protocol!r} requested={expected_scoring_protocol!r}; "
+                    "rescore the trajectories or explicitly pass "
+                    "--allow-legacy-rubric-scoring-protocol"
+                )
         if not row["agent_traces"]:
             raise ValueError(f"saved trajectory has no Agent traces: {row['trajectory_id']}")
         counts[row["case_id"]] += 1
+        rollout_indices[row["case_id"]].add(int(row["rollout_index"]))
         for trace in row["agent_traces"]:
             if not trace.get("prompt_input_ids") or "completion_ids" not in trace or "completion_logprobs" not in trace:
                 raise ValueError(f"saved trajectory has incomplete token trace: {row['trajectory_id']}")
+            if not trace["completion_ids"]:
+                raise ValueError(f"saved trajectory has an empty completion trace: {row['trajectory_id']}")
             if len(trace["completion_ids"]) != len(trace["completion_logprobs"]):
                 raise ValueError(
                     f"saved trajectory has mismatched token/logprob lengths: {row['trajectory_id']}"
                 )
-            # Older files did not persist these fields. The command-line values
-            # are the only valid fallback when the collection used the defaults.
+            missing_sampling = [
+                field for field in ("sampling_temperature", "sampling_top_p", "sampling_top_k")
+                if field not in trace
+            ]
+            if missing_sampling and not allow_legacy_sampling_metadata:
+                raise ValueError(
+                    f"saved trajectory has no exact sampling metadata at {row['trajectory_id']}: "
+                    f"missing={missing_sampling}; recollect it or explicitly pass "
+                    "--allow-legacy-sampling-metadata"
+                )
             trace.setdefault("sampling_temperature", sampling_temperature)
             trace.setdefault("sampling_top_p", sampling_top_p)
             trace.setdefault("sampling_top_k", sampling_top_k)
     wrong = {case_id: count for case_id, count in counts.items() if count != expected_rollouts}
     if wrong:
         raise ValueError(f"each saved case must have exactly {expected_rollouts} rollouts: {wrong}")
+    expected_indices = set(range(expected_rollouts))
+    malformed = {
+        case_id: sorted(indices)
+        for case_id, indices in rollout_indices.items()
+        if indices != expected_indices
+    }
+    if malformed:
+        raise ValueError(f"saved case rollout indices are incomplete or duplicated: {malformed}")
     return [refresh_reward(row, rubric_weight, outcome_weight, rubric_temperature, rubric_ids) for row in rows]
 
 
 def record_trajectory(case: dict, case_index: int, rollout_index: int, trajectory: dict,
                       turn_scores: list[dict], rubric_weight: float, outcome_weight: float,
-                      rubric_temperature: float, rubric_ids: set[str]) -> dict:
+                      rubric_temperature: float, rubric_ids: set[str],
+                      rubric_metadata: dict | None = None) -> dict:
     turn_scores = prepare_turn_scores(turn_scores, rubric_ids, rubric_temperature)
     available = [row["raw_rubric_adherence"] for row in turn_scores
                  if row["raw_rubric_adherence"] is not None]
@@ -247,6 +340,8 @@ def record_trajectory(case: dict, case_index: int, rollout_index: int, trajector
         "agent_traces": trajectory["agent_traces"],
         "turn_scores": turn_scores,
         "rubric_ids_used": sorted(rubric_ids),
+        **(rubric_metadata or {}),
+        "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
         "conversation_rubric_adherence": conversation_value,
         "scaled_rubric_reward": scaled_rubric_reward,
         "outcome": outcome,
@@ -321,47 +416,74 @@ def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: flo
     for record in records:
         grouped[record["case_id"]].append(record)
     advantages = {}
+    group_reward_stats = {}
+    masked_no_reward = 0
     for case_id, members in grouped.items():
-        available_rewards = [
-            float(member["reward"])
-            for member in members
-            if member["reward"] is not None
-        ]
-        if not available_rewards:
+        available_members = [member for member in members if member["reward"] is not None]
+        masked_no_reward += len(members) - len(available_members)
+        if len(available_members) < 2:
+            group_reward_stats[case_id] = {
+                "available": len(available_members),
+                "masked": len(members) - len(available_members),
+                "mean": None,
+                "std": None,
+                "has_comparative_signal": False,
+            }
             continue
-        group_mean = sum(available_rewards) / len(available_rewards)
         rewards = torch.tensor(
-            [float(member["reward"])
-             if member["reward"] is not None else group_mean
-             for member in members],
+            [float(member["reward"]) for member in available_members],
             dtype=torch.float32,
             device=next(model.parameters()).device,
         )
         mean = rewards.mean()
         std = rewards.std(unbiased=False)
         normalized = (rewards - mean) / (std + 1e-8) if float(std) > 0 else torch.zeros_like(rewards)
-        for member, advantage in zip(members, normalized):
+        group_reward_stats[case_id] = {
+            "available": len(available_members),
+            "masked": len(members) - len(available_members),
+            "mean": float(mean.detach().cpu()),
+            "std": float(std.detach().cpu()),
+            "has_comparative_signal": bool(float(std) > 0),
+        }
+        for member, advantage in zip(available_members, normalized):
             advantages[member["trajectory_id"]] = advantage
 
+    trajectory_token_counts = {
+        record["trajectory_id"]: sum(len(trace.get("completion_ids") or []) for trace in record["agent_traces"])
+        for record in records
+        if record["trajectory_id"] in advantages
+    }
+    empty_trajectories = sorted(
+        trajectory_id for trajectory_id, count in trajectory_token_counts.items() if count < 1
+    )
+    if empty_trajectories:
+        raise RuntimeError(f"eligible trajectories have no Agent completion tokens: {empty_trajectories}")
+    eligible_trajectory_count = len(trajectory_token_counts)
     jobs = []
     for record in records:
         if record["trajectory_id"] not in advantages:
             continue
         advantage = advantages[record["trajectory_id"]]
         for trace in record["agent_traces"]:
-            jobs.append((record["trajectory_id"], trace, advantage))
+            jobs.append((
+                record["trajectory_id"], trace, advantage,
+                trajectory_token_counts[record["trajectory_id"]],
+            ))
     if not jobs:
-        raise RuntimeError("no Agent completion tokens were available for the GRPO loss")
+        raise RuntimeError(
+            "no GRPO groups had at least two trajectories with usable rewards; "
+            "all-NA rubric rewards are masked rather than imputed"
+        )
 
-    policy_values = []
-    kl_values = []
+    policy_contributions = []
+    kl_contributions = []
     used = 0
     ratio_sum = 0.0
     ratio_sq_sum = 0.0
     ratio_min = float("inf")
     ratio_max = float("-inf")
     ratio_count = 0
-    for trajectory_id, trace, advantage in jobs:
+    for trajectory_id, trace, advantage, trajectory_token_count in jobs:
         trace_temperature = float(trace.get("sampling_temperature", temperature))
         trace_top_p = float(trace.get("sampling_top_p", top_p))
         trace_top_k = int(trace.get("sampling_top_k", top_k))
@@ -390,26 +512,34 @@ def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: flo
         ratio_count += ratio_values.numel()
         clipped = torch.clamp(ratio, 1.0 - clip_epsilon, 1.0 + clip_epsilon)
         surrogate = torch.minimum(ratio * advantage, clipped * advantage)
-        policy_term = -surrogate.mean()
+        policy_sum = -surrogate.sum()
 
         ref = reference_logprobs(
             model, trace["prompt_input_ids"], trace["completion_ids"],
             temperature=trace_temperature, top_p=trace_top_p, top_k=trace_top_k,
         )
         log_ratio = ref - current
-        kl_term = (torch.exp(log_ratio) - log_ratio - 1.0).mean()
-        if not torch.isfinite(policy_term).item() or not torch.isfinite(kl_term).item():
+        kl_sum = (torch.exp(log_ratio) - log_ratio - 1.0).sum()
+        if not torch.isfinite(policy_sum).item() or not torch.isfinite(kl_sum).item():
             raise RuntimeError(f"non-finite loss term at {trajectory_id}:{trace.get('stage')}")
+        # All Agent tokens in one sampled conversation form one trajectory.
+        # Average inside that trajectory, then average trajectories, so a
+        # longer dialogue cannot receive more weight merely because it has
+        # more Agent turns or tokens.
+        denominator = eligible_trajectory_count * trajectory_token_count
+        policy_contribution = policy_sum / denominator
+        kl_contribution = kl_sum / denominator
         if backward:
-            ((policy_term + beta * kl_term) / len(jobs)).backward()
-        policy_values.append(policy_term.detach())
-        kl_values.append(kl_term.detach())
+            (policy_contribution + beta * kl_contribution).backward()
+        policy_contributions.append(policy_contribution.detach())
+        kl_contributions.append(kl_contribution.detach())
         used += 1
-        del current, old, ref, ratio, clipped, surrogate, policy_term, kl_term
-    if not policy_values:
+        del current, old, ref, ratio, clipped, surrogate, policy_sum, kl_sum
+        del policy_contribution, kl_contribution
+    if not policy_contributions:
         raise RuntimeError("no Agent completion tokens had matching old log-probabilities")
-    policy_loss = torch.stack(policy_values).mean()
-    kl_loss = torch.stack(kl_values).mean() if kl_values else torch.zeros_like(policy_loss)
+    policy_loss = torch.stack(policy_contributions).sum()
+    kl_loss = torch.stack(kl_contributions).sum() if kl_contributions else torch.zeros_like(policy_loss)
     total_loss = policy_loss + beta * kl_loss
     ratio_mean = ratio_sum / ratio_count if ratio_count else None
     ratio_variance = max(ratio_sq_sum / ratio_count - ratio_mean * ratio_mean, 0.0) if ratio_count else None
@@ -422,6 +552,13 @@ def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: flo
         "max_abs_deviation": max(
             abs(ratio_min - 1.0), abs(ratio_max - 1.0),
         ) if ratio_count else None,
+        "eligible_trajectories": eligible_trajectory_count,
+        "masked_no_reward_trajectories": masked_no_reward,
+        "nonzero_advantage_trajectories": sum(
+            abs(float(value.detach().cpu())) > 1e-8 for value in advantages.values()
+        ),
+        "group_rewards": group_reward_stats,
+        "objective_weighting": "mean_agent_tokens_within_trajectory_then_mean_trajectories",
     }
     if not torch.isfinite(policy_loss).item() or not torch.isfinite(kl_loss).item() or not torch.isfinite(total_loss).item():
         raise RuntimeError("non-finite GRPO loss")
@@ -452,7 +589,15 @@ def main() -> None:
         for name in ("trajectories.jsonl", "summary.json", "train_log.jsonl", "config.json"):
             (output / name).unlink(missing_ok=True)
 
-    rubrics = load_rubrics(ROOT / args.rubric_set)
+    rubric_path = ROOT / args.rubric_set
+    rubrics = load_rubrics(rubric_path)
+    rubric_metadata = rubric_set_metadata(rubric_path)
+    validation_status = rubric_metadata.get("rubric_set_validation_status")
+    if validation_status and validation_status not in {"validated", "passed"} and not args.allow_unvalidated_rubrics:
+        raise ValueError(
+            f"rubric set is not validated for training: {validation_status}; "
+            "revalidate it first or use --allow-unvalidated-rubrics only for a deliberate smoke test"
+        )
     rubric_ids = {rubric["rubric_id"] for rubric in rubrics}
     key = None
     client = None
@@ -493,11 +638,30 @@ def main() -> None:
         records = load_saved_records(
             source_path, args.rubric_weight, args.outcome_weight, args.rubric_temperature,
             args.rollouts_per_case, args.generation_temperature, args.top_p, args.top_k, rubric_ids,
+            rubric_metadata.get("rubric_set_version"),
+            rubric_metadata.get("rubric_set_content_sha256"),
+            rubric_metadata.get("rubric_set_parent_version"),
+            rubric_metadata.get("rubric_set_parent_content_sha256"),
+            args.allow_unversioned_rubric_scores,
+            args.allow_legacy_sampling_metadata,
+            TWO_STAGE_JEV_PROTOCOL,
+            args.allow_legacy_rubric_scoring_protocol,
         )
         case_ids = sorted({row["case_id"] for row in records})
         if num_cases is not None and len(case_ids) != num_cases:
             raise ValueError(f"saved file contains {len(case_ids)} cases, not --num-cases={num_cases}")
         num_cases = len(case_ids)
+        for record in records:
+            source_identity = {
+                key: record.get(key)
+                for key in (
+                    "rubric_set_version", "rubric_set_sha256",
+                    "rubric_set_content_sha256", "rubric_set_validation_status",
+                )
+            }
+            record["source_rubric_score_identity"] = source_identity
+            record.update(rubric_metadata)
+            record["scoring_protocol"] = TWO_STAGE_JEV_PROTOCOL
         with trajectory_path.open("w", encoding="utf-8") as handle:
             for index, record in enumerate(records, 1):
                 handle.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -517,13 +681,13 @@ def main() -> None:
                     with ThreadPoolExecutor(max_workers=min(args.jev_workers, len(agent_indices))) as pool:
                         futures = [pool.submit(
                             score_agent_turn, client, case, trajectory["dialogue"], index,
-                            rubrics, args.rubric_temperature,
+                            rubrics, args.rubric_temperature, rubric_metadata,
                         ) for index in agent_indices]
                         turn_scores = [future.result() for future in futures]
                     record = record_trajectory(
                         case, args.start_index + case_number - 1, rollout_index,
                         trajectory, turn_scores, args.rubric_weight, args.outcome_weight,
-                        args.rubric_temperature, rubric_ids,
+                        args.rubric_temperature, rubric_ids, rubric_metadata,
                     )
                     records.append(record)
                     handle.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -557,6 +721,11 @@ def main() -> None:
             "refusing optimizer step because new/old policy ratio is not near 1: "
             f"max_abs_deviation={ratio_stats['max_abs_deviation']:.8g}, "
             f"tolerance={args.pre_update_ratio_tolerance:.8g}"
+        )
+    if ratio_stats["nonzero_advantage_trajectories"] == 0 and not args.allow_zero_advantage:
+        raise RuntimeError(
+            "refusing optimizer step because all within-case GRPO advantages are zero; "
+            "collect reward-diverse rollouts or pass --allow-zero-advantage only for a connectivity smoke test"
         )
     grad_norm = torch.nn.utils.clip_grad_norm_(trainable, 1.0)
     if not torch.isfinite(grad_norm).item():
@@ -595,6 +764,13 @@ def main() -> None:
         "data_source": "saved_trajectories" if source_path is not None else "online_generation",
         "loss": train_row,
         "reward": {"rubric": args.rubric_weight, "outcome": args.outcome_weight, "effectiveness": 0.0},
+        "signal_semantics": {
+            "rubric": "rubric_adherence_not_full_behavioral_appropriateness",
+            "outcome": "final_task_success",
+            "effectiveness": "not_computed",
+        },
+        "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
+        **rubric_metadata,
         "aggregation": {"rubric": "weighted_softmin", "turns": "soft_min"},
         "output": str(output.relative_to(ROOT)),
     }
@@ -603,9 +779,12 @@ def main() -> None:
         "start_index": args.start_index, "num_cases": num_cases,
         "rollouts_per_case": args.rollouts_per_case, "rounds": args.rounds,
         "rubric_set": args.rubric_set, "rubrics": len(rubrics),
+        **rubric_metadata,
         "rubric_ids": sorted(rubric_ids),
         "rubric_temperature": args.rubric_temperature, "rubric_weight": args.rubric_weight,
         "outcome_weight": args.outcome_weight,
+        "effectiveness_weight": 0.0,
+        "scoring_protocol": TWO_STAGE_JEV_PROTOCOL,
         "beta": args.beta, "learning_rate": args.learning_rate,
         "clip_epsilon": args.clip_epsilon, "training": True,
         "sampling": {
@@ -614,6 +793,11 @@ def main() -> None:
             "top_k": args.top_k,
         },
         "pre_update_ratio_tolerance": args.pre_update_ratio_tolerance,
+        "allow_unvalidated_rubrics": args.allow_unvalidated_rubrics,
+        "allow_unversioned_rubric_scores": args.allow_unversioned_rubric_scores,
+        "allow_legacy_rubric_scoring_protocol": args.allow_legacy_rubric_scoring_protocol,
+        "allow_legacy_sampling_metadata": args.allow_legacy_sampling_metadata,
+        "allow_zero_advantage": args.allow_zero_advantage,
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))

@@ -53,6 +53,15 @@ def main() -> None:
             f"expected {args.expected_rollouts} rollouts, found {len(records)}; "
             "wait for all GPU shards before merging"
         )
+    identity_fields = (
+        "rubric_set_version", "rubric_set_content_sha256", "scoring_protocol",
+    )
+    identities = {}
+    for field in identity_fields:
+        values = {row.get(field) for row in records}
+        if len(values) != 1 or None in values:
+            raise ValueError(f"rollout shards mix or omit {field}: {sorted(map(str, values))}")
+        identities[field] = next(iter(values))
 
     output = ROOT / args.output
     output.mkdir(parents=True, exist_ok=True)
@@ -73,7 +82,11 @@ def main() -> None:
 
     scored = [row for row in records if row.get("status") == "scored"]
     errors = [row for row in records if row.get("status") == "error"]
-    rewards = [row["raw_rubric_reward"] for row in scored if row.get("raw_rubric_reward") is not None]
+    rewards = [
+        row.get("raw_rubric_adherence", row.get("raw_rubric_reward"))
+        for row in scored
+        if row.get("raw_rubric_adherence", row.get("raw_rubric_reward")) is not None
+    ]
     label_counts = Counter(
         str(value)
         for row in scored
@@ -87,6 +100,10 @@ def main() -> None:
         "scored": len(scored),
         "score_errors": len(errors),
         "rubric_score_counts": dict(label_counts),
+        **identities,
+        "raw_rubric_adherence_mean": sum(rewards) / len(rewards) if rewards else None,
+        "raw_rubric_adherence_min": min(rewards) if rewards else None,
+        "raw_rubric_adherence_max": max(rewards) if rewards else None,
         "raw_rubric_reward_mean": sum(rewards) / len(rewards) if rewards else None,
         "raw_rubric_reward_min": min(rewards) if rewards else None,
         "raw_rubric_reward_max": max(rewards) if rewards else None,
