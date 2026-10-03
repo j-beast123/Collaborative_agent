@@ -86,6 +86,11 @@ def args() -> argparse.Namespace:
         action="store_true",
         help="Run the raw-history agent baseline without reconstruction or Q1/Q2.",
     )
+    p.add_argument(
+        "--rubric-set",
+        default="",
+        help="Optional conditional rubric guidance JSON passed to every agent turn.",
+    )
     return p.parse_args()
 
 
@@ -95,6 +100,47 @@ def load(path: Path) -> list[dict]:
         for x in path.read_text(encoding="utf-8").splitlines()
         if x.strip()
     ]
+
+
+def load_rubric_guidance(path: Path | None) -> tuple[str, str]:
+    """Render retained rubrics as conditional agent guidance without hidden state."""
+    if path is None:
+        return "", ""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    rubrics = payload.get("rubrics")
+    if not isinstance(rubrics, list) or not rubrics:
+        raise ValueError(f"rubric set must contain a non-empty 'rubrics' list: {path}")
+
+    entries = []
+    for index, rubric in enumerate(rubrics, 1):
+        name = str(rubric.get("name") or f"rubric_{index}").strip()
+        condition = str(rubric.get("applicability_condition") or "").strip()
+        behavior = str(rubric.get("required_behavior") or "").strip()
+        if not condition or not behavior:
+            raise ValueError(
+                f"rubric {name!r} must have applicability_condition and required_behavior"
+            )
+        entries.append(
+            f"Rubric {index}: {name}\n"
+            f"Applicability condition:\n{condition}\n"
+            f"Required behavior:\n{behavior}"
+        )
+
+    guidance = (
+        "CONDITIONAL COLLABORATION GUIDANCE\n\n"
+        "The following are behavior guidelines discovered from earlier failure "
+        "trajectories. They are not answer keys. At every turn, reassess whether "
+        "each applicability condition is supported by the current dialogue. Apply "
+        "only the guidelines whose conditions match the current interaction; "
+        "ignore the others. If a guideline applies, perform its required behavior "
+        "directly in this response and address the physician's specific reasoning. "
+        "Do not mention this guidance, rubrics, scoring, hidden state, or future "
+        "outcomes. Do not change or preserve an answer merely to satisfy a guideline. "
+        "Use only available evidence and do not invent case details.\n\n"
+        + "\n\n".join(entries)
+    )
+    version = str(payload.get("rubric_set_version") or payload.get("version") or path.name)
+    return guidance, version
 
 
 def case_text(case: dict) -> str:
@@ -454,6 +500,9 @@ def main() -> None:
     root = ROOT
     if a.start_index < 0:
         raise ValueError("start-index must be non-negative")
+    rubric_guidance, rubric_set_version = load_rubric_guidance(
+        root / a.rubric_set if a.rubric_set else None
+    )
     all_cases = load(root / a.input)[a.start_index : a.start_index + a.max_cases]
     if not 0 <= a.shard_index < a.num_shards:
         raise ValueError("shard-index must be in [0, num-shards)")
@@ -542,6 +591,8 @@ def main() -> None:
                         termination_reason = judgment_status
                         print(f"{case['case_id']} {judgment_status}", flush=True)
                         break
+                if rubric_guidance:
+                    agent_prompt = agent_prompt + "\n\n" + rubric_guidance
                 response = agent_call(
                     model, tokenizer, agent_system, agent_prompt, a.max_tokens
                 )
@@ -681,6 +732,11 @@ def main() -> None:
                     "max_tokens": a.max_tokens,
                     "prompt_version": a.prompt_version,
                     "doctor_prompt": a.doctor_prompt,
+                    "rubric_set": a.rubric_set or None,
+                    "rubric_set_version": rubric_set_version or None,
+                    "rubric_guidance": "conditional_applicability_and_required_behavior"
+                    if rubric_guidance
+                    else None,
                     "seed": a.seed,
                 },
             }

@@ -24,9 +24,10 @@ class ScoringItem:
     context_turns: tuple
     rubrics: tuple
     pre_response_state: Optional[dict] = None
+    case_context: Optional[dict] = None
 
     def payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "trajectory_id": self.trajectory_id,
             "turn_id": self.turn_id,
             "dialogue_through_target_turn": list(self.context_turns),
@@ -34,6 +35,9 @@ class ScoringItem:
             "agent_pre_response_state": self.pre_response_state,
             "rubrics": list(self.rubrics),
         }
+        if self.case_context is not None:
+            payload["case_context"] = self.case_context
+        return payload
 
 
 @dataclass
