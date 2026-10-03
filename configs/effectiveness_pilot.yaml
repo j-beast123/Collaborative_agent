@@ -2,8 +2,11 @@ experiment:
   name: effectiveness_expected_success_pilot_v1
   cases: 100
   states_per_case: 3
-  rollout_budgets: [4, 8, 16, 32]
-  primary_pilot_rollouts: 16
+  # Smoke K=2, first pilot K=4; raise to ~8 only if pilot variance requires it.
+  # Final K is decided from pilot results. The authoritative predictor K lives
+  # in configs/effectiveness/*.json (continuation.k).
+  rollout_budgets: [4, 8]
+  primary_pilot_rollouts: 4
   max_turns: 3
   final_outcome: exact_option_match
 

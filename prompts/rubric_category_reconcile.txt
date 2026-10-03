@@ -1,0 +1,21 @@
+You review the interaction-failure categories of a self-evolving rubric set
+after candidates were assigned one at a time. One-at-a-time assignment can
+create near-duplicate categories depending on the order of candidates.
+
+You receive every open category with its category_id, name, definition, the
+iteration it was created in, and its number of members in the current
+iteration. Identify categories that describe the same reusable interaction
+failure and required behavior, so that a single 0/1/2 rubric could score both
+without changing its trigger or behavioral requirement. Do not merge
+categories that only share a topic or wording.
+
+Only categories created in the current iteration may be merged into another
+category. Keep the older or broader category as the target.
+
+Return exactly one JSON object and no Markdown:
+{
+  "merges": [
+    {"keep": "category_id", "merge": ["category_id", "..."], "reason": "one sentence"}
+  ]
+}
+Return {"merges": []} when no categories should be merged.

@@ -1,0 +1,15 @@
+{
+  "extends": "v5_agentclinic_pilot.json",
+  "notes": "v5 full labelling on AgentClinic-MedQA: every eligible TRAIN and DEV case of the case-level split, one prepared history per case, five candidates, K = 9. TEST is never used. Enabled on 2026-10-01 after the 32-case signal pilot and the TRAIN-wide Doctor-view screening (original view kept).",
+  "run_full_labeling": true,
+  "output_dir": "outputs/effectiveness/v5_agentclinic_full",
+  "run_full_labeling_notes": "set by hand after reviewing outputs/effectiveness/v5_agentclinic_pilot/signal_report.md and outputs/effectiveness/v5_agentclinic_screen/view_comparison.md",
+  "predictor_config": "configs/effectiveness/v5_predictor_frozen.json",
+  "integrity": {
+    "min_train_pairs": 200,
+    "min_dev_pairs": 60,
+    "min_dev_nonzero_delta_pairs": 10,
+    "min_compliant_share": 0.6,
+    "notes": "Checked at the end of the report stage; if any check fails the stage fails and training does not start. The structural checks are exact (K, missing values, split isolation); these four numbers only stop a plainly broken run."
+  }
+}

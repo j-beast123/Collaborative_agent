@@ -1,0 +1,10 @@
+{
+  "extends": "../../serl_agentclinic_qwen4b_max7.json",
+  "notes": "Static Rubric + Effectiveness + Outcome: R_t = 0.4 R_O + 0.3 R_A,t(R_0) + 0.3 R_E,t. R_0 is the rubric set built once from the base Agent's TRAIN failures (the iteration-0 set of the Ours run: validated, consolidated, filtered and weighted by the effectiveness gap) and is used unchanged, content and weights, in every iteration: FIXED_RUBRIC_SET=outputs/serl/<ours run>/iter0/rubrics/rubric_set.json. No rubric model is called in this run; each iteration's failures are recorded.",
+  "run_label": "main_static_rubric",
+  "condition": "static_rubric",
+  "rubric_registry": {
+    "schedule": "fixed",
+    "fixed_rubric_set": null
+  }
+}

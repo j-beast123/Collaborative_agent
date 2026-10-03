@@ -1,0 +1,14 @@
+{
+  "extends": "serl_agentclinic_qwen4b_max7_train30_clean.json",
+  "notes": "NEW PROTOCOL main configuration agentclinic_agentfirst_frontierdoctor_v1 (user decision 2026-10-03): the clean TRAIN30 main configuration with its environment replaced by configs/effectiveness/v14_agentclinic_agentfirst_frontierdoctor_v1.json (Doctor openai/gpt-6.1-sol, Agent-first order). Rubric generation, Rubric Validation (frozen score-2 intervention, 3 reruns, keep at 2; no private re-assessment), consolidation, effectiveness gap, reward and GRPO settings are those of the clean configuration. The base collaborations are generated anew under the new protocol (scripts/fresh_base_trajectories.py); nothing of the old protocol is reused. reward.effectiveness still names the old-protocol predictor until the new one is trained: its identity check (protocol hash) refuses it under this protocol, so no step can use it by mistake.",
+  "output_root": "outputs/serl_agentfirst",
+  "cache_dir": "outputs/serl_agentfirst/_cache",
+  "environment": {
+    "config": "configs/effectiveness/v14_agentclinic_agentfirst_frontierdoctor_v1.json",
+    "histories": "outputs/effectiveness/v14_agentclinic_agentfirst_frontierdoctor_v1/histories.jsonl",
+    "base_trajectories": "outputs/effectiveness/v14_agentclinic_agentfirst_frontierdoctor_v1/base_trajectories.jsonl"
+  },
+  "collaboration": {
+    "protocol": "agentclinic_agentfirst_max7_early_stop_doctor_full_view"
+  }
+}

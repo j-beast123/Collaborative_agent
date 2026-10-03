@@ -1,0 +1,49 @@
+{
+  "extends": "v5_predictor_lora.json",
+  "notes": "Effectiveness v2: ONE turn-conditioned predictor for A1 and A2 interventions. Same family as v1 (Qwen3-8B + LoRA q/k/v/o r16 + scalar head, binomial NLL on K = 9 counts), warm-started from v1 (LoRA epoch 3), trained on the existing A1 labels (replayed, never regenerated) and the new A2 labels. The input text names the intervention turn (input_format turn_v1). The number of epochs and the calibration (one temperature or one per turn) are chosen by cross-validation over TRAIN cases; DEV is read once, for the final comparison; TEST is never used. v1 and its files are not modified.",
+  "predictor": {
+    "input_format": "turn_v1",
+    "supported_turns": [
+      "A1",
+      "A2"
+    ],
+    "pilot_decision": "2026-10-02 user decision: one turn-conditioned Effectiveness predictor for A1 and A2 (v2), LoRA as in v1"
+  },
+  "training": {
+    "epochs": 3,
+    "init_from": "outputs/effectiveness/v5_agentclinic_full/model_lora/v1_epoch3",
+    "init_from_notes": "warm start: v1's LoRA adapters and scalar head",
+    "turn_balanced": true,
+    "turn_balanced_notes": "every batch of 8 holds 4 A1 and 4 A2 examples; the turn with fewer examples is repeated",
+    "selection": {
+      "folds": 3,
+      "seed": 0,
+      "nll_tolerance": 0.02,
+      "calibration_gain_for_turn_specific": 0.005,
+      "rule": "epoch: admissible when the mean over turns of the out-of-fold AFTER NLL (after one pooled temperature fitted on the out-of-fold logits of that epoch) is at most nll_tolerance above the lowest; among admissible epochs the highest mean over turns of within-history ordering, ties to the earlier epoch. calibration: one temperature per turn only if its cross-fitted out-of-fold NLL is lower than the single temperature's by more than calibration_gain_for_turn_specific; otherwise one temperature."
+    }
+  },
+  "data": {
+    "a1_train": "outputs/effectiveness/v5_agentclinic_full/labels_train.jsonl",
+    "a1_dev": "outputs/effectiveness/v5_agentclinic_full/labels_dev.jsonl",
+    "a2_train": "outputs/effectiveness/v6_agentclinic_joint/a2_labels/labels_train.jsonl",
+    "a2_dev": "outputs/effectiveness/v6_agentclinic_joint/a2_labels/labels_dev.jsonl"
+  },
+  "baseline": {
+    "v1_checkpoint": "outputs/effectiveness/v5_agentclinic_full/model_lora/v1_epoch3",
+    "v1_calibration": "outputs/effectiveness/v5_agentclinic_full/model_lora/v1_epoch3/calibration_temperature.json",
+    "v1_dev_logits": "outputs/effectiveness/v5_agentclinic_full/model_lora/dev_logits.json"
+  },
+  "gate": {
+    "written": "2026-10-02, before any A2 label or joint-model result existed",
+    "a2_response_sensitive": "A2 DEV within-history ordering has a bootstrap 95% lower bound above 0.5 (histories resampled), and the A2 AFTER NLL of the model is lower than the AFTER NLL of its own history-only prediction (P(success | h) used for every response)",
+    "a1_preserved": "joint A1 DEV within-history ordering is not more than a1_ordering_margin below v1's, and the joint A1 AFTER NLL (calibrated) is not more than a1_nll_margin above v1's",
+    "a1_ordering_margin": 0.05,
+    "a1_nll_margin": 0.05,
+    "bootstrap": 2000,
+    "consequence": "both hold: the joint predictor may be connected to the reward in a separate config. Otherwise the main pipeline keeps Effectiveness v1 (A1 only) and nothing is connected.",
+    "a2_delta_sign": "added 2026-10-02 after the A2 smoke labels and before the full A2 labels and any joint-model result (it only makes the gate stricter): the A2 DEV delta sign accuracy on nonzero-delta pairs is above 0.5, on at least a2_min_nonzero_delta_pairs such pairs",
+    "a2_min_nonzero_delta_pairs": 10,
+    "undefined_metric": "a criterion whose metric cannot be computed (for example no informative pair) is not met"
+  }
+}

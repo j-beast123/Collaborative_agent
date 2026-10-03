@@ -1,0 +1,16 @@
+{
+  "extends": "v5_predictor_frozen.json",
+  "notes": "Effectiveness predictor on the v5 AgentClinic-MedQA labels: LoRA (q/k/v/o, r 16, alpha 32) + scalar head.",
+  "predictor": {
+    "training_mode": "lora_scalar_head",
+    "pilot_decision": "2026-10-01 user decision: train the effectiveness predictor with LoRA",
+    "lora_notes": "LoRA adapters on the attention projections plus the scalar head."
+  },
+  "training": {
+    "epochs": 5,
+    "lora_learning_rate": 0.0001,
+    "micro_batch_size": 2,
+    "gradient_checkpointing": true,
+    "training_notes": "learning_rate is the head rate, lora_learning_rate the adapter rate. One optimizer step per batch of 8, gradients accumulated over chunks of 2 with gradient checkpointing (24 GB GPU). cache_features does not apply when the backbone is trained."
+  }
+}

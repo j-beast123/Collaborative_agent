@@ -1,0 +1,23 @@
+{
+  "extends": "../../serl_agentclinic_qwen4b_max7_train30_clean.json",
+  "notes": "DIAGNOSTIC (not a condition of the experiment matrix; no GRPO): does the original rubric branch of Ours (failure analysis -> candidate -> causal validation with the frozen intervention -> consolidation -> effectiveness gap -> R_0) yield rubrics on the failures of a Qwen3-14B Agent? Only the Agent backbone differs from the clean Ours run (configs/experiments/train30_4b_clean/ours_frozen_intervention.json): TRAIN30, protocol, Doctor, prompts, decoding, judge (majority-v1 mapping), rubric prompts, validation (3 reruns, keep at 2), Effectiveness predictor and weights are the same. The base collaborations are generated anew by the 14B Agent from the same frozen D1 (scripts/fresh_base_trajectories.py), not taken from the 4B base file.",
+  "run_label": "clean30_14b_ours_native_diag",
+  "condition": "ours",
+  "policy": {
+    "model_id": "Qwen/Qwen3-14B",
+    "revision": "40c069824f4251a91eefaf281ebe4c544efd3e18",
+    "checkpoint": "${MODEL_ROOT}/Qwen3-14B",
+    "device_map": "auto",
+    "device_map_notes": "bf16 14B (about 30 GB) is spread over the GPUs of CUDA_VISIBLE_DEVICES; generation only (src/agentclinic/runtime.py: load_policy)"
+  },
+  "validation": {
+    "intervention": {
+      "mode": "frozen_compliant",
+      "generator": "agent",
+      "compliance": "rubric_scorer",
+      "required_score": 2,
+      "max_attempts": 3,
+      "notes": "As configs/experiments/train30_4b_clean/ours_frozen_intervention.json."
+    }
+  }
+}

@@ -1,0 +1,102 @@
+[
+  {
+    "case_id": "0",
+    "original_case_id": "0",
+    "source_dataset": "synthetic_fixture",
+    "dataset_version": "1",
+    "question": "Synthetic token task 0",
+    "answer_format": "text",
+    "correct_answer": null,
+    "synthetic": true
+  },
+  {
+    "case_id": "1",
+    "original_case_id": "1",
+    "source_dataset": "synthetic_fixture",
+    "dataset_version": "1",
+    "question": "Synthetic token task 1",
+    "answer_format": "text",
+    "correct_answer": null,
+    "synthetic": true
+  },
+  {
+    "case_id": "2",
+    "original_case_id": "2",
+    "source_dataset": "synthetic_fixture",
+    "dataset_version": "1",
+    "question": "Synthetic token task 2",
+    "answer_format": "text",
+    "correct_answer": null,
+    "synthetic": true
+  },
+  {
+    "case_id": "3",
+    "original_case_id": "3",
+    "source_dataset": "synthetic_fixture",
+    "dataset_version": "1",
+    "question": "Synthetic token task 3",
+    "answer_format": "text",
+    "correct_answer": null,
+    "synthetic": true
+  },
+  {
+    "case_id": "4",
+    "original_case_id": "4",
+    "source_dataset": "synthetic_fixture",
+    "dataset_version": "1",
+    "question": "Synthetic token task 4",
+    "answer_format": "text",
+    "correct_answer": null,
+    "synthetic": true
+  },
+  {
+    "case_id": "5",
+    "original_case_id": "5",
+    "source_dataset": "synthetic_fixture",
+    "dataset_version": "1",
+    "question": "Synthetic token task 5",
+    "answer_format": "text",
+    "correct_answer": null,
+    "synthetic": true
+  },
+  {
+    "case_id": "6",
+    "original_case_id": "6",
+    "source_dataset": "synthetic_fixture",
+    "dataset_version": "1",
+    "question": "Synthetic token task 6",
+    "answer_format": "text",
+    "correct_answer": null,
+    "synthetic": true
+  },
+  {
+    "case_id": "7",
+    "original_case_id": "7",
+    "source_dataset": "synthetic_fixture",
+    "dataset_version": "1",
+    "question": "Synthetic token task 7",
+    "answer_format": "text",
+    "correct_answer": null,
+    "synthetic": true
+  },
+  {
+    "case_id": "8",
+    "original_case_id": "8",
+    "source_dataset": "synthetic_fixture",
+    "dataset_version": "1",
+    "question": "Synthetic token task 8",
+    "answer_format": "text",
+    "correct_answer": null,
+    "synthetic": true
+  },
+  {
+    "case_id": "9",
+    "original_case_id": "9",
+    "source_dataset": "synthetic_fixture",
+    "dataset_version": "1",
+    "question": "Synthetic token task 9",
+    "answer_format": "text",
+    "correct_answer": null,
+    "synthetic": true
+  }
+]

@@ -1,0 +1,55 @@
+{
+  "extends": "serl_agentclinic_qwen4b_max7.json",
+  "notes": "Low-resource main configuration (user decision of 2026-10-02): configs/serl_agentclinic_qwen4b_max7.json on the environment v11 (dataset version agentclinic_main_v2_train30: TRAIN 30 / DEV 31 / TEST 60). Agent Qwen3-4B, Doctor google/gemma-3-12b-it, protocol, reward, GRPO settings, rubric method and iterations are unchanged; only the environment (its dataset version and the files derived from it) differs. Effectiveness predictor connected on 2026-10-02 after gRPC parity (outputs/effectiveness/v11_qwen4b_gemma12b_max7_train30/effectiveness_oof_v2: TRAIN-only selection and calibration, DEV evaluated once).",
+  "environment": {
+    "config": "configs/effectiveness/v11_qwen4b_gemma12b_max7_train30.json",
+    "histories": "outputs/effectiveness/v11_qwen4b_gemma12b_max7_train30/histories.jsonl",
+    "base_trajectories": "outputs/effectiveness/v11_qwen4b_gemma12b_max7_train30/base_trajectories.jsonl"
+  },
+  "reward": {
+    "effectiveness": {
+      "provider": "grpc",
+      "endpoint": "127.0.0.1:50557",
+      "device": "cuda:0",
+      "checkpoint": "outputs/effectiveness/v11_qwen4b_gemma12b_max7_train30/effectiveness_oof_v2/joint_max7",
+      "calibration": "outputs/effectiveness/v11_qwen4b_gemma12b_max7_train30/effectiveness_oof_v2/calibration.json",
+      "model_version": "effectiveness-max7-oof-v1",
+      "expected_temperature": 6.891947211947137,
+      "expected_checkpoint_id": "02aed9e52b4ff2e1",
+      "expected_calibration_id": "9e4f243d270cd9f68a7837d5b6ad6f6940027351c2c1f8a1a60724693047dd78",
+      "expected_continuation_protocol_hash": "6a12641051b34ad6",
+      "stages": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5",
+        "A6",
+        "A7"
+      ],
+      "available": {
+        "A1": true,
+        "A2": true,
+        "A3": true,
+        "A4": true,
+        "A5": true,
+        "A6": true,
+        "A7": true
+      },
+      "notes": "Frozen max7 joint predictor; TRAIN-only selection/calibration; DEV evaluated once; actual gRPC parity passed."
+    }
+  },
+  "rubric_registry": {
+    "selection": {
+      "max_rubrics": 8,
+      "max_rubrics_notes": "User decision of 2026-10-02, frozen before any rubric of this experiment was generated and before any Ours training: a per-iteration rubric budget of at most 8. After validation, consolidation and the effectiveness-gap filter, the rubrics with the largest gap are kept, at most 8; when fewer pass, all of them are used (never filled up to 8). Applies to every condition that uses the effectiveness-gap selection (Ours, Ours - Outcome, Ours - Effectiveness); Static keeps the R_0 of Ours (so at most 8); No-filtering has no filter and no budget. Chosen from no DEV or TEST result."
+    }
+  },
+  "devices": {
+    "physical_gpus": {
+      "policy": "one GPU per run, set by CUDA_VISIBLE_DEVICES of the launch script (GPUs 2-5 on convei-rack7-27)",
+      "effectiveness_service": 1
+    },
+    "physical_gpus_notes": "The Effectiveness service is one process on physical GPU 1, shared by the runs (scripts/benchmark_effectiveness_service.py: 5 concurrent clients, no error, outputs equal to the offline predictor); every policy has a GPU of its own. The same declaration in every condition config."
+  }
+}

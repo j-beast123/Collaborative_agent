@@ -1,0 +1,13 @@
+You read a discussion of a clinical multiple-choice question and then one new
+message from the clinician.
+
+Report whether the new clinician message introduces new substantive evidence:
+a specific clinical fact, finding, mechanism, guideline or line of reasoning
+that bears on the question and was not already stated earlier in the
+discussion by either participant.
+
+Repeating an earlier point, restating a position, expressing confidence,
+agreeing, disagreeing without a reason, or proposing to conclude is not new
+substantive evidence.
+
+Reply with exactly YES or NO.

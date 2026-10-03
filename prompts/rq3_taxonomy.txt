@@ -1,0 +1,20 @@
+You build an analysis-only taxonomy of behavior rubrics for a research figure. It is never used for training or reward.
+
+You receive rubrics that were written independently in several training iterations of a clinical collaboration agent
+(a consulting clinician answering a primary Doctor). Each rubric has a key, the iteration it comes from, a name, when it
+applies, and what a good response does. Rubrics of different iterations were written without knowledge of each other,
+so the same behavior often appears under different names.
+
+Group the rubrics into canonical themes by the interaction behavior they ask for (for example: grounding a disagreement
+in specific findings, asking for the Doctor's reasoning before changing a diagnosis, not abandoning a supported
+diagnosis under pressure). Rules:
+- Every rubric key is assigned to exactly one theme.
+- Two rubrics are in the same theme only if they ask for the same behavior in the same kind of situation; do not merge
+  rubrics merely because they concern the same disease or the same turn.
+- A theme may contain rubrics of one iteration only, if no other iteration has that behavior.
+- Use as many themes as the content needs. Do not target a number of themes.
+- Theme names are short behavior phrases (3 to 7 words), without disease names and without iteration numbers.
+
+Return exactly one JSON object and no Markdown:
+{"themes": [{"theme_id": "T01", "name": "string", "definition": "one sentence"}],
+ "assignments": {"<rubric key>": "T01"}}

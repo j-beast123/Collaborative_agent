@@ -1,0 +1,8 @@
+{
+  "extends": "v5_agentclinic_view_a.json",
+  "notes": "TRAIN-wide prepare screening (--scope screen), Doctor view: Objective + Demographics + History. No candidate and no K rollout. The Agent's standalone assessments are shared with the other screening config, so the two runs differ only in what the Doctor sees.",
+  "screen": {
+    "standalone_file": "outputs/effectiveness/v5_agentclinic_screen/agent_standalone.jsonl"
+  },
+  "output_dir": "outputs/effectiveness/v5_agentclinic_screen/view_a"
+}

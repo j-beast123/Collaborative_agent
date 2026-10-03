@@ -1,0 +1,37 @@
+{
+  "extends": "v12_qwen4b_gemma12b_max7_train30_clean.json",
+  "version": "v13_qwen4b_gemma12b_max7_train30_clean_majority",
+  "notes": "Clean TRAIN30 environment, final outcome rule (user decision of 2026-10-02): the judge of v12 (gpt-4o-mini, diagnosis_equivalence_v4.txt, temperature 0) with the decision policy majority-v1: a pair is decided by votes of this one judge, the majority of three, and the majority of five when the first two votes differ; no other model votes. The pairs of the base collaborations and label continuations were decided once (scripts/majority_equivalence.py; mapping hash in diagnosis_judge_frozen); a pair first seen later is decided the same way and frozen. Every dialogue of v11 is reused unchanged; labels, predictor, rubrics and GRPO are made again. v12 (single-call decisions) is kept and not used. No human adjudication; Sol is an independent audit only. The rule is not changed after any DEV or TEST result.",
+  "output_dir": "outputs/effectiveness/v13_qwen4b_gemma12b_max7_train30_clean_majority",
+  "labels_dir": "outputs/effectiveness/v13_qwen4b_gemma12b_max7_train30_clean_majority/effectiveness_oof_v1/labels",
+  "diagnosis_equivalence_frozen": "outputs/effectiveness/v13_qwen4b_gemma12b_max7_train30_clean_majority/diagnosis_equivalence.frozen.jsonl",
+  "diagnosis_judge_policy": "majority-v1",
+  "diagnosis_judge_frozen": {
+    "model": "openai/gpt-4o-mini",
+    "prompt": "prompts/agentclinic/diagnosis_equivalence_v4.txt",
+    "prompt_sha256": "0a836c884d0b6089307eb67a930a02f4654017a6ace96300f89f999bc686e426",
+    "params": {
+      "temperature": 0,
+      "max_tokens": 200
+    },
+    "frozen": "2026-10-02 13:59:21",
+    "decided_by": "user decision of 2026-10-02 (option B): the judge model of the runs so far with the revised, explicit equivalence rules; Sol is an independent audit only",
+    "human_adjudication": "none",
+    "audit": {
+      "judge": "openai/gpt-6.1-sol, same prompt",
+      "hard_pairs": 378,
+      "inter_judge_agreement": 0.8253968253968254,
+      "file": "outputs/audit/equivalence_adjudication_20261002/judge_disagreements_primary_vs_audit.json",
+      "note": "agreement on hard cases selected on purpose; not an accuracy"
+    },
+    "outcome_judge_policy": "majority-v1",
+    "majority_mapping": "outputs/audit/equivalence_adjudication_20261002/majority_v1/majority_mapping_v1.jsonl",
+    "majority_mapping_sha256": "78d48b7ef33fbc4d0f2f66901ab67e71a7a925dcebdcb1bbbf466d3793889c6d",
+    "pairs_in_mapping": 2208,
+    "pairs_by_vote": {
+      "3 votes, unanimous": 2175,
+      "5 votes": 23,
+      "3 votes, 2-1": 10
+    }
+  }
+}

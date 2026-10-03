@@ -1,0 +1,5 @@
+{
+  "extends": "v11_qwen4b_gemma12b_max7_train30.json",
+  "notes": "The v11 environment with the label directory whose outcomes come from the frozen diagnosis-equivalence decisions (scripts/freeze_equivalence.py). Used for the label report and the predictor of effectiveness_oof_v2; everything else is v11.",
+  "labels_dir": "outputs/effectiveness/v11_qwen4b_gemma12b_max7_train30/effectiveness_oof_v2/labels"
+}

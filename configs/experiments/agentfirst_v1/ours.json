@@ -1,0 +1,6 @@
+{
+  "extends": "../../serl_agentfirst_frontierdoctor_v1.json",
+  "notes": "Ours under the agent-first / frontier-Doctor protocol: R_t = 0.4 R_O + 0.3 R_A,t + 0.3 R_E,t, filtered and evolving rubrics (as configs/experiments/train30_4b_clean/ours.json).",
+  "run_label": "agentfirst_v1_ours",
+  "condition": "ours"
+}

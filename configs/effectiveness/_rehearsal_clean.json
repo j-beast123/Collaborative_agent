@@ -1,0 +1,11 @@
+{
+  "extends": "v11_qwen4b_gemma12b_max7_train30.json",
+  "version": "rehearsal_clean_not_a_result",
+  "notes": "REHEARSAL of scripts/derive_clean_environment.py with an EMPTY human mapping and the provisional judge (gpt-4o-mini, prompt v4). Not a result and not used by any run: it only checks the derivation, the reach report, the freeze, the label report and the label audit, and previews what the new prompt alone changes.",
+  "prompts": {
+    "diagnosis_equivalence": "prompts/agentclinic/diagnosis_equivalence_v4.txt"
+  },
+  "output_dir": "outputs/_rehearsal_clean_env_not_a_result",
+  "labels_dir": "outputs/_rehearsal_clean_env_not_a_result/effectiveness_oof_v1/labels",
+  "diagnosis_equivalence_frozen": "outputs/_rehearsal_clean_env_not_a_result/diagnosis_equivalence.frozen.jsonl"
+}

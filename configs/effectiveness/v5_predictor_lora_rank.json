@@ -1,0 +1,18 @@
+{
+  "extends": "v5_predictor_lora.json",
+  "notes": "Effectiveness predictor, LoRA with a same-history ranking loss: starts the scalar head from the frozen-backbone baseline, lower learning rates, binomial NLL plus lambda times a pairwise ranking loss over AFTER pairs of one history whose rollout success rates differ by at least 2/9. Same K = 9 labels as v5_predictor_lora.json.",
+  "predictor": {
+    "pilot_decision": "2026-10-01 user decision: LoRA separated responses within a history better than the frozen head (ordering, delta sign) but was poorly calibrated; retrain with lower learning rates and a ranking loss"
+  },
+  "training": {
+    "epochs": 5,
+    "learning_rate": 0.0001,
+    "lora_learning_rate": 5e-05,
+    "init_head_from": "outputs/effectiveness/v5_agentclinic_full/model_frozen/best",
+    "ranking": {
+      "lambda": 0.2,
+      "min_after_gap": 0.2222
+    },
+    "training_notes": "learning_rate is the head rate, lora_learning_rate the adapter rate. ranking.lambda weights the mean pairwise ranking loss of a batch; min_after_gap = 2/9. Batches keep the examples of a history together. Every epoch's checkpoint is kept (epochs/), with best (DEV NLL) and best_ordering."
+  }
+}

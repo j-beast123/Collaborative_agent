@@ -1,0 +1,31 @@
+
+
+---
+
+## ADDENDUM: INTERACTION-TARGETED RUBRIC (DIAGNOSTIC PILOT)
+
+This rubric is not a rubric that teaches diagnostic knowledge.
+
+- Do not put the name of the correct diagnosis, a disease-specific fact, the hidden answer or any medical knowledge
+  specific to this case into the rubric, in any field (name, applicability, score levels, ideal_response_behavior).
+- Describe only collaboration behavior that lets the Agent make better use of evidence it already holds or can reach in
+  the conversation.
+- Describe how the current evidence and the collaborator's claim are to be handled, not what is to be diagnosed.
+- If the collaboration failed because knowledge was missing, do not try to repair that with the rubric: describe the
+  interaction behavior that was lacking given the knowledge the Agent showed, and nothing more.
+- The behavior must be reusable and case-general: it must make sense in another case with another disease.
+
+Directions that are allowed (examples of the kind of behavior, not a list to choose from):
+- checking an unresolved discriminator before agreeing with the collaborator's provisional diagnosis;
+- explicitly surfacing contradictory evidence the Agent itself holds;
+- separating a missing result from a negative result;
+- not converging prematurely on a shared hypothesis without evidence;
+- challenging, or requesting evidence, when stronger conflicting evidence exists.
+
+Directions that are not allowed:
+- "consider <a named disease>";
+- "in <a named disease>, check <a named finding>";
+- knowledge of the correct answer of a specific disease;
+- a diagnostic tip that works only in this case.
+
+Score 2 must be a behavior the Agent can perform in one reply at the intervention turn with the information it has.

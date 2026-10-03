@@ -1,0 +1,47 @@
+{
+  "extends": "v7_agentclinic_max7.json",
+  "notes": "Main experiment data and protocol. Protocol: at most 7 Doctor-Agent collaboration turns with early stopping, the neutral Agent task and system prompt, the turn-independent Doctor decision (as in v7_agentclinic_max7.json; the implementation and the prompts are the same files). Dataset: the frozen version agentclinic_main_v2 (data/splits/agentclinic_main_v2.json): 181 eligible cases, case-level split TRAIN 90 / DEV 31 / TEST 60. Everything of this run is generated here from the Doctor's opening message on: no history, standalone assessment, trajectory, label, predictor, calibration, rubric or weight of an earlier run is read. TEST is not used before the final evaluation: no trajectory, label, rubric, model selection or training touches it.",
+  "version": "v8_agentclinic_max7",
+  "dataset": {
+    "manifest": "data/splits/agentclinic_main_v2.json",
+    "min_test_findings": null,
+    "exclude_diagnosis_named_in_private_evidence": null,
+    "selection_notes": "eligible = the cases of the frozen dataset version: the Doctor and the Agent hold different information, the Agent holds at least one clinical finding of its own (a physical-examination finding or a test result), and neither side's input states the diagnosis by name, abbreviation or trivial lexical equivalent (scripts/audit_eligibility.py, scripts/freeze_dataset.py). Decided from the raw case content only."
+  },
+  "split": {
+    "seed": "0:agentclinic_main_v2",
+    "fractions": null,
+    "notes": "the split is read from the dataset manifest; nothing is recomputed"
+  },
+  "output_dir": "outputs/effectiveness/v8_agentclinic_max7",
+  "source_histories": null,
+  "base_trajectories": {
+    "max_attempts": 3,
+    "notes": "D1 for every TRAIN and DEV case (histories.jsonl, written once), then one natural collaboration of the base Agent per case with the Agent-side state elicited before every Agent turn; a Doctor output that is not valid JSON is rerun up to max_attempts times"
+  },
+  "predictor_config": null,
+  "labels_dir": "outputs/effectiveness/v8_agentclinic_max7/labels",
+  "candidates": {
+    "names": [
+      "evidence_grounded_maintain",
+      "unsupported_maintain",
+      "accept_revise",
+      "request_evidence",
+      "evidence_only_report"
+    ],
+    "names_notes": "the five fixed candidate responses, generated at every Agent turn a base collaboration reached; the Agent's own assessment in the instruction is the one it held before that turn"
+  },
+  "smoke": {
+    "cases": 6,
+    "split": "train",
+    "seed": 0,
+    "notes": "timing and wiring check on a seeded sample of TRAIN cases (all their reached turns); its rollouts are kept and reused by the full run. It decides nothing about the protocol."
+  },
+  "integrity": {
+    "min_train_pairs": 400,
+    "min_dev_pairs": 100,
+    "min_dev_nonzero_delta_pairs": 10,
+    "min_compliant_share": 0.5,
+    "notes": "structural checks (K, missing values, split isolation, compliance, pair counts) stop the run; these numbers only catch a plainly broken run. Per-turn counts are reported in turn_sanity_<scope>.json."
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "extends": "predictor_frozen.json",
+  "notes": "Diagnostic: candidates at the agent turn of the final round, so the doctor's final decision follows the response directly. If responses change the outcome here but not at the first collaboration turn, the effect of a response is being undone in the later turns.",
+  "labels": {
+    "turn_scope": "last_collaboration_turn"
+  }
+}

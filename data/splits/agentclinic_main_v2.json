@@ -1,0 +1,2236 @@
+{
+ "dataset_version": "agentclinic_main_v2",
+ "frozen": "2026-10-02 04:44:58",
+ "source_dataset": "agentclinic_medqa_extended",
+ "dataset_path": "data/raw/agentclinic/agentclinic_medqa_extended.jsonl",
+ "dataset_sha256": "54a024eb2705c6c55d1988766adf4ab02ea7bbe2a28f843107b740032200f232",
+ "raw_cases": 214,
+ "eligibility": {
+  "definition": "A case is eligible if (1) the Doctor and the Agent have asymmetric information, (2) the Agent has at least one clinically meaningful private evidence item (a physical-examination finding or a test result), and (3) neither the Doctor's nor the Agent's input directly reveals the target diagnosis through its name, its abbreviation or a trivial lexical equivalent.",
+  "statuses_in_main": [
+   "clean_eligible",
+   "eligible_low_information"
+  ],
+  "audit": "scripts/audit_eligibility.py",
+  "audit_output": "outputs/audit/eligibility_20261002-044012",
+  "status_counts": {
+   "clean_eligible": 169,
+   "unusable_leakage": 13,
+   "potentially_recoverable_by_redaction": 20,
+   "eligible_low_information": 12
+  },
+  "eligible": 181,
+  "uses": "raw case content only; no model output, outcome, trajectory or score"
+ },
+ "split": {
+  "level": "case",
+  "seed": "0:agentclinic_main_v2",
+  "sizes": {
+   "train": 90,
+   "dev": 31,
+   "test": 60
+  },
+  "procedure": "scripts/freeze_dataset.py:make_split",
+  "order": "sha256(\"<seed>:<case_id>\") inside a stratum",
+  "strata": {
+   "low_information/repeated_diagnosis": {
+    "train": 2,
+    "dev": 1,
+    "test": 1
+   },
+   "low_information/single_diagnosis": {
+    "train": 4,
+    "dev": 1,
+    "test": 3
+   },
+   "standard/repeated_diagnosis": {
+    "train": 26,
+    "dev": 9,
+    "test": 17
+   },
+   "standard/single_diagnosis": {
+    "train": 58,
+    "dev": 20,
+    "test": 39
+   }
+  },
+  "low_information_cases": {
+   "train": 6,
+   "dev": 2,
+   "test": 4
+  },
+  "test_composition": {
+   "kept_from_the_first_label_run_TEST": 33,
+   "TRAIN_of_the_first_label_run": 20,
+   "DEV_of_the_first_label_run": 3,
+   "never_in_a_run": 4,
+   "note": "TEST cases that were TRAIN or DEV of the fixed two-turn run were seen by models of that run. Nothing of that run (labels, predictor, calibration, rubrics, weights, trajectories) is used in the main experiment."
+  },
+  "diagnosis_overlap": {
+   "test_cases_whose_diagnosis_also_occurs_in_train_or_dev": 8,
+   "test_cases_with_a_diagnosis_not_in_train_or_dev": 52,
+   "note": "not a leak: different clinical cases. The per-case flag allows a diagnosis-non-overlap subset as a sensitivity analysis."
+  }
+ },
+ "cases": {
+  "agentclinic_medqa_extended_0000": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "myasthenia gravis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0003": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "diffuse large b cell lymphoma",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0004": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "acute interstitial nephritis",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0005": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 10,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "pes anserine bursitis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0006": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 12,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "situational syncope",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0007": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "congenital rubella infection",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0008": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 6,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "phyllodes tumor",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0009": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 13,
+   "private_examination_findings": 10,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "endometritis",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0011": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 9,
+   "private_examination_findings": 10,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "complex partial seizure",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0014": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "rupture of the flexor digitorum profundus tendon at its point of insertion",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0015": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "epidermoid cyst",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0016": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 10,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "c difficile colitis",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0018": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "uterine rupture",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0020": {
+   "split": "test",
+   "status": "eligible_low_information",
+   "low_information_kind": "one_real_test_result",
+   "private_real_test_results": 1,
+   "private_examination_findings": 9,
+   "stratum": "low_information/single_diagnosis",
+   "diagnosis_key": "cytomegalovirus retinitis",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": null
+  },
+  "agentclinic_medqa_extended_0021": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 16,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "reactive arthritis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0023": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "irritable bowel syndrome",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0024": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 12,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "meigs syndrome",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0025": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 13,
+   "private_examination_findings": 10,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "primary sclerosing cholangitis",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0026": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 14,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "interstitial cystitis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0027": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 11,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "adhesive capsulitis",
+   "diagnosis_also_in_train_or_dev": true,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0028": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 10,
+   "private_examination_findings": 10,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "lung cancer",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0029": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 9,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "disseminated gonococcal infection",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0030": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "respiratory distress syndrome",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0031": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 7,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "chronic lymphocytic leukemia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0032": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 15,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "fulminant hepatic failure",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0034": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "erythema infectiosum",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0035": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "glanzmann thrombasthenia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0036": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 10,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "osteoclastoma",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0037": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 10,
+   "private_examination_findings": 13,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "multiple system atrophy",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0039": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 8,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "essential thrombocythemia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0040": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 9,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "medullary sponge kidney",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0041": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 9,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "genitopelvic pain disorder",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0042": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 16,
+   "private_examination_findings": 10,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "active chronic hepatitis b infection",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0043": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "acute mesenteric ischemia",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0044": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "asthma",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0045": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "roseola infantum",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0046": {
+   "split": "train",
+   "status": "eligible_low_information",
+   "low_information_kind": "one_real_test_result",
+   "private_real_test_results": 1,
+   "private_examination_findings": 6,
+   "stratum": "low_information/single_diagnosis",
+   "diagnosis_key": "eczematous dermatitis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": null
+  },
+  "agentclinic_medqa_extended_0048": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 13,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "hemophilia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0049": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 11,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "steven johnson syndrome",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0050": {
+   "split": "train",
+   "status": "eligible_low_information",
+   "low_information_kind": "one_real_test_result",
+   "private_real_test_results": 1,
+   "private_examination_findings": 5,
+   "stratum": "low_information/single_diagnosis",
+   "diagnosis_key": "aromatase deficiency",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": null
+  },
+  "agentclinic_medqa_extended_0052": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "pancreatic adenocarcinoma",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0054": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 10,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "schizotypal personality disorder",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0055": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "bowen disease",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0056": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "oppositional defiant disorder",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0057": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 10,
+   "private_examination_findings": 10,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "pancreatic adenocarcinoma",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0058": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 12,
+   "private_examination_findings": 11,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "lisdexamfetamine intoxication",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0059": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 12,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "pelvic inflammatory disease",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0060": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "glossopharyngeal neuralgia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0062": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 6,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "molluscum contagiosum",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0063": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 14,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "schizoaffective disorder",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0064": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "bed bug bite",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0065": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 15,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "membranous nephropathy",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0066": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 8,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "impaired erythropoietin production",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0067": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "acute lymphoblastic leukemia",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0068": {
+   "split": "train",
+   "status": "eligible_low_information",
+   "low_information_kind": "examination_findings_only",
+   "private_real_test_results": 0,
+   "private_examination_findings": 8,
+   "stratum": "low_information/single_diagnosis",
+   "diagnosis_key": "de quervain tenosynovitis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": null
+  },
+  "agentclinic_medqa_extended_0069": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 9,
+   "private_examination_findings": 15,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "dumping syndrome",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0070": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "seborrheic dermatitis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0071": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "labyrinthitis",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0072": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 5,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "physiological neonatal jaundice",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0073": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 6,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "frontotemporal dementia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0074": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "granulosa cell tumor",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0075": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "intraventricular hemorrhage",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0076": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 9,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "syringomyelia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0077": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 8,
+   "private_examination_findings": 9,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "pneumonia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0078": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "benign paroxysmal positional vertigo",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0079": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 12,
+   "private_examination_findings": 12,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "listeriosis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0080": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 9,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "hemophilia a",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0081": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "huntington disease",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0082": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 5,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "breast milk jaundice",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0083": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 10,
+   "private_examination_findings": 9,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "neuroleptic malignant syndrome",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0084": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "nightmare disorder",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0087": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 11,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "chronic lymphocytic leukemia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0088": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 12,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "normal behavior",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0089": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "parkinson disease",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0090": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "waldenstrom macroglobulinemia",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0091": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "apical lung tumor",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0092": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "tuberculosis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0093": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "boerhaave syndrome",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0094": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "chronic venous insufficiency",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0095": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 13,
+   "private_examination_findings": 10,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "akathisia",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0096": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "neonatal respiratory distress syndrome",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0097": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "pemphigus vulgaris",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0098": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 8,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "progressive multifocal leukoencephalopathy",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0099": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "acute myelogenous leukemia",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0100": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 17,
+   "private_examination_findings": 12,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "schizophreniform disorder",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0102": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "serum sickness like reaction",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0104": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "bronchiectasis",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0105": {
+   "split": "dev",
+   "status": "eligible_low_information",
+   "low_information_kind": "examination_findings_only",
+   "private_real_test_results": 0,
+   "private_examination_findings": 7,
+   "stratum": "low_information/single_diagnosis",
+   "diagnosis_key": "erythema toxicum",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": null
+  },
+  "agentclinic_medqa_extended_0108": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "silicosis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0109": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "chronic obstructive pulmonary disease",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0110": {
+   "split": "dev",
+   "status": "eligible_low_information",
+   "low_information_kind": "examination_findings_only",
+   "private_real_test_results": 0,
+   "private_examination_findings": 13,
+   "stratum": "low_information/repeated_diagnosis",
+   "diagnosis_key": "central retinal artery occlusion",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": null
+  },
+  "agentclinic_medqa_extended_0111": {
+   "split": "test",
+   "status": "eligible_low_information",
+   "low_information_kind": "one_real_test_result",
+   "private_real_test_results": 1,
+   "private_examination_findings": 6,
+   "stratum": "low_information/single_diagnosis",
+   "diagnosis_key": "vasovagal syncope",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": null
+  },
+  "agentclinic_medqa_extended_0112": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "lichen sclerosus",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0113": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 9,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "bacillus cereus infection",
+   "diagnosis_also_in_train_or_dev": true,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0114": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "chronic granulomatous disease",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0115": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 11,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "somatization disorder",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0116": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 9,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "chronic obstructive pulmonary disease",
+   "diagnosis_also_in_train_or_dev": true,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0117": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "schizophrenia",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0119": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 19,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "thrombotic thrombocytopenic purpura",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0120": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 9,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "acalculous cholecystitis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0121": {
+   "split": "train",
+   "status": "eligible_low_information",
+   "low_information_kind": "one_real_test_result",
+   "private_real_test_results": 1,
+   "private_examination_findings": 6,
+   "stratum": "low_information/repeated_diagnosis",
+   "diagnosis_key": "vitiligo",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": null
+  },
+  "agentclinic_medqa_extended_0122": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "pseudomonas keratitis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0123": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "men1",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0124": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "psoriatic arthritis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0125": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "ichthyosis vulgaris",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0126": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "fibroadenoma",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0127": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 5,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "silent thyroiditis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0128": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 5,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "chickenpox",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0129": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "biliary atresia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0130": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 8,
+   "private_examination_findings": 10,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "major depressive disorder",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0131": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "adenomatous polyp",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0132": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "polyostotic fibrous dysplasia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0134": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 3,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "keratoacanthoma",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0135": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "hair tourniquet syndrome",
+   "diagnosis_also_in_train_or_dev": true,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0136": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 6,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "takotsubo cardiomyopathy",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0137": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 12,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "paroxysmal atrial fibrillation",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0138": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 11,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "thoracic aortic rupture",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0139": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "posttraumatic stress disorder",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0140": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "bartter syndrome",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0141": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 13,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "schizoid personality disorder",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0142": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 10,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "adhesive capsulitis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0144": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 10,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "exertional heat stroke",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0145": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 9,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "psoriatic arthritis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0146": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "chronic lymphocytic leukemia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0147": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "autosomal dominant polycystic kidney disease",
+   "diagnosis_also_in_train_or_dev": true,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0148": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "molluscum contagiosum",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0149": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 13,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "brief psychotic disorder",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0150": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "phyllodes tumor",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0151": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 9,
+   "private_examination_findings": 10,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "valley fever",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0152": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 9,
+   "private_examination_findings": 13,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "cardiac contusion",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0155": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 12,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "pneumonia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0156": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 9,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "cardiac contusion",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0157": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 9,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "tracheobronchial rupture",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0158": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 11,
+   "private_examination_findings": 10,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "chronic kidney failure",
+   "diagnosis_also_in_train_or_dev": true,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0159": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 13,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "hypertrophic cardiomyopathy",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0161": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 9,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "plummer vinson syndrome",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0163": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 8,
+   "private_examination_findings": 9,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "factitious disorder",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0164": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "histoplasmosis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0166": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 12,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "polymyositis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0167": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "osteoarthritis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0168": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 12,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "minimal change disease",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0169": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "ewing sarcoma",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0170": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "perforated gastric peptic ulcer",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0171": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 10,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "pseudocyesis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0172": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "temporomandibular joint dysfunction",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0174": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 12,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "syringomyelia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0175": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 8,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "gastric peptic ulcer",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0176": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 12,
+   "private_examination_findings": 10,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "hemolytic uremic syndrome",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0177": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 11,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "frontotemporal dementia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0178": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 11,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "toxic exposure",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0179": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 13,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "neuroleptic malignant syndrome",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0180": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 11,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "atrial myxoma",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0181": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "acute hepatitis b",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0182": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 11,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "spinal stenosis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0183": {
+   "split": "test",
+   "status": "eligible_low_information",
+   "low_information_kind": "one_real_test_result",
+   "private_real_test_results": 1,
+   "private_examination_findings": 10,
+   "stratum": "low_information/single_diagnosis",
+   "diagnosis_key": "ruptured ovarian cyst",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": null
+  },
+  "agentclinic_medqa_extended_0185": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 7,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "chronic obstructive pulmonary disease",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0186": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "brief psychotic disorder",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0187": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 7,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "takotsubo cardiomyopathy",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0188": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 7,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "hair tourniquet syndrome",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0189": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 10,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "borderline personality disorder",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0190": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 8,
+   "private_examination_findings": 9,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "factitious disorder",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0191": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 8,
+   "private_examination_findings": 9,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "acalculous cholecystitis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0192": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 9,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "lambert eaton syndrome",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0193": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 11,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "cardiac tamponade",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0194": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "papillary carcinoma of the thyroid",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0195": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 10,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "pseudocyesis",
+   "diagnosis_also_in_train_or_dev": true,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0197": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "autosomal dominant polycystic kidney disease",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0199": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 6,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "bullous pemphigoid",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0200": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 5,
+   "private_examination_findings": 11,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "somatization disorder",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0201": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 12,
+   "private_examination_findings": 15,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "chronic kidney failure",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0202": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 2,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "tinea cruris",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0203": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 3,
+   "private_examination_findings": 7,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "vaginal septum",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0204": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 8,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "gastric peptic ulcer",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0205": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "neuroleptic malignant syndrome",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "dev"
+  },
+  "agentclinic_medqa_extended_0206": {
+   "split": "test",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "ewing sarcoma",
+   "diagnosis_also_in_train_or_dev": false,
+   "split_in_the_first_label_run": "test"
+  },
+  "agentclinic_medqa_extended_0208": {
+   "split": "train",
+   "status": "eligible_low_information",
+   "low_information_kind": "examination_findings_only",
+   "private_real_test_results": 0,
+   "private_examination_findings": 9,
+   "stratum": "low_information/repeated_diagnosis",
+   "diagnosis_key": "central retinal artery occlusion",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": null
+  },
+  "agentclinic_medqa_extended_0209": {
+   "split": "test",
+   "status": "eligible_low_information",
+   "low_information_kind": "one_real_test_result",
+   "private_real_test_results": 1,
+   "private_examination_findings": 6,
+   "stratum": "low_information/repeated_diagnosis",
+   "diagnosis_key": "vitiligo",
+   "diagnosis_also_in_train_or_dev": true,
+   "split_in_the_first_label_run": null
+  },
+  "agentclinic_medqa_extended_0210": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 7,
+   "private_examination_findings": 8,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "bacillus cereus infection",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0211": {
+   "split": "dev",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 4,
+   "private_examination_findings": 5,
+   "stratum": "standard/repeated_diagnosis",
+   "diagnosis_key": "chronic lymphocytic leukemia",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0212": {
+   "split": "train",
+   "status": "clean_eligible",
+   "low_information_kind": null,
+   "private_real_test_results": 6,
+   "private_examination_findings": 8,
+   "stratum": "standard/single_diagnosis",
+   "diagnosis_key": "crohn disease",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": "train"
+  },
+  "agentclinic_medqa_extended_0213": {
+   "split": "train",
+   "status": "eligible_low_information",
+   "low_information_kind": "examination_findings_only",
+   "private_real_test_results": 0,
+   "private_examination_findings": 7,
+   "stratum": "low_information/single_diagnosis",
+   "diagnosis_key": "seborrheic keratosis",
+   "diagnosis_also_in_train_or_dev": null,
+   "split_in_the_first_label_run": null
+  }
+ },
+ "not_in_main": {
+  "agentclinic_medqa_extended_0001": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0002": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0010": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0012": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0013": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0017": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0019": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0022": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0033": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": "test",
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0038": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0047": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0051": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0053": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": "train",
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0061": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0085": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0086": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0101": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0103": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0106": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0107": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0118": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0133": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0143": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0153": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0154": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0160": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0162": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0165": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0173": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0184": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0196": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": null,
+   "manual_review": "the genetic result is stated only through the diagnosis ('mutations associated with ...'); the cut leaves 'Positive for mutations', which is not a finding"
+  },
+  "agentclinic_medqa_extended_0198": {
+   "status": "potentially_recoverable_by_redaction",
+   "split_in_the_first_label_run": null,
+   "manual_review": null
+  },
+  "agentclinic_medqa_extended_0207": {
+   "status": "unusable_leakage",
+   "split_in_the_first_label_run": "test",
+   "manual_review": null
+  }
+ },
+ "manifest_sha256": "04a1c4474797d6ecfd721dc52fecfd9aa3dfe562a142e590ba7cf689afec9868"
+}

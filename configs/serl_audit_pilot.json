@@ -1,0 +1,21 @@
+{
+  "extends": "serl_agentclinic.json",
+  "notes": "End-to-end pipeline check on one GPU (scripts/run_e2e_pilot.sh): the policy and the Effectiveness service use the same physical GPU one after the other. Not a training configuration.",
+  "run_label": "e2e",
+  "devices": {
+    "placement": "sequential",
+    "physical_gpus": {
+      "policy": 7,
+      "effectiveness_service": 7
+    }
+  },
+  "rollout": {
+    "workers": 1,
+    "agent_batch_size": 1
+  },
+  "pilot": {
+    "parity_histories": 6,
+    "rubric_provenance": "hand-authored integration fixture, not research validated",
+    "service_request_log": null
+  }
+}

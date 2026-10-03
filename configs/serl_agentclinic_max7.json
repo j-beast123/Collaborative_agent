@@ -1,0 +1,100 @@
+{
+  "extends": "serl_agentclinic.json",
+  "notes": "Main SERL pipeline under the main protocol: at most 7 Doctor-Agent collaboration turns with early stopping (configs/effectiveness/v8_agentclinic_max7.json) on the frozen dataset version agentclinic_main_v2. Every Agent turn that a collaboration reached is a GRPO completion sample and is rewarded for its own turn: R_t = 0.4 R_O + 0.3 R_A,t + 0.3 R_E,t. This protocol has no Effectiveness predictor yet (reward.effectiveness.stages is empty), so R_E is unavailable at every turn and GRPO training with w_E > 0 does not start; the end-to-end check runs without it. The fixed two-turn configuration (serl_agentclinic.json) and its Effectiveness v1 are the earlier protocol's and are not used here.",
+  "run_label": "serl_max7",
+  "data": {
+    "split_manifest": "data/splits/agentclinic_main_v2.split_manifest.json",
+    "source_dataset": "agentclinic_medqa_extended",
+    "notes": "the case-level split of the frozen dataset version agentclinic_main_v2 in the format of src/data/split.py (derived from data/splits/agentclinic_main_v2.json; TEST is that format's eval). The rubric step analyses TRAIN failures only by it, and predictor training checks its labels against it."
+  },
+  "collaboration": {
+    "protocol": "agentclinic_max7_early_stop",
+    "max_rounds": 7,
+    "notes": "One collaboration turn is one Doctor -> Agent pair. After every Agent turn before the seventh the Doctor finalizes or continues; after A7 the final diagnosis is mandatory.",
+    "max_rounds_status": "decided 2026-10-02: max 7 collaboration turns with early stopping is the main protocol"
+  },
+  "environment": {
+    "config": "configs/effectiveness/v8_agentclinic_max7.json",
+    "histories": "outputs/effectiveness/v8_agentclinic_max7/histories.jsonl",
+    "base_trajectories": "outputs/effectiveness/v8_agentclinic_max7/base_trajectories.jsonl",
+    "notes": "Dataset version (agentclinic_main_v2: TRAIN 90 / DEV 31 / TEST 60), protocol, models, decoding and prompts come from the max-7 run's config. histories are that run's D1 histories. base_trajectories are the base Agent's collaborations under this protocol with their Agent-side states: iteration 0 takes its TRAIN rows as they are."
+  },
+  "training_samples": {
+    "stages": [
+      "A1",
+      "A2",
+      "A3",
+      "A4",
+      "A5",
+      "A6",
+      "A7"
+    ],
+    "notes": "One completion sample per Agent turn that a collaboration reached. A collaboration that stopped after A3 gives A1, A2 and A3 samples; A4-A7 samples are not made up."
+  },
+  "reward": {
+    "scored_stages": [
+      "A1",
+      "A2",
+      "A3",
+      "A4",
+      "A5",
+      "A6",
+      "A7"
+    ],
+    "effectiveness": {
+      "provider": null,
+      "checkpoint": null,
+      "calibration": null,
+      "model_version": null,
+      "expected_temperature": null,
+      "expected_continuation_protocol_hash": null,
+      "stages": [],
+      "available": {
+        "A1": false,
+        "A2": false,
+        "A3": false,
+        "A4": false,
+        "A5": false,
+        "A6": false,
+        "A7": false
+      },
+      "notes": "No Effectiveness predictor exists for this protocol yet. It will be ONE turn-conditioned predictor (intervention_turn A1 ... A7) trained on labels of this protocol at every reached turn; Effectiveness v1 and the two-turn labels are not used. Until it exists and passes its DEV evaluation, R_E is unavailable at every turn (never 0), the other weights are not rescaled, and GRPO training with w_E > 0 does not start."
+    }
+  },
+  "rubric_registry": {
+    "initial_rubrics": null,
+    "initial_rubrics_notes": "null: iteration 0 builds its rubrics from the base failures. A path <run>/iter0/rubrics: iteration 0 takes that run's rubric step as it is (same base collaborations), so that the conditions of one experiment share R_0 and the same raw candidates (INITIAL_RUBRICS with scripts/run_serl.sh).",
+    "max_active_categories": null,
+    "max_active_categories_status": "not used: the number of rubrics is whatever passes validation, consolidation and the effectiveness-gap filter",
+    "selection": {
+      "method": "effectiveness_gap",
+      "carry_over": false,
+      "high_score": 2,
+      "low_score": 0,
+      "min_group_n": 1,
+      "min_group_n_status": "OPEN DECISION: no minimum-support rule existed. Implemented: both adherence groups need at least one response with an Effectiveness value; otherwise the rubric is removed as insufficient_support (its gap is not set to 0). A larger minimum must be chosen without looking at DEV or TEST.",
+      "population": "policy_train_turns",
+      "population_status": "OPEN DECISION: which scored responses the gap is computed from. Implemented: every Agent turn of the current policy's valid TRAIN collaborations (the file the iteration's failures come from), scored against the consolidated rubrics, with the frozen predictor's Effectiveness.",
+      "engineering_safety_cap": null,
+      "engineering_safety_cap_status": "OPEN DECISION: no cap is applied. A cap for cost reasons would be separate from the method and is not implemented."
+    },
+    "notes": "Main method, per iteration and from that iteration's failures only: candidate generation -> validation rerun -> consolidation (one canonical rubric per category) -> effectiveness gap of each rubric = mean Effectiveness of the responses scored 2 minus mean Effectiveness of the responses scored 0 (score 1 is in neither group) -> rubrics with a positive gap form the set, weight = gap; a non-positive gap or an empty group removes the rubric. No negative weight exists. Nothing is carried over: no registry of earlier iterations is read, nothing is reactivated, and there is no cap. Each iteration's candidates, validations, assignments, table (rubric_table.json) and set are kept as its record. schedule fixed (Static): the set named by fixed_rubric_set is used unchanged in every iteration. schedule no_filtering: every raw candidate so far, cumulative, weight 1 each."
+  },
+  "rubrics": {
+    "scorer": {
+      "max_rubrics_per_call": null,
+      "max_rubrics_per_call_notes": "null: all rubrics of the active set in one scorer call (at most max_active_categories). A number: a response scored against more rubrics is sent in several calls of that many rubrics."
+    }
+  },
+  "roles": {
+    "rubric_manager": {
+      "retention_policy": "current_only",
+      "retention_policy_notes": "every iteration writes its rubrics from its own candidates; no rubric of an earlier iteration is reused or reactivated"
+    }
+  },
+  "rubric_importance": {
+    "strategy": "effectiveness_gap",
+    "status": "main method",
+    "notes": "The weight of a rubric is its effectiveness gap (rubric_registry.selection); the Weighted SoftMin normalizes the weights of the rubrics applicable to a response. Failure frequency (generation count) is stored for analysis and is not a weight."
+  }
+}

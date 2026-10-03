@@ -1,0 +1,13 @@
+{
+  "extends": "../../serl_agentclinic_qwen4b_max7.json",
+  "notes": "Outcome: R_t = 0.4 R_O. The removed components have weight 0 and the outcome keeps its coefficient of the full method (GRPO normalizes rewards inside a group, so with one component the coefficient does not change the update). No rubric is generated or scored and no Effectiveness predictor is called; the rubrics step records the iteration's failures only.",
+  "run_label": "main_outcome",
+  "condition": "outcome",
+  "reward": {
+    "weights": {
+      "outcome": 0.4,
+      "appropriateness": 0.0,
+      "effectiveness": 0.0
+    }
+  }
+}

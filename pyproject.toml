@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "collaborative-clinical-agent"
+version = "0.1.0"
+requires-python = ">=3.8"
+# Core data/split/contract code is standard-library only.
+dependencies = []
+[project.optional-dependencies]
+# Effectiveness predictor and model inference. Predictor tests ran on
+# torch 1.6 and torch 2.5 (transformers 4.46); LoRA/peft is untested.
+predictor = ["torch>=1.6", "transformers"]
+lora = ["torch>=1.6", "transformers", "peft"]
+test = ["pytest"]
+[tool.setuptools.packages.find]
+include = ["src*"]

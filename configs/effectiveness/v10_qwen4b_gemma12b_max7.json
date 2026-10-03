@@ -1,0 +1,46 @@
+{
+  "extends": "v9_gemma_agentclinic_max7.json",
+  "version": "v10_qwen4b_gemma12b_max7",
+  "notes": "Main environment (user decisions of 2026-10-02): Agent Qwen3-4B, Doctor google/gemma-3-12b-it on OpenRouter, outcome judge openai/gpt-4o-mini. Max 7 turns with early stopping, the neutral Agent prompts and the frozen dataset version agentclinic_main_v2 (TRAIN 90 / DEV 31 / TEST 60) are those of v8/v9. Everything is generated here from D1 on: no history, collaboration, label or predictor of the Qwen3-8B / GPT-Doctor runs (v8) or of the stopped Qwen3-8B / Gemma run (v9) is read. TEST is not used.",
+  "output_dir": "outputs/effectiveness/v10_qwen4b_gemma12b_max7",
+  "labels_dir": "outputs/effectiveness/v10_qwen4b_gemma12b_max7/effectiveness_oof_v1/labels",
+  "models": {
+    "agent": {
+      "model_id": "Qwen/Qwen3-4B",
+      "revision": "1cfa9a7208912126459214e8b04321603b3df60c",
+      "checkpoint": "/convei_nas2/sj/models/Qwen3-4B"
+    }
+  },
+  "role_models": {
+    "effectiveness_candidate_generator": "Sol",
+    "effectiveness_compliance_judge": "Jev",
+    "connected": {
+      "Sol": true,
+      "Jev": true
+    },
+    "status": "Connected: Sol = openai/gpt-6.1-sol (candidate generator), Jev = typesafe/jev-1.13 through OpenRouter's Decisions API (compliance judge)."
+  },
+  "label_roles": {
+    "candidate_generator": {
+      "role": "Sol",
+      "backend": "openai_compatible",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model_id": "openai/gpt-6.1-sol",
+      "revision": "openrouter openai/gpt-6.1-sol (pinned version id, not the latest alias)",
+      "params": {
+        "max_tokens": 800
+      },
+      "notes": "GPT-6.1 Sol writes the five candidate responses from the Agent's own prompt (the Agent's information, the history, the behavior instruction) in the Agent's format. Verified with fixture calls on 2026-10-02. The continuations after a candidate are written by the Agent model."
+    },
+    "compliance_judge": {
+      "role": "Jev",
+      "backend": "jev",
+      "endpoint": "https://openrouter.ai/api/alpha/decisions",
+      "model_id": "typesafe/jev-1.13",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "notes": "Jev 1.13 through OpenRouter's Decisions API (direct decision model, not the Jev router). The judgment is typed: the behavior class as a choice, private-evidence use and fabrication as yes/no probabilities (threshold 0.5); the probabilities are stored with every judgment. Verified with fixture calls on 2026-10-02."
+    },
+    "notes": "Who writes and who judges the fixed candidate responses of the Effectiveness labels. Not part of the protocol identity: the collaboration environment (Agent, Doctor, prompts, decoding) is unchanged by these roles."
+  }
+}

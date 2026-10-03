@@ -1,0 +1,96 @@
+{
+  "notes": "Effectiveness predictor on the v5 AgentClinic-MedQA labels: frozen Qwen3-8B backbone + scalar head (baseline). Targets are m successes out of K = 9 continuations; binomial NLL.",
+  "mode": "production",
+  "predictor": {
+    "role": "effectiveness_predictor",
+    "backbone_source": "huggingface",
+    "model_id": "${MODEL_ROOT}/Qwen3-8B",
+    "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "model_id_status": "Qwen/Qwen3-8B loaded from the NAS copy; revision = HF commit",
+    "torch_dtype": "bfloat16",
+    "trust_remote_code": false,
+    "max_length": 2048,
+    "training_mode": "frozen_backbone_scalar_head",
+    "design_status": "METHOD_TBD",
+    "pilot_decision": null,
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.05,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "use_rslora": true
+    },
+    "lora_notes": "Used only with training_mode lora_scalar_head (optional fallback; requires pilot_decision)."
+  },
+  "training": {
+    "seed": 0,
+    "epochs": 20,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0,
+    "batch_size": 8,
+    "grad_clip": 1.0,
+    "selection_metric": "binomial_nll",
+    "cache_features": true,
+    "require_k_equals_spec": true
+  },
+  "continuation": {
+    "agent_model": {
+      "model_id": "Qwen/Qwen3-8B",
+      "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+      "checkpoint": "${MODEL_ROOT}/Qwen3-8B"
+    },
+    "doctor_model": {
+      "model_id": "openai/gpt-4o-mini",
+      "revision": "openrouter-unpinned",
+      "checkpoint": null
+    },
+    "reconstructor_model": {
+      "model_id": "openai/gpt-4o-mini",
+      "revision": "openrouter-unpinned",
+      "checkpoint": null
+    },
+    "model_status": "Consultant Agent Qwen3-8B, Doctor gpt-4o-mini (OpenRouter). The v5 protocol has no reconstruction step; reconstructor_model is listed only because the spec requires the field.",
+    "turn_order": [
+      "doctor",
+      "agent"
+    ],
+    "max_rounds": 2,
+    "stopping_rule": "fixed_collaboration_turns",
+    "final_decision_role": "doctor",
+    "decoding": {
+      "agent": {
+        "do_sample": true,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "max_new_tokens": 400
+      },
+      "doctor": {
+        "temperature": 0.4,
+        "max_tokens": 400
+      }
+    },
+    "success_criterion": "final_diagnosis_equivalent_to_ground_truth",
+    "k": 9,
+    "seed_policy": {
+      "mode": "independent",
+      "base_seed": 0
+    },
+    "doctor_prompt": "prompts/agentclinic/doctor.txt",
+    "prompt_versions": {
+      "doctor": "sha256:3cfcdc270696f2cc",
+      "agent": "sha256:b81a53f4ba4856e6",
+      "diagnosis_equivalence": "sha256:4121dc2eb9b3ea32",
+      "protocol": "agentclinic-two-turn-v1"
+    },
+    "prompt_versions_status": "content hashes of prompts/agentclinic/*.txt"
+  },
+  "data": {
+    "split_manifest": "outputs/effectiveness/v5_agentclinic_full/split_manifest.json",
+    "source_dataset": "agentclinic_medqa_extended"
+  }
+}

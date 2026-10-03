@@ -1,0 +1,44 @@
+{
+  "extends": "v5_agentclinic_full.json",
+  "notes": "A2 Effectiveness labels (v6): the intervention is the Agent's second response. History h2 = D1 -> A1 -> D2 of the base Agent's natural collaboration in the v5 run's frozen histories (nothing of v5 is generated again or written to). BEFORE: h2 -> natural A2 -> Doctor FINAL, K = 9. AFTER: h2 -> fixed candidate A2 -> Doctor FINAL, K = 9. Same cases, split, models, decoding, prompts and K as the A1 labels; TEST is never used. A2 is the Agent's last turn, so nothing answers a question asked in it: request_evidence at A2 is a response that ends with open questions, and its label measures what that does to the Doctor's final diagnosis.",
+  "version": "v6_agentclinic_a2",
+  "intervention_turn": "A2",
+  "output_dir": "outputs/effectiveness/v6_agentclinic_joint/a2_labels",
+  "source_histories": "outputs/effectiveness/v5_agentclinic_full/histories.jsonl",
+  "candidates": {
+    "names": [
+      "evidence_grounded_maintain",
+      "unsupported_maintain",
+      "accept_revise",
+      "request_evidence",
+      "evidence_only_report"
+    ],
+    "names_notes": "the A2 behavior families (candidates.families). Four are the A1 families unchanged; request_evidence has a different meaning at a terminal turn and is recorded as such.",
+    "families": {
+      "evidence_grounded_maintain": "keeps its assessment against the Doctor's and supports it with a consultant-only finding (as at A1)",
+      "unsupported_maintain": "keeps its assessment without giving a reason (as at A1)",
+      "accept_revise": "moves to the Doctor's D2 diagnosis (as at A1)",
+      "evidence_only_report": "reports the consultant-only findings and leaves the conclusion to the Doctor (as at A1)",
+      "request_evidence": "terminal question: the message consists of questions to the Doctor. A2 is the Agent's last turn, so no later turn answers them; at A2 this family is 'ends with open questions', not a request that can be fulfilled. It is kept because the A2 prompt does not tell the Agent that the turn is its last and a policy can produce it; its labels are reported separately."
+    }
+  },
+  "smoke": {
+    "histories": 16,
+    "split": "train",
+    "seed": 0,
+    "stop_if": {
+      "labelled_pairs_below": 30,
+      "histories_with_candidate_ordering_below": 2,
+      "nonzero_delta_pairs_below": 3
+    },
+    "notes": "label informativeness check before the full run: a seeded sample of TRAIN histories. The full run starts only if the labels are structurally sound and not degenerate (stop_if); these are not predictor thresholds.",
+    "result": "2026-10-02: stop rule triggered (1 history with a candidate ordering, 1 nonzero-delta pair); see outputs/effectiveness/v6_agentclinic_joint/A2_SMOKE_REPORT.md. The full run was started afterwards on the user's explicit decision."
+  },
+  "integrity": {
+    "min_train_pairs": 200,
+    "min_dev_pairs": 60,
+    "min_dev_nonzero_delta_pairs": 0,
+    "min_compliant_share": 0.5,
+    "notes": "structural checks (K, missing values, split isolation, compliance, pair counts) stop the run. The number of nonzero-delta pairs is reported, not required: user decision of 2026-10-02 after the smoke test (1 of 68 pairs with a nonzero delta) to generate the full A2 labels anyway and let the joint predictor's gate decide whether A2 Effectiveness is usable. The labels keep the natural distribution of the base Agent's histories; nothing is selected or balanced by outcome."
+  }
+}

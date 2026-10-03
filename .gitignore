@@ -4,13 +4,36 @@ __pycache__/
 .venv/
 outputs/
 data/raw/
-data/interim/*
-!data/interim/medmcqa/
-data/interim/medmcqa/*
-!data/interim/medmcqa/Effectivness_train_data.jsonl
+data/interim/
 *.safetensors
 *.bin
 *.pt
 *.ckpt
 .env
 secrets*
+
+artifacts/smoke/
+*.egg-info/
+build/
+
+# local pilot data and outputs
+data/pilot/
+outputs/
+labels/
+candidates/
+
+# local caches, logs, editors
+.cache/
+*.log
+.ipynb_checkpoints/
+wandb/
+checkpoints/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.claude/
+
+# not published: local documentation and old MedMCQA data (redistribution not checked)
+docs/
+metadata/medmcqa_*

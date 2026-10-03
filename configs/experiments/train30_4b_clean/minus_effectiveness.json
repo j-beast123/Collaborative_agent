@@ -1,0 +1,13 @@
+{
+  "extends": "../../serl_agentclinic_qwen4b_max7_train30_clean.json",
+  "notes": "Component ablation, Ours - Effectiveness: R_t = 0.4 R_O + 0.3 R_A,t. The reward has no Effectiveness term. The rubric pipeline is that of Ours, including the effectiveness-gap filter and weights, so the rubric step still calls the predictor.",
+  "run_label": "clean30_4b_minus_effectiveness",
+  "condition": "minus_effectiveness",
+  "reward": {
+    "weights": {
+      "outcome": 0.4,
+      "appropriateness": 0.3,
+      "effectiveness": 0.0
+    }
+  }
+}

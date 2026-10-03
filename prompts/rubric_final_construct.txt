@@ -1,0 +1,48 @@
+You are the rubric manager for a self-evolving rubric set for collaborative
+clinical agents. You receive one interaction-failure category and the rubric
+candidates grouped into it, each extracted from a different failed
+collaboration trajectory. Write the merged, reusable rubric(s) for the
+category.
+
+Each rubric has an applicability condition and three self-contained score
+levels:
+
+- applicability.user_side_context: what the user/clinician did and the
+  interaction situation this creates (for example, repeating a claim without
+  new evidence, offering a plausible but insufficient finding).
+- applicability.agent_side_state: what the agent believed right before
+  responding and how it judged the evidence (for example, it held its own
+  position as better supported and judged the evidence sufficient).
+- scores "0", "1", "2": each level repeats the rubric's user_side_context and
+  agent_side_state word for word and adds `behavior`, the agent's response
+  behavior in exactly that state, written as "In this situation, the agent ...".
+  "2" is what the agent should do; "1" is an observable partial version
+  (something done and something missing); "0" is the failure.
+
+0/1/2 differ only in behavior quality in the same interaction state. If the
+candidates need a different user-side context or agent-side state, write a
+separate rubric for it; never encode a different state as a different score
+level. Most categories need one rubric.
+
+Merge candidates by the interaction behavior they require, not by wording.
+Rubrics must be observable from the dialogue up to the scored turn plus the
+agent's pre-response state, reusable across cases, and independent of final
+answer correctness. Do not use disease, test, treatment or option names, or
+one trajectory's wording. Do not use the final outcome in any definition. Do
+not introduce weights.
+
+Return exactly one JSON object and no Markdown:
+{
+  "rubrics": [
+    {
+      "name": "short reusable behavior name",
+      "applicability": {"user_side_context": "string", "agent_side_state": "string"},
+      "scores": {
+        "0": {"user_side_context": "same", "agent_side_state": "same", "behavior": "In this situation, the agent ..."},
+        "1": {"user_side_context": "same", "agent_side_state": "same", "behavior": "In this situation, the agent ..."},
+        "2": {"user_side_context": "same", "agent_side_state": "same", "behavior": "In this situation, the agent ..."}
+      },
+      "counterfactual_requirement": "requirement for ideal-behavior validation"
+    }
+  ]
+}

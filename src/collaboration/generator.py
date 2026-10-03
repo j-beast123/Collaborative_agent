@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import random
@@ -13,8 +14,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -28,6 +27,7 @@ from src.belief import (
     map_judgment_to_roles,
     parse_local_judgment,
 )
+from src.common import usage as api_usage
 
 
 def args() -> argparse.Namespace:
@@ -39,21 +39,28 @@ def args() -> argparse.Namespace:
     p.add_argument(
         "--output", default="outputs/collaboration/collaboration_pilot_10.jsonl"
     )
-    p.add_argument("--model", default="/home/kai/models/Qwen3-8B")
-    p.add_argument("--doctor-model", default="google/gemma-3-4b-it")
-    p.add_argument("--reconstructor-model", default="google/gemini-2.5-flash-lite")
+    p.add_argument("--model", required=True, help="agent model (Qwen family); set per run")
+    p.add_argument("--doctor-model", required=True, help="doctor simulator (GPT family); set per run")
+    p.add_argument("--reconstructor-model", required=True, help="state reconstructor; set per run")
+    p.add_argument("--doctor-prompt", default="prompts/user_simulator.txt", help="doctor system prompt file")
     p.add_argument("--max-cases", type=int, default=10)
     p.add_argument(
         "--rounds",
         type=int,
-        default=4,
-        help="Maximum agent responses/collaboration rounds",
+        required=True,
+        help="Maximum agent responses/collaboration rounds; must match the SERL training pipeline",
     )
     p.add_argument("--max-tokens", type=int, default=512)
     p.add_argument("--shard-index", type=int, default=0)
     p.add_argument("--num-shards", type=int, default=1)
     p.add_argument(
         "--claim-order", choices=("doctor_first", "agent_first"), default="doctor_first"
+    )
+    p.add_argument(
+        "--final-decision-role",
+        choices=("doctor", "agent"),
+        required=True,
+        help="Who states the final answer after the discussion; must match the SERL training pipeline.",
     )
     p.add_argument("--prompt-version", default="grounded-collaboration-v2")
     p.add_argument("--seed", type=int, default=0)
@@ -91,7 +98,7 @@ def dialogue_text(dialogue: list[dict]) -> str:
     )
 
 
-def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int) -> str:
+def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, temperature: float = 0.4) -> str:
     key = key.strip()
     payload = json.dumps(
         {
@@ -100,8 +107,9 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int) -
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "temperature": 0.4,
+            "temperature": temperature,
             "max_tokens": max_tokens,
+            "usage": {"include": True},
         }
     ).encode()
     req = urllib.request.Request(
@@ -114,7 +122,9 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int) -
         try:
             with urllib.request.urlopen(req, timeout=180) as response:
                 body = json.loads(response.read().decode())
-            return body["choices"][0]["message"]["content"].strip()
+            text = body["choices"][0]["message"]["content"].strip()
+            api_usage.record("collaboration", body.get("model", model), body.get("usage"), attempt + 1)
+            return text
         except urllib.error.HTTPError as error:
             if error.code not in {429, 500, 502, 503, 504} or attempt == 6:
                 raise
@@ -123,12 +133,24 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int) -
             print(f"OpenRouter HTTP {error.code}", flush=True)
             print(f"Body: {body[:1000]}", flush=True)
             print(f"Retry-After: {retry_after or '(not provided)'}", flush=True)
-            delay = float(retry_after) if retry_after else min(60, 2**attempt)
+            try:
+                delay = float(retry_after) if retry_after else min(60, 2**attempt)
+            except ValueError:  # Retry-After given as an HTTP date
+                delay = min(60, 2**attempt)
             print(f"OpenRouter HTTP {error.code}; retrying in {delay:.0f}s", flush=True)
+            time.sleep(delay)
+        except (OSError, http.client.HTTPException, ValueError, KeyError, IndexError, AttributeError) as error:
+            # Timeouts and dropped connections, or a 200 response that is not a completion
+            # (provider error body, empty content).
+            if attempt == 6:
+                raise
+            delay = min(60, 2**attempt)
+            print(f"OpenRouter call failed ({type(error).__name__}: {str(error)[:200]}); retrying in {delay}s", flush=True)
             time.sleep(delay)
 
 
-RECONSTRUCTION_FIELDS = {
+# Prompts list the fields in this fixed order.
+RECONSTRUCTION_FIELD_ORDER = (
     "focal_claim",
     "clinician_current_position",
     "agent_current_position",
@@ -140,7 +162,8 @@ RECONSTRUCTION_FIELDS = {
     "resolved_points",
     "unresolved_points",
     "unsupported_case_details",
-}
+)
+RECONSTRUCTION_FIELDS = frozenset(RECONSTRUCTION_FIELD_ORDER)
 
 
 def parse_reconstruction(raw: str) -> dict:
@@ -228,7 +251,7 @@ def reconstruct_call(
                     )
                 )
                 else ""
-                for field in RECONSTRUCTION_FIELDS
+                for field in RECONSTRUCTION_FIELD_ORDER
             },
             indent=2,
         )
@@ -245,7 +268,9 @@ def reconstruct_call(
     return parsed
 
 
-def agent_call(model, tokenizer, system: str, user: str, max_tokens: int) -> str:
+def agent_call(model, tokenizer, system: str, user: str, max_tokens: int, *, do_sample: bool = False,
+               temperature: float | None = None, top_p: float | None = None) -> str:
+    import torch
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
@@ -260,8 +285,10 @@ def agent_call(model, tokenizer, system: str, user: str, max_tokens: int) -> str
         output = model.generate(
             **inputs,
             max_new_tokens=max_tokens,
-            do_sample=False,
+            do_sample=do_sample,
             pad_token_id=tokenizer.eos_token_id,
+            **({"temperature": temperature} if do_sample and temperature is not None else {}),
+            **({"top_p": top_p} if do_sample and top_p is not None else {}),
         )
     return tokenizer.decode(
         output[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=True
@@ -319,8 +346,92 @@ def signals_conclusion(text: str) -> bool:
     return any(re.search(pattern, text, re.I) for pattern in patterns)
 
 
+# Turn-level steps shared by main() and rubric-validation reruns
+# (src/collaboration/rerun.py), so a rerun follows exactly the same protocol.
+
+
+def doctor_turn_prompt(case: dict, dialogue: list[dict], turn: int, rounds: int) -> str:
+    final_turn_instruction = (
+        "\nThis is the final collaboration turn. Give your best-supported final answer explicitly."
+        if turn == rounds
+        else ""
+    )
+    return f"{case_text(case)}\n\nGrounding constraint: Use only the question, answer choices, dialogue, and established domain knowledge. If no patient vignette or event description is provided, do not invent one or add symptoms, injuries, tests, treatments, or events.\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nRespond naturally as the physician. This is discussion turn {turn} of {rounds}.{final_turn_instruction}"
+
+
+def final_decision_prompt(case: dict, dialogue: list[dict]) -> str:
+    return f"{case_text(case)}\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nThis is the final decision. State the option best supported by the complete discussion. End with exactly: Final answer: option <A-D> - <answer text>"
+
+
+def belief_agent_prompt(
+    case: dict,
+    dialogue: list[dict],
+    turn: int,
+    rounds: int,
+    claim_order: str,
+    *,
+    reconstruct,
+    judge,
+):
+    """Reconstruction -> turn-local Q1/Q2 judgment -> agent prompt (turn >= 2)."""
+    reconstruction = reconstruct(case, dialogue)
+    if reconstruction.get("parse_status") != "valid":
+        return None, reconstruction, None, "reconstruction_failure"
+    clean_reconstruction = {k: reconstruction[k] for k in RECONSTRUCTION_FIELD_ORDER}
+    reconstructed_context = json.dumps(clean_reconstruction, ensure_ascii=False, indent=2)
+    judgment_prompt = build_local_judgment_prompt(
+        question=case["question"],
+        options=case["options"],
+        reconstruction=clean_reconstruction,
+        scenario=case.get("scenario", ""),
+        claim_order=claim_order,
+    )
+    judgment = parse_local_judgment(judge(judgment_prompt))
+    if judgment.get("parse_status") != "valid":
+        return None, reconstruction, judgment, "judgment_failure"
+    clean_judgment = map_judgment_to_roles(judgment, claim_order)
+    clean_judgment = {
+        name: {key: value for key, value in clean_judgment[name].items()}
+        for name in ("q1", "q2")
+    }
+    agent_prompt = build_agent_response_prompt(
+        question=case["question"],
+        options=case["options"],
+        reconstructed_context=reconstructed_context,
+        judgment=clean_judgment,
+        dialogue_history=dialogue_text(dialogue),
+        scenario=case.get("scenario", ""),
+        current_round=turn,
+        max_rounds=rounds,
+        is_final_round=turn == rounds,
+    )
+    return agent_prompt, reconstruction, judgment, "valid"
+
+
+def stop_reason(turn: int, doctor: str, response: str):
+    """Early-termination rule after an agent turn, or None to continue."""
+    if re.search(r"final answer\s*:\s*(?:option\s*)?[A-D]", response, re.I):
+        return "agent_final_answer"
+    if turn >= 2:
+        doctor_choice = option(doctor)
+        agent_choice = option(response)
+        if (
+            doctor_choice
+            and agent_choice
+            and doctor_choice == agent_choice
+            and signals_conclusion(doctor)
+            and signals_conclusion(response)
+        ):
+            return "mutual_agreement"
+        if signals_conclusion(doctor) and signals_conclusion(response):
+            return "mutual_conclusion"
+    return None
+
+
 def main() -> None:
-    a = args()
+    a = args()  # validate CLI arguments before loading heavy libraries/models
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
     random.seed(a.seed)
     torch.manual_seed(a.seed)
     if torch.cuda.is_available():
@@ -328,12 +439,12 @@ def main() -> None:
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise SystemExit("OPENROUTER_API_KEY is not set")
-    root = Path(__file__).resolve().parents[1]
+    root = ROOT
     all_cases = load(root / a.input)[: a.max_cases]
     if not 0 <= a.shard_index < a.num_shards:
         raise ValueError("shard-index must be in [0, num-shards)")
     cases = all_cases[a.shard_index :: a.num_shards]
-    doctor_system = (root / "prompts/user_simulator.txt").read_text(encoding="utf-8")
+    doctor_system = (root / a.doctor_prompt).read_text(encoding="utf-8")
     agent_system = (root / "prompts/agent.txt").read_text(encoding="utf-8")
     judgment_system = (root / "prompts/local_epistemic_judgment.txt").read_text(
         encoding="utf-8"
@@ -368,12 +479,7 @@ def main() -> None:
             agent_initial_option = ""
             termination_reason = "max_agent_turns"
             for turn in range(1, a.rounds + 1):
-                final_turn_instruction = (
-                    "\nThis is the final collaboration turn. Give your best-supported final answer explicitly."
-                    if turn == a.rounds
-                    else ""
-                )
-                prompt = f"{case_text(case)}\n\nGrounding constraint: Use only the question, answer choices, dialogue, and established domain knowledge. If no patient vignette or event description is provided, do not invent one or add symptoms, injuries, tests, treatments, or events.\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nRespond naturally as the physician. This is discussion turn {turn} of {a.rounds}.{final_turn_instruction}"
+                prompt = doctor_turn_prompt(case, dialogue, turn, a.rounds)
                 doctor = doctor_call(
                     key, a.doctor_model, doctor_system, prompt, a.max_tokens
                 )
@@ -404,53 +510,24 @@ def main() -> None:
                         is_final_round=turn == a.rounds,
                     )
                 else:
-                    reconstruction = reconstruct_call(
-                        key, a.reconstructor_model, case, dialogue, 1024
+                    agent_prompt, reconstruction, judgment, judgment_status = belief_agent_prompt(
+                        case,
+                        dialogue,
+                        turn,
+                        a.rounds,
+                        a.claim_order,
+                        reconstruct=lambda c, d: reconstruct_call(
+                            key, a.reconstructor_model, c, d, 1024
+                        ),
+                        judge=lambda p: agent_call(
+                            model, tokenizer, judgment_system, p, 384
+                        ),
                     )
-                    if reconstruction.get("parse_status") != "valid":
-                        termination_reason = "reconstruction_failure"
-                        print(f"{case['case_id']} reconstruction_failure", flush=True)
+                    if judgment_status != "valid":
+                        # reconstruction_failure or judgment_failure
+                        termination_reason = judgment_status
+                        print(f"{case['case_id']} {judgment_status}", flush=True)
                         break
-                    clean_reconstruction = {
-                        k: reconstruction[k] for k in RECONSTRUCTION_FIELDS
-                    }
-                    reconstructed_context = json.dumps(
-                        clean_reconstruction, ensure_ascii=False, indent=2
-                    )
-                    judgment_prompt = build_local_judgment_prompt(
-                        question=case["question"],
-                        options=case["options"],
-                        reconstruction=clean_reconstruction,
-                        scenario=case.get("scenario", ""),
-                        claim_order=a.claim_order,
-                    )
-                    judgment_raw = agent_call(
-                        model, tokenizer, judgment_system, judgment_prompt, 384
-                    )
-                    judgment = parse_local_judgment(judgment_raw)
-                    if judgment.get("parse_status") != "valid":
-                        termination_reason = "judgment_failure"
-                        print(f"{case['case_id']} judgment_failure", flush=True)
-                        break
-                    judgment_status = "valid"
-                    clean_judgment = map_judgment_to_roles(judgment, a.claim_order)
-                    clean_judgment = {
-                        name: {
-                            key: value for key, value in clean_judgment[name].items()
-                        }
-                        for name in ("q1", "q2")
-                    }
-                    agent_prompt = build_agent_response_prompt(
-                        question=case["question"],
-                        options=case["options"],
-                        reconstructed_context=reconstructed_context,
-                        judgment=clean_judgment,
-                        dialogue_history=dialogue_text(dialogue),
-                        scenario=case.get("scenario", ""),
-                        current_round=turn,
-                        max_rounds=a.rounds,
-                        is_final_round=turn == a.rounds,
-                    )
                 response = agent_call(
                     model, tokenizer, agent_system, agent_prompt, a.max_tokens
                 )
@@ -466,26 +543,10 @@ def main() -> None:
                         "local_judgment_status": judgment_status,
                     }
                 )
-                if re.search(r"final answer\s*:\s*(?:option\s*)?[A-D]", response, re.I):
-                    termination_reason = "agent_final_answer"
+                reason = stop_reason(turn, doctor, response)
+                if reason:
+                    termination_reason = reason
                     break
-                if turn >= 2:
-                    doctor_choice = option(doctor)
-                    agent_choice = option(response)
-                    if (
-                        doctor_choice
-                        and agent_choice
-                        and doctor_choice == agent_choice
-                        and signals_conclusion(doctor)
-                        and signals_conclusion(response)
-                    ):
-                        termination_reason = "mutual_agreement"
-                        break
-                    doctor_ready = signals_conclusion(doctor)
-                    agent_ready = signals_conclusion(response)
-                    if doctor_ready and agent_ready:
-                        termination_reason = "mutual_conclusion"
-                        break
             if termination_reason in {"reconstruction_failure", "judgment_failure"}:
                 failure_record = {
                     "case_id": case["case_id"],
@@ -526,14 +587,19 @@ def main() -> None:
                 )
                 failure_handle.flush()
                 continue
-            final_prompt = f"{case_text(case)}\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nThis is the final decision. State the option best supported by the complete discussion. End with exactly: Final answer: option <A-D> - <answer text>"
-            final = doctor_call(
-                key, a.doctor_model, doctor_system, final_prompt, a.max_tokens
-            )
+            final_prompt = final_decision_prompt(case, dialogue)
+            if a.final_decision_role == "doctor":
+                final = doctor_call(
+                    key, a.doctor_model, doctor_system, final_prompt, a.max_tokens
+                )
+            else:
+                final = agent_call(
+                    model, tokenizer, agent_system, final_prompt, a.max_tokens
+                )
             actual_rounds = sum(1 for item in dialogue if item["speaker"] == "agent")
             dialogue.append(
                 {
-                    "speaker": "doctor",
+                    "speaker": a.final_decision_role,
                     "text": final,
                     "round": actual_rounds + 1,
                     "final": True,
@@ -574,6 +640,7 @@ def main() -> None:
                 "num_discussion_rounds": actual_rounds,
                 "max_discussion_rounds": a.rounds,
                 "max_agent_turns": a.rounds,
+                "final_decision_role": a.final_decision_role,
                 "termination_reason": termination_reason,
                 "claim_order": a.claim_order,
                 "doctor_initial_option": doctor_initial_option,
@@ -599,6 +666,7 @@ def main() -> None:
                     "agent_do_sample": False,
                     "max_tokens": a.max_tokens,
                     "prompt_version": a.prompt_version,
+                    "doctor_prompt": a.doctor_prompt,
                     "seed": a.seed,
                 },
             }

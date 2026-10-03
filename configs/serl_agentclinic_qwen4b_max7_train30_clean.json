@@ -1,0 +1,66 @@
+{
+  "extends": "serl_agentclinic_qwen4b_max7.json",
+  "notes": "Clean TRAIN30 main configuration: configs/serl_agentclinic_qwen4b_max7.json on the environment v13 (TRAIN 30 / DEV 31 / TEST 60, corrected diagnosis judge with the majority-v1 decision policy). Protocol, reward, GRPO settings, rubric method, causal validation and iterations are those of the pilot (configs/serl_agentclinic_qwen4b_max7_train30.json); the rubric budget is at most 8 per iteration. Runs, caches and tables are under outputs/serl_clean and outputs/main_experiments_train30_4b_clean; no artifact of the pilot is read. Effectiveness predictor connected after gRPC parity (outputs/effectiveness/v13_qwen4b_gemma12b_max7_train30_clean_majority/effectiveness_oof_v1).",
+  "environment": {
+    "config": "configs/effectiveness/v13_qwen4b_gemma12b_max7_train30_clean_majority.json",
+    "histories": "outputs/effectiveness/v13_qwen4b_gemma12b_max7_train30_clean_majority/histories.jsonl",
+    "base_trajectories": "outputs/effectiveness/v13_qwen4b_gemma12b_max7_train30_clean_majority/base_trajectories.jsonl"
+  },
+  "output_root": "outputs/serl_clean",
+  "cache_dir": "outputs/serl_clean/_cache",
+  "reward": {
+    "effectiveness": {
+      "provider": "grpc",
+      "endpoint": "127.0.0.1:50558",
+      "device": "cuda:0",
+      "checkpoint": "outputs/effectiveness/v13_qwen4b_gemma12b_max7_train30_clean_majority/effectiveness_oof_v1/joint_max7",
+      "calibration": "outputs/effectiveness/v13_qwen4b_gemma12b_max7_train30_clean_majority/effectiveness_oof_v1/calibration.json",
+      "model_version": "effectiveness-max7-oof-v1",
+      "expected_temperature": 31.553746508788677,
+      "expected_checkpoint_id": "3c3fff2437c5ab57",
+      "expected_calibration_id": "9610d3fe5592c20a9550898c2cc84ec29eee88dc2161ed0be5ce44e8c53e7ea4",
+      "expected_continuation_protocol_hash": "149504a262beb1dd",
+      "stages": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5",
+        "A6",
+        "A7"
+      ],
+      "available": {
+        "A1": true,
+        "A2": true,
+        "A3": true,
+        "A4": true,
+        "A5": true,
+        "A6": true,
+        "A7": true
+      },
+      "notes": "Frozen max7 joint predictor; TRAIN-only selection/calibration; DEV evaluated once; actual gRPC parity passed."
+    }
+  },
+  "rubric_registry": {
+    "selection": {
+      "max_rubrics": 8,
+      "max_rubrics_notes": "At most 8 rubrics per iteration: the largest effectiveness gaps among those that pass validation, consolidation and the gap filter; fewer pass -> all of them (frozen 2026-10-02 before any rubric of the pilot or of this run was generated)."
+    }
+  },
+  "devices": {
+    "physical_gpus": {
+      "policy": "one GPU per run, set by CUDA_VISIBLE_DEVICES of the launch script",
+      "effectiveness_service": "one shared service process on its own GPU (EFFECTIVENESS_GPU of the launch scripts)"
+    }
+  },
+  "validation": {
+    "intervention": {
+      "mode": "frozen_compliant",
+      "generator": "agent",
+      "compliance": "rubric_scorer",
+      "required_score": 2,
+      "max_attempts": 3,
+      "notes": "FINAL MAIN (frozen 2026-10-03): Rubric Validation with the frozen score-2 intervention. The failed turn's response is written by the iteration's Agent under the candidate's ideal behavior; the first of at most 3 attempts that the run's rubric scorer (Jev) puts at score 2 of the candidate is frozen and inserted as it is in the 3 reruns from the same prefix; pass at >= 2 of 3 correct final diagnoses. No private re-assessment (diagnostic only, outputs/serl_clean/clean30_4b_ours_reassess_20261003-084101_b45e62fa), no behavioral criterion."
+    }
+  }
+}

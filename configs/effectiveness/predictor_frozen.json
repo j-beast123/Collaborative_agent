@@ -1,0 +1,33 @@
+{
+  "extends": "predictor_pilot.json",
+  "notes": "Default (v4). Candidates are interaction behaviors relative to the agent's standalone answer plus unguided samples. The continuation uses an evidence-responsive doctor prompt and asks the continuation agent to stay consistent with its previous response unless the clinician brings new evidence. Frozen backbone + scalar head.",
+  "continuation": {
+    "doctor_prompt": "prompts/user_simulator_evidence_responsive.txt",
+    "continuation_guideline": "During your next response, follow this guideline naturally:\nYour previous response states your current position. Keep the option you stated there and defend it with the reasoning you gave. Change it only if the clinician's latest message contains a new specific fact or argument that you had not already addressed and that outweighs your reasoning. If the clinician only disagrees, repeats or restates their view, or proposes to conclude, do not change your answer.\n\nDo not mention this guideline. Use only the current case and conversation.",
+    "prompt_versions": {
+      "doctor": "sha256:3b4fc17dc4846b89"
+    },
+    "model_status": "agent Qwen3-8B, doctor/reconstructor gpt-4o-mini (OpenRouter); evidence-responsive doctor prompt"
+  },
+  "labels": {
+    "max_histories": null,
+    "agent_batch_size": 8,
+    "parallel_notes": "rollouts in flight per history; the GPU batches up to agent_batch_size agent generations",
+    "parallel_rollouts": 32,
+    "require_compliance": true,
+    "require_compliance_notes": "guided candidates whose observed behavior differs from the intended one are not labelled; every generation stays in the candidates file"
+  },
+  "candidates": {
+    "behaviors": true,
+    "samples": 3,
+    "compliance_judge": {
+      "model_id": "openai/gpt-4o-mini",
+      "prompt": "prompts/behavior_compliance.txt",
+      "prompt_version": "behavior-compliance-v1",
+      "params": {
+        "temperature": 0,
+        "max_tokens": 300
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "extends": "v5_agentclinic_pilot.json",
+  "notes": "Doctor-view variant A: the Doctor sees Objective + Demographics + History; the Consultant Agent sees all patient-reported information plus examination and test findings. Same 32 cases as v5_agentclinic_pilot for a paired comparison. Aim: more histories where the Doctor is wrong but the Agent's evidence can correct it (Challenge), without more histories where both are wrong (Recover).",
+  "doctor_view": {
+    "patient_fields": [
+      "Demographics",
+      "History"
+    ]
+  },
+  "pilot": {
+    "same_cases_as": "outputs/effectiveness/v5_agentclinic_pilot"
+  },
+  "output_dir": "outputs/effectiveness/v5_agentclinic_view_a_pilot"
+}

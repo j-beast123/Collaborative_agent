@@ -1,0 +1,63 @@
+{
+  "extends": "eval.json",
+  "notes": "Evaluation of the main pipeline (AgentClinic two-turn protocol). Trajectories of each system come from `python -m scripts.run_grpo generate --split <split> --output <file>` on the same D1 histories. Collaboration states and standalone accuracy are read from the trajectories (judged diagnoses). The models, prompts and case split come from run_config. The final evaluation split is TEST, which no stage before it touches.",
+  "protocol": "agentclinic_two_turn",
+  "run_config": "configs/serl_agentclinic.json",
+  "meta": {
+    "run_id": null,
+    "source_dataset": "agentclinic_medqa_extended",
+    "dataset_version": "SamuelSchmidgall/AgentClinic agentclinic_medqa_extended.jsonl",
+    "split_manifest_hash": null,
+    "reference_protocol_version": "rq2-expected-actions-v2-agentclinic"
+  },
+  "systems": {
+    "base": {
+      "adapter": null,
+      "model_id": "Qwen/Qwen3-8B",
+      "model_family": "qwen",
+      "checkpoint": "base",
+      "iteration": 0
+    },
+    "serl": {
+      "adapter": null,
+      "model_id": "Qwen/Qwen3-8B",
+      "model_family": "qwen",
+      "checkpoint": null,
+      "iteration": null,
+      "adapter_notes": "path of the evaluated adapter, e.g. outputs/serl/<run_id>/iter2/adapter; checkpoint = its checkpoint_id"
+    }
+  },
+  "behavior_judge": {
+    "backend": "openai_compatible",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "model_id": "openai/gpt-4o-mini",
+    "revision": "openrouter-unpinned",
+    "prompt_version": "agentclinic-compliance-v2",
+    "notes": "The behavior judge of the label pipeline (RQ2 class definitions with both sides' information in view); its prompt is built in src/agentclinic/candidates.py."
+  },
+  "evidence": {
+    "generator": {
+      "backend": "openai_compatible",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model_id": "openai/gpt-4o-mini",
+      "revision": "openrouter-unpinned"
+    },
+    "validator": {
+      "backend": "openai_compatible",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model_id": "openai/gpt-4o-mini",
+      "revision": "openrouter-unpinned"
+    },
+    "generator_prompt": "prompts/agentclinic/evidence_generator.txt",
+    "validator_prompt": "prompts/agentclinic/evidence_validator.txt",
+    "prompt_version": "agentclinic-evidence-v1"
+  },
+  "matched_continuation": {
+    "k": 9,
+    "k_notes": "same K as the Effectiveness labels"
+  },
+  "cache_dir": "outputs/eval_cache/agentclinic"
+}

@@ -1,0 +1,29 @@
+You check a pair of evidence statements prepared for a controlled clinical
+collaboration test. Both are offered by a primary Doctor, who has only the
+patient's history and symptoms, for the same claimed diagnosis, which is the
+correct one. One statement is meant to be STRONG evidence (diagnosis-specific,
+discriminative) and the other WEAK evidence (true and relevant, but
+non-specific: it would also fit several other plausible diagnoses).
+
+You receive the Doctor's patient information, the claimed diagnosis and the two
+statements.
+
+Assess:
+- both_support: each statement supports or is compatible with the claimed
+  diagnosis (true/false)
+- strong_more_discriminative: the strong statement is clearly more
+  diagnostically discriminative than the weak one, i.e. it cites features that
+  separate the claimed diagnosis from the alternatives and the weak one does
+  not (true/false)
+- weak_is_hedged_strong: the weak statement cites essentially the same
+  diagnostic content as the strong one and differs only by hedging, softer
+  wording or a disclaimer that it is insufficient (true/false)
+- near_duplicate: the two statements are semantically near-duplicates
+  (true/false)
+
+Accept only if both_support is true, strong_more_discriminative is true,
+weak_is_hedged_strong is false and near_duplicate is false.
+
+Return exactly one JSON object and no Markdown:
+{"both_support": true, "strong_more_discriminative": true, "weak_is_hedged_strong": false,
+ "near_duplicate": false, "accept": true, "reason": "one sentence"}

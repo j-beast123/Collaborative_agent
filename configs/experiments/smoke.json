@@ -1,0 +1,98 @@
+{
+  "mode": "smoke",
+  "dataset_adapter": "synthetic_fixture",
+  "dataset_version": null,
+  "split_manifest_hash": null,
+  "training_backend": null,
+  "reward_protocol": null,
+  "continuation_protocol": null,
+  "split": {
+    "seed": 17,
+    "proportions": {
+      "train": 0.6,
+      "dev": 0.2,
+      "eval": 0.2
+    }
+  },
+  "models": {
+    "llama": {
+      "model_id": null,
+      "revision": null,
+      "enabled": true,
+      "role": "agent_backbone"
+    },
+    "qwen_4b": {
+      "model_id": null,
+      "revision": null,
+      "enabled": true,
+      "role": "agent_backbone"
+    },
+    "qwen_9b": {
+      "model_id": null,
+      "revision": null,
+      "enabled": true,
+      "role": "agent_backbone"
+    },
+    "gemma": {
+      "model_id": null,
+      "revision": null,
+      "enabled": false,
+      "role": "agent_backbone"
+    }
+  },
+  "predictor": {
+    "model_id": null,
+    "revision": null,
+    "approximate_scale": "8B",
+    "training_mode": "frozen_backbone_scalar_head",
+    "design_status": "pilot_hypothesis",
+    "role": "effectiveness_predictor"
+  },
+  "services": {
+    "behavior_judge": {
+      "role": "behavior_judge",
+      "backend": "llm",
+      "model_id": null,
+      "revision": null
+    },
+    "rubric_scorer": {
+      "role": "rubric_scorer",
+      "backend": "llm",
+      "model_id": null,
+      "revision": null
+    },
+    "evidence_judge": {
+      "role": "evidence_judge",
+      "backend": "llm",
+      "model_id": null,
+      "revision": null
+    },
+    "rubric_generator": {
+      "role": "rubric_generator",
+      "backend": "llm",
+      "model_id": null,
+      "revision": null
+    },
+    "collaborator_simulator": {
+      "role": "collaborator_simulator",
+      "backend": "llm",
+      "model_id": null,
+      "revision": null
+    }
+  },
+  "optional_experiments": {
+    "jev_judge": {
+      "enabled": true,
+      "role": "rubric_scorer_candidate",
+      "backend": "jev",
+      "model_id": null,
+      "revision": null,
+      "tasks": [
+        "rubric_scoring"
+      ],
+      "validation_status": "not_evaluated",
+      "compared_against": "gpt",
+      "see": "configs/judges/serl_roles.json"
+    }
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "notes": "v5 signal pilot on AgentClinic-MedQA: collaborative diagnosis where the Consultant Agent holds examination and test evidence the Doctor has not seen. Two collaboration turns (D1-A1, D2-A2), then the Doctor's final diagnosis; A1 is the intervention point. Rollouts here are offline continuations for labels (K = 9), not GRPO rollouts; no Effectiveness Model is called or trained by this config.",
+  "version": "v5_agentclinic",
+  "dataset": {
+    "source": "SamuelSchmidgall/AgentClinic",
+    "file": "agentclinic_medqa_extended.jsonl",
+    "path": "data/raw/agentclinic/agentclinic_medqa_extended.jsonl",
+    "min_test_findings": 2,
+    "selection_notes": "eligible = Correct_Diagnosis present, Patient_Actor present, Physical_Examination_Findings and Test_Results non-empty, at least min_test_findings test-result values. Cases whose consultant-only evidence contains the Correct_Diagnosis string are left out of the pool (the consultant would be handed the answer; their ids are recorded in the run manifest for a separate analysis). Pilot cases are a seeded random sample of the TRAIN split. No model output and no outcome is used.",
+    "exclude_diagnosis_named_in_private_evidence": true
+  },
+  "split": {
+    "seed": 0,
+    "fractions": {
+      "train": 0.6,
+      "dev": 0.2,
+      "test": 0.2
+    }
+  },
+  "models": {
+    "agent": {
+      "model_id": "Qwen/Qwen3-8B",
+      "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+      "checkpoint": "/convei_nas2/sj/models/Qwen3-8B"
+    },
+    "doctor": {
+      "model_id": "openai/gpt-4o-mini",
+      "revision": "openrouter-unpinned"
+    },
+    "judge": {
+      "model_id": "openai/gpt-4o-mini",
+      "revision": "openrouter-unpinned"
+    }
+  },
+  "decoding": {
+    "agent": {
+      "do_sample": true,
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "max_new_tokens": 400
+    },
+    "doctor": {
+      "temperature": 0.4,
+      "max_tokens": 400
+    }
+  },
+  "prompts": {
+    "doctor": "prompts/agentclinic/doctor.txt",
+    "consultant": "prompts/agentclinic/consultant.txt",
+    "diagnosis_equivalence": "prompts/agentclinic/diagnosis_equivalence.txt",
+    "evidence_check": "prompts/evidence_check.txt"
+  },
+  "k": 9,
+  "labels": {
+    "require_compliance": true,
+    "max_rollout_attempts": 3,
+    "workers": 24,
+    "agent_batch_size": 8
+  },
+  "pilot": {
+    "cases": 32,
+    "split": "train",
+    "seed": 0,
+    "cases_notes": "32 TRAIN cases; their prepared histories are frozen (histories.frozen.sha256) and every candidate is applied to all of them",
+    "first_label_selection_notes": "the first K = 9 run labelled 16 of them (D1 diagnosis != Agent standalone diagnosis, seed 0; pilot_label_cases.json); the remaining 16 were added afterwards"
+  },
+  "run_full_labeling": false,
+  "output_dir": "outputs/effectiveness/v5_agentclinic_pilot",
+  "candidates": {
+    "max_attempts": 3,
+    "notes": "a candidate that does not comply is generated again, up to max_attempts; every generation is kept in candidate_attempts.jsonl. evidence_only_report is a diagnostic candidate outside the behavior classes."
+  }
+}

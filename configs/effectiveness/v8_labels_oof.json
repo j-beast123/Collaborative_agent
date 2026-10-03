@@ -1,0 +1,8 @@
+{
+  "extends": "v8_agentclinic_max7.json",
+  "notes": "Authorized max7 labels for TRAIN-only OOF predictor/calibration; unchanged frozen environment. No DEV signal gate; incomplete rollouts stop training.",
+  "labels_dir": "outputs/effectiveness/v8_agentclinic_max7/effectiveness_oof_v1/labels",
+  "integrity": {
+    "min_dev_nonzero_delta_pairs": 0
+  }
+}

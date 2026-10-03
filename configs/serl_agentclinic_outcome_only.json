@@ -1,0 +1,12 @@
+{
+  "extends": "serl_agentclinic.json",
+  "notes": "Ablation: GRPO with the final outcome as the only reward. A1 sample: R = R_Outcome; A2 sample: R = R_Outcome. Everything else is the main configuration: dataset and split, prompts, A1 and A2 sample construction, policy initialisation, LoRA, GRPO settings, number of generations, Doctor environment. With w_A = 0 and w_E = 0 no rubric is generated, validated or scored and no Effectiveness predictor is loaded or called; the rubrics step only records the iteration's failures. The outcome is binary, so a group whose responses all end the same way gives GRPO no signal; reward_report.json (group_signal) reports how many groups that is.",
+  "run_label": "serl_outcome_only",
+  "reward": {
+    "weights": {
+      "outcome": 1.0,
+      "appropriateness": 0.0,
+      "effectiveness": 0.0
+    }
+  }
+}
