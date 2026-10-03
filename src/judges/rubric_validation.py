@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Callable
 
-from src.collaboration.rerun import intervention_instruction
+from src.collaboration.rerun import intervention_instructions
 
 
 GENERATION_FAILURE = "intervention_generation_failure"
@@ -55,11 +55,15 @@ def validate_candidates(
                 continue
             trajectory = trajectories[record["source_trajectory_id"]]
             analysis = record["analysis"]
-            instruction = intervention_instruction(analysis["ideal_response_behavior"])
+            instruction = intervention_instructions(
+                analysis["ideal_response_behavior"],
+                analysis.get("applicability", ""),
+            )
+            first_instruction = instruction["first"]
             reruns, error, intervention = [], None, None
             if intervene is not None:
                 try:
-                    intervention = intervene(record, trajectory, instruction)
+                    intervention = intervene(record, trajectory, first_instruction)
                 except Exception as exc:  # the generation or its check could not be run: retried on the next run
                     error = f"intervention {type(exc).__name__}: {exc}"
             frozen = intervention is not None and intervention["status"] == "frozen"
@@ -81,7 +85,7 @@ def validate_candidates(
             behavioral = None  # diagnostic-only behavioral gate
             if behavior is not None and not error:
                 try:
-                    behavioral = behavior(record, trajectory, instruction)
+                    behavioral = behavior(record, trajectory, first_instruction)
                 except Exception as exc:  # the behavior samples could not be scored: retried on the next run
                     error, status = f"behavior {type(exc).__name__}: {exc}", "error"
             if behavioral is not None:

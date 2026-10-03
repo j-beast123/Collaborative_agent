@@ -7,7 +7,7 @@ import pytest
 
 from scripts import build_rubrics
 from src.collaboration.generator import RECONSTRUCTION_FIELDS
-from src.collaboration.rerun import intervention_instruction, rerun_from_turn
+from src.collaboration.rerun import intervention_instructions, rerun_from_turn
 from src.collaboration.runtime import CollaborationRuntime
 from src.judges.llm import CachedChat, ScriptedBackend
 from src.judges.reward import RewardSpec, TurnSignals, compute_reward, soft_min, turn_appropriateness
@@ -46,15 +46,20 @@ def fake_runtime(final_text="Final answer: option A - a", agent_text="I will ver
     return runtime, calls
 
 
-def test_rerun_uses_generation_protocol_and_injects_only_at_failed_turn():
+def test_rerun_uses_generation_protocol_and_keeps_intervention_guidance_active():
     runtime, calls = fake_runtime()
-    instruction = intervention_instruction("Verify the claim against evidence before revising.")
+    instruction = intervention_instructions(
+        "Verify the claim against evidence before revising.",
+        "The physician has introduced a claim that needs evidence checking.",
+    )
     result = rerun_from_turn(rich_trajectory("t1"), 3, instruction, runtime)
     assert result["status"] == "completed" and result["correct"] is True and result["final_option"] == "A"
     # Failed turn is round 2 of 3: agent answers rounds 2 and 3, belief computed for both.
     assert [t["round"] for t in result["dialogue"] if t["speaker"] == "agent"] == [1, 2, 3]
     assert calls["reconstruct"] == 2 and calls["judge"] == 2
-    assert instruction in calls["agent_prompts"][0] and instruction not in calls["agent_prompts"][1]
+    assert instruction["first"] in calls["agent_prompts"][0]
+    assert instruction["later"] in calls["agent_prompts"][1]
+    assert instruction["first"] not in calls["agent_prompts"][1]
     assert "Private current Q1/Q2 judgment" in calls["agent_prompts"][0]  # belief prompt, not plain
     assert result["dialogue"][3]["intervention"] is True
     # History before the failed turn is kept verbatim.
@@ -67,6 +72,13 @@ def test_rerun_uses_generation_protocol_and_injects_only_at_failed_turn():
 def test_rerun_wrong_final_answer_is_not_correct():
     runtime, _ = fake_runtime(final_text="Final answer: option B - b")
     assert rerun_from_turn(rich_trajectory("t1"), 3, "x", runtime)["correct"] is False
+
+
+def test_rerun_can_limit_agent_turns_before_doctor_final():
+    runtime, _ = fake_runtime()
+    result = rerun_from_turn(rich_trajectory("t1"), 3, "x", runtime, max_agent_turns=2)
+    assert [t["speaker"] for t in result["dialogue"][-4:]] == ["agent", "doctor", "agent", "doctor"]
+    assert [t["round"] for t in result["dialogue"] if t.get("intervention")] == [2]
 
 
 def valid_record(tid):

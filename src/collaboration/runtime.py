@@ -157,6 +157,7 @@ def build_runtime(*, agent_model: str, doctor_model: str, reconstructor_model: s
                   max_tokens: int, root, agent_decoding: Optional[dict] = None,
                   doctor_decoding: Optional[dict] = None, agent_batch_size: int = 1,
                   doctor_prompt: Optional[str] = None, continuation_guideline: Optional[str] = None,
+                  reconstruction_max_tokens: int = 2048,
                   ) -> CollaborationRuntime:
     """Real runtime: local agent + OpenRouter doctor/reconstructor, as in generation."""
     import os
@@ -181,7 +182,9 @@ def build_runtime(*, agent_model: str, doctor_model: str, reconstructor_model: s
         agent=lambda system, user, tokens: (
             generate(system, user, agent_tokens, **sampling) if tokens == max_tokens
             else generate(system, user, tokens)),
-        reconstruct=lambda case, dialogue: reconstruct_call(key, reconstructor_model, case, dialogue, 1024),
+        reconstruct=lambda case, dialogue: reconstruct_call(
+            key, reconstructor_model, case, dialogue, reconstruction_max_tokens
+        ),
         doctor_system=(root / (doctor_prompt or "prompts/user_simulator.txt")).read_text(encoding="utf-8"),
         agent_system=(root / "prompts/agent.txt").read_text(encoding="utf-8"),
         judgment_system=(root / "prompts/local_epistemic_judgment.txt").read_text(encoding="utf-8"),

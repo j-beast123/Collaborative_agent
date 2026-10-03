@@ -45,12 +45,24 @@ def args() -> argparse.Namespace:
     p.add_argument("--doctor-prompt", default="prompts/user_simulator.txt", help="doctor system prompt file")
     p.add_argument("--max-cases", type=int, default=10)
     p.add_argument(
+        "--start-index",
+        type=int,
+        default=0,
+        help="Zero-based index of the first input case; default preserves the original behavior.",
+    )
+    p.add_argument(
         "--rounds",
         type=int,
         required=True,
         help="Maximum agent responses/collaboration rounds; must match the SERL training pipeline",
     )
     p.add_argument("--max-tokens", type=int, default=512)
+    p.add_argument(
+        "--reconstruction-max-tokens",
+        type=int,
+        default=2048,
+        help="Maximum tokens for the structured reconstruction call.",
+    )
     p.add_argument("--shard-index", type=int, default=0)
     p.add_argument("--num-shards", type=int, default=1)
     p.add_argument(
@@ -440,7 +452,9 @@ def main() -> None:
     if not key:
         raise SystemExit("OPENROUTER_API_KEY is not set")
     root = ROOT
-    all_cases = load(root / a.input)[: a.max_cases]
+    if a.start_index < 0:
+        raise ValueError("start-index must be non-negative")
+    all_cases = load(root / a.input)[a.start_index : a.start_index + a.max_cases]
     if not 0 <= a.shard_index < a.num_shards:
         raise ValueError("shard-index must be in [0, num-shards)")
     cases = all_cases[a.shard_index :: a.num_shards]
@@ -517,7 +531,7 @@ def main() -> None:
                         a.rounds,
                         a.claim_order,
                         reconstruct=lambda c, d: reconstruct_call(
-                            key, a.reconstructor_model, c, d, 1024
+                            key, a.reconstructor_model, c, d, a.reconstruction_max_tokens
                         ),
                         judge=lambda p: agent_call(
                             model, tokenizer, judgment_system, p, 384

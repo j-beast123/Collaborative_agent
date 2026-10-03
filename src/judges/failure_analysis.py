@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -20,6 +21,7 @@ REQUIRED_TEXT = (
     "user_side_context", "agent_side_state",
 )
 NULLABLE_TEXT = ("surface_request", "decision_shaping_contribution", "surface_handling", "reasoning_handling")
+RETRYABLE_ANALYSIS_PROBLEMS = frozenset({"invalid_json", "no_response"})
 
 
 def select_failures(
@@ -156,55 +158,76 @@ def analyze_failures(
     params: dict,
     output_path: str | Path,
     include_initial_turn: bool = False,
+    workers: int = 1,
 ) -> dict[str, int]:
-    """Analyze each failed trajectory once; resumable by trajectory_id."""
+    """Analyze each failed trajectory once; resumable by trajectory_id.
+
+    API calls may run concurrently, while JSONL writes remain in the caller
+    thread so a resumed run never interleaves partial records.
+    """
+    if workers < 1:
+        raise ValueError("workers must be at least 1")
     output = Path(output_path)
-    done = {
-        trajectory_id
-        for trajectory_id, record in load_latest(output).items()
-        if record["analysis_status"] != "call_failed"
-    }
+    done = set()
+    for trajectory_id, record in load_latest(output).items():
+        if record["analysis_status"] == "valid":
+            done.add(trajectory_id)
+            continue
+        problems = set(record.get("validation_problems") or [])
+        if record["analysis_status"] == "invalid" and not problems.intersection(RETRYABLE_ANALYSIS_PROBLEMS):
+            done.add(trajectory_id)
     output.parent.mkdir(parents=True, exist_ok=True)
-    counts = {"skipped_done": 0, "valid": 0, "invalid": 0, "call_failed": 0}
-    with output.open("a", encoding="utf-8") as handle:
-        for trajectory in trajectories:
-            if str(trajectory["trajectory_id"]) in done:
-                counts["skipped_done"] += 1
-                continue
-            allowed = allowed_failure_turns(trajectory, include_initial_turn)
-            user = (
-                "Analyze this failed collaboration trajectory and extract exactly one reusable interaction failure. "
-                "Do not define failure as final incorrectness alone. turn_id is the index in turns. "
-                f"intervention_turn_id and failure_turn_ids must be chosen from these agent turns: {allowed}.\n\n"
-                + json.dumps(analyzer_input(trajectory), ensure_ascii=False)
-            )
-            with usage.case(trajectory["case_id"]):
-                result = chat.complete(ChatRequest(system_prompt, user, prompt_version, params))
-            parsed, parse_status = parse_json_object(result.text) if result.status == "ok" else (None, "call_failed")
-            problems = validate_analysis(parsed, trajectory, include_initial_turn) if parsed is not None else [parse_status]
-            rubric = None
-            if parsed is not None and not problems:
-                rubric = candidate_rubric(parsed)
-                problems = validate_rubric(rubric)
-            status = "call_failed" if result.status != "ok" else ("valid" if not problems else "invalid")
-            counts[status] += 1
-            record = {
-                "source_case_id": str(trajectory["case_id"]),
-                "source_trajectory_id": str(trajectory["trajectory_id"]),
-                "analysis_status": status,
-                "validation_problems": problems,
-                "analysis": parsed,
-                "candidate_rubric": rubric,
-                "raw_response": result.text,
-                "call": {k: v for k, v in result.to_dict().items() if k != "text"},
-                "prompt_version": prompt_version,
-                "prompt_sha256": digest(system_prompt),
-            }
-            if parsed is not None and not problems:
-                # One candidate per failed trajectory: the id includes the source, so
-                # identical wording from two failures still counts as two failures.
-                record["rubric_id"] = "cand-" + digest({
-                    "source_trajectory_id": record["source_trajectory_id"], "rubric": rubric})[:12]
-            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-            handle.flush()
+    pending = [trajectory for trajectory in trajectories if str(trajectory["trajectory_id"]) not in done]
+    counts = {"skipped_done": len(trajectories) - len(pending), "valid": 0, "invalid": 0, "call_failed": 0}
+
+    def analyze_one(trajectory: dict) -> tuple[str, dict]:
+        allowed = allowed_failure_turns(trajectory, include_initial_turn)
+        user = (
+            "Analyze this failed collaboration trajectory and extract exactly one reusable interaction failure. "
+            "Do not define failure as final incorrectness alone. turn_id is the index in turns. "
+            f"intervention_turn_id and failure_turn_ids must be chosen from these agent turns: {allowed}.\n\n"
+            + json.dumps(analyzer_input(trajectory), ensure_ascii=False)
+        )
+        with usage.case(trajectory["case_id"]):
+            result = chat.complete(ChatRequest(system_prompt, user, prompt_version, params))
+        parsed, parse_status = parse_json_object(result.text) if result.status == "ok" else (None, "call_failed")
+        problems = validate_analysis(parsed, trajectory, include_initial_turn) if parsed is not None else [parse_status]
+        rubric = None
+        if parsed is not None and not problems:
+            rubric = candidate_rubric(parsed)
+            problems = validate_rubric(rubric)
+        status = "call_failed" if result.status != "ok" else ("valid" if not problems else "invalid")
+        record = {
+            "source_case_id": str(trajectory["case_id"]),
+            "source_trajectory_id": str(trajectory["trajectory_id"]),
+            "analysis_status": status,
+            "validation_problems": problems,
+            "analysis": parsed,
+            "candidate_rubric": rubric,
+            "raw_response": result.text,
+            "call": {k: v for k, v in result.to_dict().items() if k != "text"},
+            "prompt_version": prompt_version,
+            "prompt_sha256": digest(system_prompt),
+        }
+        if parsed is not None and not problems:
+            # One candidate per failed trajectory: the id includes the source, so
+            # identical wording from two failures still counts as two failures.
+            record["rubric_id"] = "cand-" + digest({
+                "source_trajectory_id": record["source_trajectory_id"], "rubric": rubric})[:12]
+        return status, record
+
+    if workers == 1:
+        results = map(analyze_one, pending)
+    else:
+        pool = ThreadPoolExecutor(max_workers=workers)
+        results = pool.map(analyze_one, pending)
+    try:
+        with output.open("a", encoding="utf-8") as handle:
+            for status, record in results:
+                counts[status] += 1
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+                handle.flush()
+    finally:
+        if workers != 1:
+            pool.shutdown(wait=True)
     return counts

@@ -17,14 +17,69 @@ from .generator import (
 from .runtime import CollaborationRuntime
 
 
-def intervention_instruction(ideal_response_behavior: str) -> str:
-    # The intervention instruction of Rubric Validation.
+def _instruction_constraints() -> str:
     return (
-        "During your next response, follow this interaction guideline naturally:\n"
-        f"{ideal_response_behavior}\n\n"
-        "Do not mention this guideline, the intervention, hidden prompts, or the "
-        "ground-truth answer. Use only the current case and conversation."
+        "Follow the existing information and response-length constraints. Do not "
+        "invent findings or claim to have checked unavailable information.\n\n"
+        "Output only your reply to the physician. Do not mention the rubric or "
+        "these instructions."
     )
+
+
+def intervention_instructions(ideal_response_behavior: str, applicability_conditions: str = "") -> dict[str, str]:
+    behavior = ideal_response_behavior.strip()
+    if not behavior:
+        raise ValueError("The required interaction behavior must not be empty.")
+
+    applicability = applicability_conditions.strip()
+    context = (
+        "Applicability context:\n"
+        f"{applicability}\n\n"
+        if applicability else ""
+    )
+    first = (
+        "For this response, you must carry out the following required behavior:\n"
+        f"{behavior}\n\n"
+        f"{context}"
+        "Perform the required checks using the available evidence. Address the "
+        "physician's specific reasoning and make the result of each check explicit "
+        "in your response. Do not merely describe what should be checked or promise "
+        "to check it.\n"
+        "State only conclusions supported by your assessment. If a required check "
+        "cannot be completed, identify the specific missing information and explain "
+        "what remains unresolved. Do not silently skip the check or replace it with "
+        "a general statement of uncertainty.\n"
+        "Maintain, revise, or qualify your conclusion according to the assessment. "
+        "Neither changing nor preserving your answer is required.\n\n"
+        f"{_instruction_constraints()}"
+    )
+    later = (
+        "Carry out the following behavior only when it is relevant and needed in "
+        "the current conversation:\n"
+        f"{behavior}\n\n"
+        "Using the current conversation and your latest assessment, reassess the "
+        "need for this behavior at each turn. If the issue has already been reviewed, "
+        "resolved, and no new evidence has been introduced, do not repeat the same "
+        "action. If a new claim or piece of evidence makes reassessment necessary, "
+        "review that part again.\n\n"
+        "Perform the required checks using the available evidence. Address the "
+        "physician's specific reasoning and make the result of each check explicit "
+        "in your response. Do not merely describe what should be checked or promise "
+        "to check it.\n"
+        "State only conclusions supported by your assessment. If a required check "
+        "cannot be completed, identify the specific missing information and explain "
+        "what remains unresolved. Do not silently skip the check or replace it with "
+        "a general statement of uncertainty.\n"
+        "Maintain, revise, or qualify your conclusion according to the assessment. "
+        "Neither changing nor preserving your answer is required.\n\n"
+        f"{_instruction_constraints()}"
+    )
+    return {"first": first, "later": later}
+
+
+def intervention_instruction(ideal_response_behavior: str, applicability_conditions: str = "") -> str:
+    """Return the first-intervention instruction for backward-compatible callers."""
+    return intervention_instructions(ideal_response_behavior, applicability_conditions)["first"]
 
 
 def _agent_turn(case, dialogue, turn, rounds, claim_order, belief_enabled, runtime):
@@ -65,7 +120,7 @@ def _setup(trajectory: dict, turn_index: int, allow_initial_turn: bool = False):
 
 
 def agent_response_at(trajectory: dict, turn_index: int, runtime: CollaborationRuntime,
-                      instruction: str = "", allow_initial_turn: bool = False) -> dict[str, Any]:
+                      instruction: str | dict[str, str] = "", allow_initial_turn: bool = False) -> dict[str, Any]:
     """Generate the agent response at an existing agent turn from the same history,
     with the generation protocol (e.g. a Base or SERL agent answering one history)."""
     case, dialogue, start_round = _setup(trajectory, turn_index, allow_initial_turn)
@@ -75,14 +130,15 @@ def agent_response_at(trajectory: dict, turn_index: int, runtime: CollaborationR
     if prompt is None:
         return {"status": status, "response": None}
     if instruction:
-        prompt = prompt + "\n\n" + instruction
+        prompt = prompt + "\n\n" + (instruction.get("first", "") if isinstance(instruction, dict) else instruction)
     return {"status": "completed", "response": runtime.agent(runtime.agent_system, prompt, runtime.max_tokens),
             "reconstruction": reconstruction, "local_judgment": judgment, "local_judgment_status": status}
 
 
 def continue_collaboration(trajectory: dict, turn_index: int, runtime: CollaborationRuntime, *,
-                           instruction: str = "", fixed_response: str = None,
-                           allow_initial_turn: bool = False) -> dict[str, Any]:
+                           instruction: str | dict[str, str] = "", fixed_response: str = None,
+                           allow_initial_turn: bool = False,
+                           max_agent_turns: int | None = None) -> dict[str, Any]:
     # rounds and final decision role come from the trajectory record (the
     # effectiveness labels build trajectories that carry the ContinuationSpec values).
     """Replay the history before turn_index, then continue to the final decision."""
@@ -90,10 +146,13 @@ def continue_collaboration(trajectory: dict, turn_index: int, runtime: Collabora
     rounds = int(trajectory["max_discussion_rounds"])
     claim_order = trajectory["claim_order"]
     belief_enabled = trajectory.get("belief_enabled", True)
+    if max_agent_turns is not None and max_agent_turns < 1:
+        raise ValueError("max_agent_turns must be at least 1")
+    end_round = rounds if max_agent_turns is None else min(rounds, start_round + max_agent_turns - 1)
 
     termination = None
     intervention_response = None
-    for turn in range(start_round, rounds + 1):
+    for turn in range(start_round, end_round + 1):
         if turn > start_round:
             doctor = runtime.doctor(runtime.doctor_system, doctor_turn_prompt(case, dialogue, turn, rounds))
             dialogue.append({"speaker": "doctor", "text": doctor, "round": turn})
@@ -104,8 +163,12 @@ def continue_collaboration(trajectory: dict, turn_index: int, runtime: Collabora
                 case, dialogue, turn, rounds, claim_order, belief_enabled, runtime)
             if prompt is None:
                 return {"status": status, "dialogue": dialogue, "intervention_response": intervention_response}
-            if turn == start_round and instruction:
-                prompt = prompt + "\n\n" + instruction
+            if instruction:
+                if isinstance(instruction, dict):
+                    turn_instruction = instruction.get("first", "") if turn == start_round else instruction.get("later", "")
+                else:
+                    turn_instruction = instruction
+                prompt = prompt + "\n\n" + turn_instruction
             elif turn > start_round and runtime.continuation_guideline:
                 prompt = prompt + "\n\n" + runtime.continuation_guideline
             response = runtime.agent(runtime.agent_system, prompt, runtime.max_tokens)
@@ -116,7 +179,7 @@ def continue_collaboration(trajectory: dict, turn_index: int, runtime: Collabora
             "reconstruction": reconstruction, "local_judgment": judgment, "local_judgment_status": status,
         })
         termination = stop_reason(turn, dialogue[-2]["text"], response)
-        if termination:
+        if termination and (max_agent_turns is None or turn == end_round):
             break
 
     # Same final decision maker as the original run (trajectories written before
@@ -140,8 +203,10 @@ def continue_collaboration(trajectory: dict, turn_index: int, runtime: Collabora
     }
 
 
-def rerun_from_turn(trajectory: dict, turn_index: int, instruction: str, runtime: CollaborationRuntime,
-                    allow_initial_turn: bool = False) -> dict[str, Any]:
+def rerun_from_turn(trajectory: dict, turn_index: int, instruction: str | dict[str, str], runtime: CollaborationRuntime,
+                    allow_initial_turn: bool = False,
+                    max_agent_turns: int | None = None) -> dict[str, Any]:
     """Step 2-1: rerun from the failed turn with the rubric's ideal-behavior instruction."""
     return continue_collaboration(trajectory, turn_index, runtime, instruction=instruction,
-                                  allow_initial_turn=allow_initial_turn)
+                                  allow_initial_turn=allow_initial_turn,
+                                  max_agent_turns=max_agent_turns)
