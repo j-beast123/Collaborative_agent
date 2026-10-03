@@ -355,15 +355,15 @@ def agent_call(model, tokenizer, system: str, user: str, max_tokens: int, *, do_
 
 def option(text: str, *, first: bool = False) -> str:
     final_pattern = (
-        r"final\s+answer\s*[:\-]?\s*(?:is\s*)?(?:option\s+)?(?:\*\*)?([A-D])\b"
+        r"final\s+answer\s*[:\-]?\s*(?:is\s*)?(?:option\s+)?(?:\*\*)?([A-E])\b"
     )
     final_hits = list(re.finditer(final_pattern, text, re.I))
     if final_hits:
         return final_hits[0].group(1).upper()
     patterns = (
-        r"(?:answer|option|choice)\s*[:\-]?\s*(?:is\s*)?(?:\*\*)?([A-D])\b",
-        r"(?:^|\n)\s*(?:\*\*)?([A-D])(?:\*\*)?\s*[.):-]",
-        r"(?:leaning|prefer|favor|support|choose|select)\s+(?:toward\s+|for\s+|option\s+)?([A-D])\b",
+        r"(?:answer|option|choice)\s*[:\-]?\s*(?:is\s*)?(?:\*\*)?([A-E])\b",
+        r"(?:^|\n)\s*(?:\*\*)?([A-E])(?:\*\*)?\s*[.):-]",
+        r"(?:leaning|prefer|favor|support|choose|select)\s+(?:toward\s+|for\s+|option\s+)?([A-E])\b",
     )
     matches = [
         match for pattern in patterns for match in re.finditer(pattern, text, re.I)
@@ -378,8 +378,8 @@ def initial_option(text: str) -> str:
     """Extract the stated initial choice, avoiding option-list enumeration."""
     cue_patterns = (
         r"(?:initial thought|initial impression|initial choice|leaning|favor(?:s|ed)?|most likely)"
-        r"[^.\n]{0,100}?(?:option\s+)?([A-D])\b",
-        r"(?:option\s+)?([A-D])\b[^.\n]{0,40}(?:most likely|strongest contender|best choice)",
+        r"[^.\n]{0,100}?(?:option\s+)?([A-E])\b",
+        r"(?:option\s+)?([A-E])\b[^.\n]{0,40}(?:most likely|strongest contender|best choice)",
     )
     hits = [hit for pattern in cue_patterns for hit in re.findall(pattern, text, re.I)]
     if hits:
@@ -418,7 +418,8 @@ def doctor_turn_prompt(case: dict, dialogue: list[dict], turn: int, rounds: int)
 
 
 def final_decision_prompt(case: dict, dialogue: list[dict]) -> str:
-    return f"{case_text(case)}\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nThis is the final decision. State the option best supported by the complete discussion. End with exactly: Final answer: option <A-D> - <answer text>"
+    labels = "-".join(case["options"])
+    return f"{case_text(case)}\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nThis is the final decision. State the option best supported by the complete discussion. End with exactly: Final answer: option <{labels}> - <answer text>"
 
 
 def belief_agent_prompt(
@@ -468,7 +469,7 @@ def belief_agent_prompt(
 
 def stop_reason(turn: int, doctor: str, response: str):
     """Early-termination rule after an agent turn, or None to continue."""
-    if re.search(r"final answer\s*:\s*(?:option\s*)?[A-D]", response, re.I):
+    if re.search(r"final answer\s*:\s*(?:option\s*)?[A-E]", response, re.I):
         return "agent_final_answer"
     if turn >= 2:
         doctor_choice = option(doctor)
