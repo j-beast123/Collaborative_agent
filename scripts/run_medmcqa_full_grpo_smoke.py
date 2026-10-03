@@ -122,7 +122,7 @@ def reference_logprobs(model, prompt_ids: list[int], completion_ids: list[int]):
         return sequence_logprobs(model, prompt_ids, completion_ids, grad=False)
 
 
-def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: float):
+def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: float, *, backward: bool = False):
     import torch
 
     grouped = defaultdict(list)
@@ -151,30 +151,45 @@ def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: flo
         for member, advantage in zip(members, normalized):
             advantages[member["trajectory_id"]] = advantage
 
-    policy_terms = []
-    kl_terms = []
+    jobs = []
     for record in records:
         if record["trajectory_id"] not in advantages:
             continue
         advantage = advantages[record["trajectory_id"]]
         for trace in record["agent_traces"]:
-            current = sequence_logprobs(model, trace["prompt_input_ids"], trace["completion_ids"], grad=True)
-            old = torch.tensor(trace["completion_logprobs"], dtype=current.dtype, device=current.device)
-            if current.numel() == 0 or old.numel() != current.numel():
-                continue
-            ratio = torch.exp(current - old)
-            clipped = torch.clamp(ratio, 1.0 - clip_epsilon, 1.0 + clip_epsilon)
-            surrogate = torch.minimum(ratio * advantage, clipped * advantage)
-            policy_terms.append(-surrogate.mean())
-
-            ref = reference_logprobs(model, trace["prompt_input_ids"], trace["completion_ids"])
-            log_ratio = ref - current
-            kl_terms.append((torch.exp(log_ratio) - log_ratio - 1.0).mean())
-    if not policy_terms:
+            jobs.append((trace, advantage))
+    if not jobs:
         raise RuntimeError("no Agent completion tokens were available for the GRPO loss")
-    policy_loss = torch.stack(policy_terms).mean()
-    kl_loss = torch.stack(kl_terms).mean() if kl_terms else torch.zeros_like(policy_loss)
-    return policy_loss + beta * kl_loss, policy_loss, kl_loss, len(policy_terms)
+
+    policy_values = []
+    kl_values = []
+    used = 0
+    for trace, advantage in jobs:
+        current = sequence_logprobs(model, trace["prompt_input_ids"], trace["completion_ids"], grad=True)
+        old = torch.tensor(trace["completion_logprobs"], dtype=current.dtype, device=current.device)
+        if current.numel() == 0 or old.numel() != current.numel():
+            del current, old
+            continue
+        ratio = torch.exp(current - old)
+        clipped = torch.clamp(ratio, 1.0 - clip_epsilon, 1.0 + clip_epsilon)
+        surrogate = torch.minimum(ratio * advantage, clipped * advantage)
+        policy_term = -surrogate.mean()
+
+        ref = reference_logprobs(model, trace["prompt_input_ids"], trace["completion_ids"])
+        log_ratio = ref - current
+        kl_term = (torch.exp(log_ratio) - log_ratio - 1.0).mean()
+        if backward:
+            ((policy_term + beta * kl_term) / len(jobs)).backward()
+        policy_values.append(policy_term.detach())
+        kl_values.append(kl_term.detach())
+        used += 1
+        del current, old, ref, ratio, clipped, surrogate, policy_term, kl_term
+    if not policy_values:
+        raise RuntimeError("no Agent completion tokens had matching old log-probabilities")
+    policy_loss = torch.stack(policy_values).mean()
+    kl_loss = torch.stack(kl_values).mean() if kl_values else torch.zeros_like(policy_loss)
+    total_loss = policy_loss + beta * kl_loss
+    return total_loss, policy_loss, kl_loss, used
 
 
 def main() -> None:
@@ -216,6 +231,8 @@ def main() -> None:
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj"], use_rslora=True,
     ))
     model.to(torch.device("cuda:0"))
+    model.gradient_checkpointing_enable()
+    model.enable_input_require_grads()
     model.eval()
     client = JevClient(endpoint=args.jev_endpoint, model=args.jev_model, api_key_env=args.api_key_env)
 
@@ -250,9 +267,9 @@ def main() -> None:
     optimizer = torch.optim.AdamW(trainable, lr=args.learning_rate)
     optimizer.zero_grad(set_to_none=True)
     total_loss, policy_loss, kl_loss, used_completions = compute_grpo_loss(
-        model, records, args.beta, args.clip_epsilon,
+        model, records, args.beta, args.clip_epsilon, backward=True,
     )
-    total_loss.backward()
+    torch.nn.utils.clip_grad_norm_(trainable, 1.0)
     optimizer.step()
     model.save_pretrained(output / "adapter")
     tokenizer.save_pretrained(output / "adapter")
