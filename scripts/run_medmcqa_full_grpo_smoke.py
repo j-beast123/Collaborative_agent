@@ -137,6 +137,10 @@ def load_saved_records(path: Path, rubric_weight: float, outcome_weight: float,
         for trace in row["agent_traces"]:
             if not trace.get("prompt_input_ids") or "completion_ids" not in trace or "completion_logprobs" not in trace:
                 raise ValueError(f"saved trajectory has incomplete token trace: {row['trajectory_id']}")
+            if len(trace["completion_ids"]) != len(trace["completion_logprobs"]):
+                raise ValueError(
+                    f"saved trajectory has mismatched token/logprob lengths: {row['trajectory_id']}"
+                )
             # Older files did not persist these fields. The command-line values
             # are the only valid fallback when the collection used the defaults.
             trace.setdefault("sampling_temperature", sampling_temperature)
@@ -262,7 +266,7 @@ def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: flo
             continue
         advantage = advantages[record["trajectory_id"]]
         for trace in record["agent_traces"]:
-            jobs.append((trace, advantage))
+            jobs.append((record["trajectory_id"], trace, advantage))
     if not jobs:
         raise RuntimeError("no Agent completion tokens were available for the GRPO loss")
 
@@ -274,7 +278,7 @@ def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: flo
     ratio_min = float("inf")
     ratio_max = float("-inf")
     ratio_count = 0
-    for trace, advantage in jobs:
+    for trajectory_id, trace, advantage in jobs:
         trace_temperature = float(trace.get("sampling_temperature", temperature))
         trace_top_p = float(trace.get("sampling_top_p", top_p))
         current = sequence_logprobs(
@@ -282,9 +286,13 @@ def compute_grpo_loss(model, records: list[dict], beta: float, clip_epsilon: flo
             temperature=trace_temperature, top_p=trace_top_p,
         )
         old = torch.tensor(trace["completion_logprobs"], dtype=current.dtype, device=current.device)
-        if current.numel() == 0 or old.numel() != current.numel():
-            del current, old
-            continue
+        if current.numel() == 0:
+            raise RuntimeError(f"empty Agent completion tokens: {trajectory_id}:{trace.get('stage')}")
+        if old.numel() != current.numel():
+            raise RuntimeError(
+                f"old/new token logprob length mismatch at {trajectory_id}:{trace.get('stage')}: "
+                f"old={old.numel()} new={current.numel()}"
+            )
         ratio = torch.exp(current - old)
         ratio_values = ratio.detach().float()
         ratio_sum += float(ratio_values.sum())
