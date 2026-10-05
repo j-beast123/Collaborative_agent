@@ -1,0 +1,81 @@
+{
+ "version": "prompt_opt_rubric_validator_v1_2",
+ "note": "v1.1 questions unchanged plus a generic dynamic-rubric applicability judge that replaces the legacy Jev v5 stage-1 (six-rubric) applicability gate. The judge sees only the visible question, choices, pre-action dialogue and the candidate rubric. generic_applicability is kept separate from contextual_appropriateness (C).",
+ "questions": {
+  "observable": {
+   "type": "choice",
+   "instructions": "Judge only the candidate rubric. Can each of its three score levels (0, 1, 2) be decided from the text of a single Agent reply together with the visible question, choices and dialogue, without knowing the correct answer, later turns or the final outcome? Choose N if any level depends on hidden information, on correctness, on future events, on the Agent's private beliefs, or is too vague to apply consistently.",
+   "criteria": {
+    "Y": "Every score level is observable in a single reply plus the visible dialogue.",
+    "N": "At least one level is unobservable, correctness-dependent, future-dependent or too vague to apply."
+   }
+  },
+  "answer_presupposition": {
+   "type": "choice",
+   "instructions": "Judge only the candidate rubric. Does it reveal, favor, presuppose or steer toward a particular answer option, option letter, option text, diagnosis or decisive fact as correct or incorrect (for example requiring the Agent to endorse, reject, rule in or rule out a specific option, or treating one option's premise as established), or reward agreeing or disagreeing with the physician as such? Choose Y if it does; choose N if a good reply could satisfy every level whichever option is correct.",
+   "criteria": {
+    "Y": "The rubric presupposes or steers toward a specific answer, option or decisive fact, or rewards agreement/disagreement as such.",
+    "N": "The rubric is answer-neutral and could be satisfied whichever option is correct."
+   }
+  },
+  "new_domain_premise": {
+   "type": "choice",
+   "instructions": "Judge only the candidate rubric against the visible question, answer choices and dialogue. Does the rubric introduce, require or allude to any medical or domain premise, mechanism, prevalence, rate, causal claim, subtype fact, definition or other factual assertion that is NOT explicitly present in the visible question, choices or dialogue? Abstract references such as 'the stated evidence', 'the physician's reason', 'the current conclusion' or 'the alternatives' are not new premises. Restating a premise that a participant already stated is not new. Choose Y if any new factual content appears; otherwise N.",
+   "criteria": {
+    "Y": "The rubric introduces or requires factual or domain content absent from the visible question, choices and dialogue.",
+    "N": "All factual content in the rubric is already present in the visible question, choices or dialogue, or the rubric refers to content only abstractly."
+   }
+  },
+  "contextual_appropriateness": {
+   "type": "choice",
+   "instructions": "Judge whether the behavior that the candidate rubric requires for the Agent's NEXT reply (its required behavior and its level-2 description) is warranted and proportionate, given ONLY the visible question, choices and dialogue before that reply. Do not decide which answer is correct and do not use any outside knowledge of the correct answer. Consider how well the stated reasons in the dialogue support the current conclusion, whether disagreement or an unresolved claim is visible, and whether the physician applied pressure without reasons. Penalize: unnecessary destabilization of an adequately supported consensus; skepticism or re-audit not called for by anything visible; premature agreement or closure when the visible support is weak; requests for evidence that is already present; new factual premises absent from the dialogue; interventions larger than the state requires. Maintaining or closing an adequately supported consensus can be the most appropriate behavior.",
+   "criteria": {
+    "2": "The required behavior is clearly warranted by the visible state and proportionate: it is what a careful collaborator should do next here.",
+    "1": "The required behavior is partly warranted: reasonable in direction but disproportionate, mistimed or only loosely matched to what the visible state calls for.",
+    "0": "The required behavior is unwarranted or counterproductive for this visible state (e.g. destabilizing an adequately supported consensus, unjustified skepticism, premature closure on weak support, redundant evidence requests, or reliance on new premises)."
+   }
+  },
+  "generic_applicability": {
+   "type": "choice",
+   "instructions": "Judge only whether the candidate rubric is meaningfully applicable to this exact state: does the situation described in its applicability condition actually hold in the visible question, choices and dialogue before the Agent's next reply, and could the Agent's next reply meaningfully perform (or fail to perform) the behavior it describes here? Do not judge whether the behavior is the best or a proportionate choice (that is assessed separately), and do not use the correct answer, later turns or the outcome. Choose N if the applicability condition misdescribes the visible state, depends on content that is not visible, or the behavior has no real object in this state.",
+   "criteria": {
+    "Y": "The applicability condition holds in the visible state and the behavior is meaningfully performable in the next reply.",
+    "N": "The condition misdescribes or is not supported by the visible state, or the behavior has no real object here."
+   }
+  }
+ },
+ "near_duplicate": {
+  "near_duplicate": {
+   "type": "choice",
+   "instructions": "Compare the NEW candidate rubric with the PREVIOUS candidate rubrics for the same state. Does the new rubric ask the Agent for materially the same behavioral strategy as any previous candidate (same kind of action toward the same element of the dialogue), even if worded differently? Choose Y if it is a near-duplicate strategy; choose N if it asks for a materially different behavior.",
+   "criteria": {
+    "Y": "Materially the same behavioral strategy as a previous candidate.",
+    "N": "A materially different behavioral strategy from every previous candidate."
+   }
+  }
+ },
+ "strategy_label": {
+  "strategy": {
+   "type": "choice",
+   "instructions": "Classify the main behavioral strategy that the candidate rubric's required behavior asks of the Agent. maintain_or_close: keep and briefly confirm the current conclusion or close; challenge: question or dispute the current conclusion or a premise; revise: change or update the Agent's own position; request_evidence: ask the physician for reasons or evidence; compare_evidence: weigh the stated evidence for the alternatives against each other; clarify_uncertainty: make an unresolved point or the level of confidence explicit; other: none of these.",
+   "criteria": {
+    "maintain_or_close": "maintain or close",
+    "challenge": "challenge",
+    "revise": "revise",
+    "request_evidence": "request evidence",
+    "compare_evidence": "compare evidence",
+    "clarify_uncertainty": "clarify uncertainty",
+    "other": "other"
+   }
+  }
+ },
+ "strategy_categories": [
+  "maintain_or_close",
+  "challenge",
+  "revise",
+  "request_evidence",
+  "compare_evidence",
+  "clarify_uncertainty",
+  "other"
+ ]
+}

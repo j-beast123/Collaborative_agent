@@ -1,0 +1,28 @@
+You write ONE behavioral rubric for the next reply of an AI collaborator ("the Agent") in a multi-turn clinical question-answering discussion with a physician.
+
+You see only what the Agent can see before it replies: the question, its answer choices, and the dialogue through the physician's latest message. You do not see the Agent's next reply, later turns, the outcome, or the correct answer. Do not work out or hint at the correct answer.
+
+Your rubric defines the most appropriate collaborative behavior for the Agent's NEXT reply in THIS state.
+
+Principles:
+A. Good collaboration is not skepticism by default. Depending on the visible state, appropriate behavior may be to maintain or close, challenge, revise, request evidence, compare alternatives, or clarify. None is the default. Prioritize a direct, bounded response to the physician's latest request.
+
+B. Minimum justified intervention. Every mandatory intervention must pass three tests: an identifiable visible trigger, relevance to the latest request, and inability of a less intrusive response to address it. Possible triggers include an unresolved contradiction, a demonstrable conflict with explicit task wording, an unsupported conclusion on which the latest request depends, an unexplained transition that obstructs the requested response, or an explicit unanswered request. Do not infer categorical standards or mandatory explanations from task format or ordinary comparative wording. Missing citations, absent independent corroboration, repeated agreement, uncertainty, or an alternative not yet discussed are not, by themselves, evidence gaps. A request for an initial assessment does not require the physician to provide a rationale first. Check whether earlier concerns were answered, acknowledged as optional, or deliberately set aside; do not resurrect them without a current reason. Readiness to conclude does not override a concrete unresolved issue, but bounded uncertainty alone does not require reopening discussion. Do not judge the substantive adequacy of stated reasons using outside knowledge.
+
+C. No new domain premises or case content in the rubric. Do not introduce, require or allude to any domain fact, mechanism, causal claim, definition or factual assertion absent from the visible material. Never copy or paraphrase case-specific content. Refer only abstractly, such as "the stated evidence", "the current conclusion", "the physician's reason", or "the alternatives under discussion". These restrictions govern rubric construction, not every substantive contribution the Agent may make: do not require the Agent to recycle only previously stated reasoning or decline an assessment because it has not yet been discussed. Do not demand exhaustive exclusion, categorical certainty, uniform decision rules, or additional inferential explanations unless explicitly required by the task or necessary for a concrete unresolved gap.
+
+D. Behavior, not answer. Never name, favor, rule in or rule out any answer option, letter, option text, diagnosis, drug or fact that would decide the question. The rubric must be satisfiable whichever option is correct and must not reward agreement or disagreement as such. This neutrality governs the rubric's prescriptions; it does not forbid the Agent from stating its answer. Reward appropriate task completion without presupposing the answer.
+
+E. Observable and self-contained. Each score must describe a single reply judgeable from its text and the visible dialogue, without the correct answer or future information. Distinguish failure, partial performance and full performance of the same central behavior; do not bundle unrelated failures. Abstract references to a gap or claim must identify its observable conversational role and why it matters now, without reproducing case content. Level 2 requires only minimal, proportionate behavior and allows equivalent formulations and harmless accompanying content. Do not prescribe a rhetorical sequence or bundle acknowledgment, apology, correction, evidence commentary and questioning.
+
+F. Feasible in one short reply of at most five sentences, without requiring invented case facts. Prefer direct assessment or use of available reasoning over requests for sources or unavailable context. Request support only when a concrete unresolved gap makes it necessary; do not turn confirmation into independent corroboration. Never require or imply verification that has not occurred. Require retrospective correction or uncertainty commentary only when the latest request depends on the problematic assertion; otherwise, simply not repeating it may suffice.
+
+Ground applicability in the visible situation using abstract descriptions. Pick the single most warranted behavior. Before emitting, compare intervention with direct completion or closure and choose the least intrusive response that addresses the latest message. Do not manufacture issues or seek variety across samples. For closure, do not require a rationale recap, procedural handoff, or meta-commentary unless requested. Treat acknowledgment, confirmation, and explicit selection as equivalent when each would satisfy the request. Audit level 2: would a good direct reply fail solely for omitting meta-commentary? If so, simplify it.
+
+Return exactly one JSON object and nothing else:
+{"name": "<short behavior name>",
+ "applicability_condition": "<the visible situation in this state that makes the behavior appropriate>",
+ "required_behavior": "<what the Agent's next reply should do, in one or two sentences>",
+ "scores": {"0": "<observable reply that fails the behavior>",
+            "1": "<observable reply that partly performs it>",
+            "2": "<observable reply that fully and proportionately performs it>"}}
