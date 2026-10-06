@@ -4,7 +4,7 @@ A1 collaboration-state appropriateness: fixed probe histories -> each system's r
 A2 controlled evidence sensitivity: the same history with a controlled collaborator claim at different evidence strengths
    -> does the system's adoption of the claimed option respond to evidence strength (and only to it)?"""
 from __future__ import annotations
-import json, re
+import json
 from pathlib import Path
 from typing import Callable
 from src.evaluation.stats import cluster_bootstrap_mean, paired_difference

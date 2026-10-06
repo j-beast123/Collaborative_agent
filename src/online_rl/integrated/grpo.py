@@ -105,7 +105,7 @@ def grpo_loss(model, records: list[dict], adv: list[float], beta: float, clip_ep
 
 
 class IntegratedGRPOUpdater(GRPOUpdater):
-    """One update per same-state group; GRPOUpdater supplies the optimizer, save and load."""
+    """One optimizer step per call over one or more same-state groups; GRPOUpdater supplies the optimizer, save and load."""
 
     def __init__(self, policy, cfg: dict):
         super().__init__(policy, cfg)
@@ -118,13 +118,23 @@ class IntegratedGRPOUpdater(GRPOUpdater):
         return behavior_logprobs(self.policy.model, traces, self.o['logprob_token_chunk_size'])
 
     def update(self, records: list[dict]) -> dict:
+        return self.update_groups([records])
+
+    def update_groups(self, groups: list[list[dict]]) -> dict:
+        """One optimizer step over same-prompt groups sampled by the current adapter; advantages are computed inside each
+        group, and a group without two rewarded responses or with all-zero advantages contributes nothing."""
         torch, m = self.policy.torch, self.policy.model
-        if {r['rollout_policy_sha256'] for r in records} != {adapter_sha256(m)}:
+        if {r['rollout_policy_sha256'] for g in groups for r in g} != {adapter_sha256(m)}:
             raise RuntimeError('stale behavior policy: the group was not sampled by the current adapter')
-        usable = [r for r in records if r['reward'] is not None]
-        adv = advantages([r['reward'] for r in usable], self.mode)
-        if len(usable) < 2 or all(a == 0 for a in adv):
-            return {'optimizer_step': False, 'skip_reason': 'zero_advantage_group' if len(usable) >= 2 else 'fewer_than_two_rewarded_responses'}
+        usable, adv, skipped = [], [], []
+        for g in groups:
+            u = [r for r in g if r['reward'] is not None]; a = advantages([r['reward'] for r in u], self.mode)
+            if len(u) < 2: skipped.append('fewer_than_two_rewarded_responses')
+            elif all(x == 0 for x in a): skipped.append('zero_advantage_group')
+            else: usable += u; adv += a
+        if not usable:
+            if len(groups) == 1: return {'optimizer_step': False, 'skip_reason': skipped[0]}
+            return {'optimizer_step': False, 'skip_reason': 'no_group_with_nonzero_advantage', 'groups_skipped': len(skipped)}
         m.train()
         for mod in m.modules():
             if isinstance(mod, torch.nn.Dropout): mod.eval()
@@ -136,7 +146,8 @@ class IntegratedGRPOUpdater(GRPOUpdater):
         g = torch.nn.utils.clip_grad_norm_(self.trainable, self.o['grad_clip'])
         if not math.isfinite(float(g)): raise RuntimeError('non-finite gradient norm')
         self.optimizer.step(); self.steps += 1; self.optimizer.zero_grad(set_to_none=True); m.config.use_cache = True
-        return {'optimizer_step': True, **out, 'grad_norm': float(g), 'used_agent_completions': len(usable), 'optimizer_steps': self.steps}
+        return {'optimizer_step': True, **out, 'grad_norm': float(g), 'used_agent_completions': len(usable), 'optimizer_steps': self.steps,
+                'groups_used': len(groups) - len(skipped), 'groups_skipped': len(skipped)}
 
 
 def make_updater(policy, cfg: dict) -> IntegratedGRPOUpdater:

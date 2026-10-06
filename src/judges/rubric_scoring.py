@@ -13,7 +13,7 @@ from .llm import CachedChat, ChatRequest, parse_json_object
 from .rubric_schema import validate_rubric
 
 LABELS = ("NA", 0, 1, 2)
-TWO_STAGE_JEV_PROTOCOL = "two_stage_jev_applicability_then_adherence_v2"
+TWO_STAGE_JEV_PROTOCOL = "two_stage_jev_strict_applicability_then_expected_adherence_v5"
 
 
 @dataclass(frozen=True)
@@ -56,8 +56,16 @@ class ScoringItem:
 
     def target_payload(self) -> dict[str, Any]:
         """Visible state through the target response; used only after applicability is established."""
-        payload = self.payload()
-        payload.pop("rubrics", None)
+        payload = {
+            "trajectory_id": self.trajectory_id,
+            "turn_id": self.turn_id,
+            "dialogue_before_target_turn": list(self.context_turns[:-1]),
+            "target_turn": self.context_turns[-1],
+        }
+        if self.pre_response_state is not None:
+            payload["agent_pre_response_state"] = self.pre_response_state
+        if self.case_context is not None:
+            payload["case_context"] = self.case_context
         return payload
 
 
@@ -73,6 +81,8 @@ class ScoreResult:
     applicability_probabilities: dict = field(default_factory=dict)
     behavior_scores: dict = field(default_factory=dict)  # applicable rubric_id -> 0|1|2
     behavior_probabilities: dict = field(default_factory=dict)
+    expected_behavior_scores: dict = field(default_factory=dict)  # applicable rubric_id -> E[0,1,2]
+    expected_behavior_adherence: dict = field(default_factory=dict)  # applicable rubric_id -> E[score]/2
     problems: list = field(default_factory=list)
     call: dict = field(default_factory=dict)
     call_count: int = 0
@@ -332,6 +342,8 @@ class JevRubricScorer(RubricScorer):
             applicability_probabilities=scored["applicability_probabilities"],
             behavior_scores=scored["behavior_scores"],
             behavior_probabilities=scored["behavior_probabilities"],
+            expected_behavior_scores=scored["expected_behavior_scores"],
+            expected_behavior_adherence=scored["expected_behavior_adherence"],
             call=scored["calls"],
             call_count=scored["call_count"],
             scoring_protocol=TWO_STAGE_JEV_PROTOCOL,
@@ -344,15 +356,30 @@ def applicability_questions(rubrics: list[dict]) -> dict[str, dict]:
         rubric["rubric_id"]: {
             "type": "choice",
             "instructions": (
-                "Decide only whether the rubric's observable situation is supported by the supplied dialogue "
-                "before the target Agent response. Do not infer applicability from behavior in a target response, "
-                "and do not use future turns, final correctness, or ground truth. "
+                "Apply a strict conjunctive gate using only the supplied dialogue before the target Agent response. "
+                "Every distinct requirement and relationship in the complete applicability condition must be "
+                "directly supported by visible dialogue. Choose N when any required actor, premise, comparison, "
+                "proxy-target distinction, exception structure, inconsistency, or missing discriminator is absent, "
+                "only implied, or ambiguous. Do not fill a missing requirement with medical knowledge. "
+                "Do not infer applicability from the target response, future turns, final correctness, or ground "
+                "truth. Generic agreement, disagreement, confidence, option ranking, elimination, or discussion of "
+                "multiple alternatives is not enough by itself. A premise that directly answers the requested "
+                "target is not a proxy merely because it is used to compare options. An ordinary best-answer or "
+                "EXCEPT question is not a categorical-exception situation unless the condition's specific contrast "
+                "between relative weakness and category membership is visible. Similarity to the original failure "
+                "is not sufficient. Choose Y only for a complete visible match; otherwise choose N. "
                 f"Rubric: {rubric['name']}. "
                 f"Applicability condition: {rubric['applicability_condition']}"
             ),
             "criteria": {
-                "Y": "The complete applicability condition is visibly supported before the target response.",
-                "N": "At least one required part of the applicability condition is absent or unsupported.",
+                "Y": (
+                    "Every required component and relationship in the condition is directly and unambiguously "
+                    "supported by the pre-response dialogue."
+                ),
+                "N": (
+                    "One or more required components or relationships is absent, unsupported, merely implied, "
+                    "ambiguous, or only generically similar."
+                ),
             },
         }
         for rubric in rubrics
@@ -421,6 +448,10 @@ def two_stage_jev_score(client, *, history_state: dict, target_state: dict, rubr
     """Assess applicability without the target response, then score only applicable target behaviors."""
     if "target_turn" in history_state or "dialogue_through_target_turn" in history_state:
         raise ValueError("applicability state must not include the target Agent response")
+    if "target_turn" not in target_state or "dialogue_before_target_turn" not in target_state:
+        raise ValueError("behavior state needs dialogue_before_target_turn and target_turn")
+    if "dialogue_through_target_turn" in target_state:
+        raise ValueError("behavior state must not duplicate the target response in dialogue_through_target_turn")
     if len({rubric.get("rubric_id") for rubric in rubrics}) != len(rubrics):
         raise ValueError("rubric_id values must be unique")
     for rubric in rubrics:
@@ -482,6 +513,21 @@ def two_stage_jev_score(client, *, history_state: dict, target_state: dict, rubr
         rid: answer.get("probabilities")
         for rid, answer in behavior_answers.items()
     }
+    expected_behavior_scores = {}
+    expected_behavior_adherence = {}
+    for rid, probabilities in behavior_probabilities.items():
+        if not isinstance(probabilities, dict):
+            raise ValueError(f"Jev returned no behavior probabilities for {rid}")
+        try:
+            values = {level: float(probabilities[level]) for level in ("0", "1", "2")}
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"invalid Jev behavior probabilities for {rid}: {probabilities}") from exc
+        if any(value < 0 for value in values.values()) or sum(values.values()) <= 0:
+            raise ValueError(f"invalid Jev behavior probability mass for {rid}: {probabilities}")
+        total = sum(values.values())
+        expected = (values["1"] + 2.0 * values["2"]) / total
+        expected_behavior_scores[rid] = expected
+        expected_behavior_adherence[rid] = expected / 2.0
     probabilities = {
         rid: (
             behavior_probabilities.get(rid)
@@ -497,6 +543,8 @@ def two_stage_jev_score(client, *, history_state: dict, target_state: dict, rubr
         "applicability_probabilities": applicability_probabilities,
         "behavior_scores": behavior_scores,
         "behavior_probabilities": behavior_probabilities,
+        "expected_behavior_scores": expected_behavior_scores,
+        "expected_behavior_adherence": expected_behavior_adherence,
         "call_count": len(app_calls) + len(behavior_calls),
         "calls": {
             "applicability": _call_record(app_calls, max_rubrics_per_call),

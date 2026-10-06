@@ -647,3 +647,16 @@ def test_real_generator_message_carries_state_and_failed_state_masks_rubric(tmp_
     assert len(failed_ev) == 2 and len(be.gen_inputs) == 2                                              # no generator call without a state
     for e in failed_ev:
         assert e.rubric.failure == 'state_elicitation_failed' and all(b.R_A is None for b in e.branches) and e.Q_cov in (None, 0.0)
+
+
+def test_update_groups_one_step_over_sibling_groups():
+    from src.online_rl.integrated.continuation import adapter_sha256
+    _, model, up = _tiny_updater()
+    sha = adapter_sha256(model)
+    g1 = _group(up, [0.3, 0.1, 0.3, 0.5]); g2 = [{**r, 'case_id': 's2'} for r in _group(up, [1.0, 0.0, 0.5, 0.5], offset=7)]
+    g3 = [{**r, 'case_id': 's3'} for r in _group(up, [0.4, 0.4, 0.4, 0.4], offset=2)]                       # zero advantage
+    out = up.update_groups([g1, g2, g3])
+    assert out['optimizer_step'] and out['groups_used'] == 2 and out['groups_skipped'] == 1 and out['used_agent_completions'] == 8
+    assert out['ratio']['max_abs_deviation'] < 1e-6 and up.steps == 1 and adapter_sha256(model) != sha
+    sha = adapter_sha256(model)
+    assert up.update_groups([[{**r, 'rollout_policy_sha256': sha} for r in g3]]) == {'optimizer_step': False, 'skip_reason': 'zero_advantage_group'}

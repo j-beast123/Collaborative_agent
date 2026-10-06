@@ -1,0 +1,111 @@
+{
+ "name": "sherpa_tree_v1",
+ "output_dir": "outputs/sherpa_tree_v1",
+ "policy": {
+  "base_model": "Qwen/Qwen3-8B",
+  "init_adapter": null,
+  "lora": {
+   "r": 16,
+   "alpha": 32,
+   "dropout": 0.0,
+   "target_modules": [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj"
+   ],
+   "use_rslora": true
+  }
+ },
+ "data": {
+  "train": "data/interim/medmcqa/medicine_train_grpo100_seed20261004.jsonl",
+  "train_sha256": "885378702994e6dd"
+ },
+ "rollout": {
+  "branching": 4,
+  "rounds": 5,
+  "budget": "full_tree",
+  "doctor_model": "google/gemma-3-12b-it",
+  "max_tokens_doctor": 512,
+  "max_completion_length": 400,
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "top_k": null
+ },
+ "schedule": {
+  "seed": 0,
+  "cases": "CALIBRATION_REQUIRED"
+ },
+ "optimizer": {
+  "learning_rate": "CALIBRATION_REQUIRED",
+  "beta": 0.04,
+  "clip_epsilon": 0.2,
+  "grad_clip": 1.0,
+  "logprob_token_chunk_size": 16,
+  "pre_update_ratio_tolerance": 0.001
+ },
+ "advantage_normalization": {
+  "mode": "CALIBRATION_REQUIRED"
+ },
+ "rubric": {
+  "generator_prompt_file": "prompts/sherpa/trajectory_rubric_generator_P0.txt",
+  "prompt_id": "P0",
+  "prompt_sha256": "9d9116275b08ba8e0c50e533aa3ac33b39be20ab6eb0d721860401fc25b948d0",
+  "gold_answer_visible": false
+ },
+ "feedback": {
+  "prompt_file": "prompts/sherpa/doctor_feedback_v2.txt",
+  "prompt_sha256": "2cec09b39cd08e1f56661ae2188e73405cd30cc3c60116a0a59de3ad7dacc2b4",
+  "max_tokens": 512
+ },
+ "intervention": {
+  "reruns_per_intervention": "CALIBRATION_REQUIRED",
+  "score2_template_file": "prompts/sherpa/guided_response_template_score2_v2.txt",
+  "score2_template_sha256": "d4284095d47215b827b9db06345a193db74b7f769269ae2c8c3c358af344b3e0",
+  "score0_template_file": "prompts/sherpa/guided_response_template_score0_v1.txt",
+  "score0_template_sha256": "820a81e1b1581f28240a1f6d0898cddcfee3be088ba3e70a0f8d8154bc388a68"
+ },
+ "selection": {
+  "mode": "threshold",
+  "min_R_O": "CALIBRATION_REQUIRED"
+ },
+ "agent_reward": {
+  "w_outcome": "CALIBRATION_REQUIRED",
+  "w_rubric": "CALIBRATION_REQUIRED"
+ },
+ "prompt_update": {
+  "enabled": true,
+  "every_n_cases": "CALIBRATION_REQUIRED",
+  "minimum_trajectories": "CALIBRATION_REQUIRED",
+  "acceptance_fraction": 0.5,
+  "candidate_count": 4,
+  "retain_top_k": 2,
+  "refinement_depth": 2,
+  "feedback_prompt_file": "prompts/sherpa/tree_prompt_feedback_v1.txt",
+  "feedback_prompt_sha256": "c5ecf242374c08022a1a57f7f0ec0a24a792a4d9d495498dd948f3eac9c1022a",
+  "refiner_prompt_file": "prompts/sherpa/tree_prompt_refiner_v1.txt",
+  "refiner_prompt_sha256": "b3aae0adb4189ed6c7c61cc0e7b4a84005d06cd57ad9ad8d97db7bbec0228849"
+ },
+ "notes": {
+  "rounds": "maximum Agent turns per branch (G = rollout.branching children per decision point); also used by the Agent prompt and intervention reruns",
+  "budget": "full_tree only; pruning / subsampling is not defined",
+  "rubric": "one Rubric-Generator call -> one rubric per completed trajectory (success and failure alike)",
+  "rubric.gold_answer_visible": "Doctor feedback and the Rubric Generator never receive a gold field (the final decision plus the outcome can imply it)",
+  "post_hoc_gates": "blocking: schema, deterministic leakage / answer copy, Jev answer_presupposition, Jev new_domain_premise; recorded only: observable",
+  "intervention": "targets = source-trajectory responses the rubric matches (two-stage applicability); the same policy writes the intervention reply and runs the continuations; failure -> Score-2 template, success -> Score-0 template; one reply, then K continuations",
+  "reruns_per_intervention": "K = continuations per intervention target; a rerun count, not a rubric count",
+  "R_O": "s(tau) of one target: failure -> successful reruns / K, success -> failed reruns / K; unparseable FINAL = not correct; several targets -> mean",
+  "selection": "keep the trajectory rubric iff s(tau) >= min_R_O; a No Match rubric is removed",
+  "scoring": "kept rubrics score every response node of the tree with the two-stage scorer; No Match records are kept without a score",
+  "agent_reward": "per node: w_outcome * mean(descendant leaf outcomes) + w_rubric * R_A, R_A = s(tau)-weighted mean of matched kept rubric scores (omitted when none matches); s(tau) is never its own reward term; same-state siblings form one GRPO group, one optimizer step per case",
+  "prompt_update": "S(p) = sum over trajectories of s(tau) (0 when a trajectory rubric has none); paired bootstrap acceptance on per-trajectory s(tau)",
+  "prompt_hashes": "scripts/online_rl/run_tree.py refuses to launch when a prompt/template file differs from its sha256"
+ },
+ "acceptance": {
+  "delta": "CALIBRATION_REQUIRED",
+  "p_min": "CALIBRATION_REQUIRED",
+  "minimum_trajectories": "CALIBRATION_REQUIRED",
+  "bootstrap_n": 2000,
+  "bootstrap_seed": 0
+ }
+}

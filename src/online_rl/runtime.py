@@ -35,10 +35,9 @@ class SharedPolicy:
         self.model.eval(); self.torch.manual_seed(seed)
         return self.ST.generate_trajectory(self.model, self.tok, case, self.doctor_system, self.agent_system, self.key, self.args)
 
-    # Continuations reuse src/prompt_opt/harness.Env bound to THIS policy (same prompts, Doctor, stop rule, turn budget).
+    # Continuations reuse src/prompt_opt/harness.Env bound to THIS policy; rounds and Doctor model come from self.args (config).
     def _H(self):
         from src.prompt_opt import harness as H
-        if H.ROUNDS != self.args.rounds or H.DOCTOR != self.args.doctor_model: raise RuntimeError('continuation protocol differs from the rollout protocol')
         return H
 
     def agent_user_prompt(self, case, prefix, t): return self._H().Env.agent_user_prompt(self, case, prefix, t)

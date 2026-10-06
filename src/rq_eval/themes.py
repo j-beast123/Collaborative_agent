@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
 TAXONOMY = json.loads((Path(__file__).resolve().parents[2] / 'configs/online_rl/behavior_theme_taxonomy_v1.json').read_text())
 THEMES = tuple(TAXONOMY['themes'])

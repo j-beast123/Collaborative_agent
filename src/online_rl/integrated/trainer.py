@@ -218,4 +218,3 @@ class IntegratedTrainer:
         self._log('prompt_log.jsonl', {'event': event, 'step': s.step, 'parent': s.prompt_id, 'accepted': d['accepted'], 'reason': d['reason'],
                                        'candidate': d.get('candidate_prompt_id'), 'search_states': len(res['search_evidence_ids']),
                                        'acceptance_states': len(res['acceptance_evidence_ids'])})
-

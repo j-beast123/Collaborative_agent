@@ -1,1 +1,1 @@
-"""LLM judges: failure analysis, rubric consolidation and rubric scoring."""
+"""LLM judges: Jev decision client and rubric scoring."""

@@ -15,7 +15,7 @@ from src.online_rl import environment as ST
 from src.belief import build_initial_agent_response_prompt, build_plain_agent_response_prompt
 from src.collaboration.generator import doctor_call, dialogue_text, case_text, final_decision_prompt, final_answer_option, stop_reason
 from src.judges.jev import JevClient
-from src.judges.rubric_scoring import validate_visible_rubric, behavior_questions, _batched_jev_decisions, two_stage_jev_score
+from src.judges.rubric_scoring import validate_visible_rubric, behavior_questions, _batched_jev_decisions
 
 SOL = 'openai/gpt-6.1-sol'; DOCTOR = 'google/gemma-3-12b-it'; ROUNDS = 7
 JEV = dict(endpoint='https://openrouter.ai/api/alpha/decisions', model='typesafe/jev-1.13', api_key_env='OPENROUTER_API_KEY')
@@ -54,7 +54,7 @@ class Env:
         if t == 1:
             return build_initial_agent_response_prompt(scenario=case.get('scenario', ''), question=case['question'], options=case['options'], clinician_message=prefix[-1]['text'])
         return build_plain_agent_response_prompt(scenario=case.get('scenario', ''), question=case['question'], options=case['options'],
-                                                 dialogue_history=dialogue_text(prefix), current_round=t, max_rounds=ROUNDS, is_final_round=t == ROUNDS)
+                                                 dialogue_history=dialogue_text(prefix), current_round=t, max_rounds=self.args.rounds, is_final_round=t == self.args.rounds)
 
     def agent(self, user: str, seed: int) -> str:
         self.torch.manual_seed(seed); a = self.args
@@ -68,15 +68,15 @@ class Env:
         """Matched continuation: the Agent reply at round t is fixed; then the frozen protocol runs naturally to FINAL
         (same Doctor prompt, stop rule and final decision as generate_trajectory)."""
         self.torch.manual_seed(seed); a = self.args; dialogue = [dict(x) for x in prefix]; reason = 'max_agent_turns'
-        for r in range(t, ROUNDS + 1):
+        for r in range(t, a.rounds + 1):
             if r > t:
                 dialogue.append({'speaker': 'doctor', 'stage': f'D{r}', 'round': r,
-                                 'text': doctor_call(self.key, DOCTOR, self.doctor_system, ST.discussion_prompt(case, dialogue, r, ROUNDS), a.max_tokens_doctor)})
+                                 'text': doctor_call(self.key, a.doctor_model, self.doctor_system, ST.discussion_prompt(case, dialogue, r, a.rounds), a.max_tokens_doctor)})
             text = fixed_agent_text if r == t else self.agent(self.agent_user_prompt(case, dialogue, r), seed * 31 + r)
             dialogue.append({'speaker': 'agent', 'stage': f'A{r}', 'round': r, 'text': text})
             why = stop_reason(r, dialogue[-2]['text'], text)
             if why: reason = why; break
-        final = doctor_call(self.key, DOCTOR, self.doctor_system, final_decision_prompt(case, dialogue), a.max_tokens_doctor)
+        final = doctor_call(self.key, a.doctor_model, self.doctor_system, final_decision_prompt(case, dialogue), a.max_tokens_doctor)
         opt = final_answer_option(final)
         return {'final_option': opt, 'correct': ST.final_outcome(case, opt), 'termination_reason': reason, 'agent_turns': sum(x['speaker'] == 'agent' for x in dialogue),
                 'dialogue': dialogue + [{'speaker': 'doctor', 'stage': 'FINAL', 'text': final, 'final': True}]}

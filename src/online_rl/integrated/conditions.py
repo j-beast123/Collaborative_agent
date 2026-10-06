@@ -12,13 +12,13 @@ MATCHED_EXCEPT = {'condition', 'output_dir', 'prompt_update.enabled', 'rubric.en
 
 
 def unresolved(cfg: dict) -> list[str]:
-    """Dotted paths whose value is still 'TBD' or 'CALIBRATION_REQUIRED'."""
+    """Dotted paths whose value is still 'TBD', 'CALIBRATION_REQUIRED' or 'OPEN_DECISION'."""
     out = []
 
     def walk(x, path):
         if isinstance(x, dict):
             for k, v in x.items(): walk(v, f'{path}.{k}' if path else k)
-        elif x in ('TBD', 'CALIBRATION_REQUIRED'): out.append(f'{path} ({x})')
+        elif x in ('TBD', 'CALIBRATION_REQUIRED', 'OPEN_DECISION'): out.append(f'{path} ({x})')
     walk(cfg, ''); return out
 
 

@@ -2,7 +2,6 @@
 generation with near-duplicate regeneration for offline prompt evaluation."""
 from __future__ import annotations
 import json
-from pathlib import Path
 from src.prompt_opt import harness as H
 from src.judges.rubric_scoring import validate_visible_rubric, applicability_questions, _batched_jev_decisions
 
