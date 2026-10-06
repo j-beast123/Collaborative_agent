@@ -82,9 +82,9 @@
     "retain_top_k": 2,
     "refinement_depth": 2,
     "feedback_prompt_file": "prompts/sherpa/tree_prompt_feedback_v1.txt",
-    "feedback_prompt_sha256": "e69c65e4c5c0abc4dc7b6b421a4c937eef0950c5ea8231b764393b0cfcce1caa",
+    "feedback_prompt_sha256": "b8bc39ffa7311659724fca008879ca47229c6270858e3d2a6517d8f010f91b82",
     "refiner_prompt_file": "prompts/sherpa/tree_prompt_refiner_v1.txt",
-    "refiner_prompt_sha256": "67a63fa2213e1cf248ced21b0cb620cf7fe18d5a313ac50c4bf30ba253eb8b84",
+    "refiner_prompt_sha256": "5e5a77fcc3be7c0b2b6d2ee8cde89999428a61209c62dd95626704ee1463c880",
     "objective": "success_failure_product_v1",
     "minimum_per_source": 1,
     "incomplete_policy": "defer"
@@ -111,7 +111,8 @@
     "minimum_trajectories": "CALIBRATION_REQUIRED",
     "bootstrap_n": 2000,
     "bootstrap_seed": 0,
-    "minimum_per_source": 1
+    "minimum_per_source": 1,
+    "tie_break": "candidate"
   },
   "judge": {
     "backend": "openrouter_chat",

@@ -156,3 +156,17 @@ def test_policy_update_then_prompt_event_end_to_end(tmp_path):
     assert 0 in writes and 1 in writes
     event = json.loads((tmp_path / 'prompt_events/event_0001.json').read_text())
     assert event['rerun_policy_sha256'] == 'p1' and event['evidence_policy_sha256'] == ['p0']
+
+
+def test_generator_abstains_without_gate_or_intervention():
+    from src.online_rl.tree.posthoc import trajectory_message
+    _, _, tin, _ = source()
+    assert 'Judge Agent behavior independently' in trajectory_message(tin)
+    def forbidden(*args):
+        raise AssertionError('No gate should run for generator abstention')
+    r = generate_rubric(PROMPT, sha256_text(PROMPT), tin,
+                        lambda *args: {'rubric': {'eligible': False, 'reason': 'No observed useful Agent behavior', 'candidate_rubric': None}, 'raw': '{}'},
+                        CallCache(None), gate_fn=forbidden)
+    assert not r.valid and r.problems == () and r.selected_agent_turn_id is None
+    assert r.gate['status'] == 'ineligible'
+    assert r.rubric['reason'] == 'No observed useful Agent behavior'

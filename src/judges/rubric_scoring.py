@@ -444,7 +444,8 @@ def _call_record(calls: list[dict], max_rubrics_per_call: Optional[int]) -> dict
 
 
 def two_stage_jev_score(client, *, history_state: dict, target_state: dict, rubrics: list[dict],
-                        purpose: str, max_rubrics_per_call: Optional[int] = None) -> dict[str, Any]:
+                        purpose: str, max_rubrics_per_call: Optional[int] = None,
+                        precomputed_app_answers: Optional[dict] = None) -> dict[str, Any]:
     """Assess applicability without the target response, then score only applicable target behaviors."""
     if "target_turn" in history_state or "dialogue_through_target_turn" in history_state:
         raise ValueError("applicability state must not include the target Agent response")
@@ -458,13 +459,16 @@ def two_stage_jev_score(client, *, history_state: dict, target_state: dict, rubr
         problems = validate_visible_rubric(rubric)
         if problems:
             raise ValueError(f"invalid visible rubric {rubric.get('rubric_id')}: {problems}")
-    app_answers, app_calls = _batched_jev_decisions(
-        client,
-        history_state,
-        applicability_questions(rubrics),
-        purpose=f"{purpose}_applicability",
-        max_rubrics_per_call=max_rubrics_per_call,
-    )
+    if precomputed_app_answers is None:
+        app_answers, app_calls = _batched_jev_decisions(
+            client,
+            history_state,
+            applicability_questions(rubrics),
+            purpose=f"{purpose}_applicability",
+            max_rubrics_per_call=max_rubrics_per_call,
+        )
+    else:
+        app_answers, app_calls = precomputed_app_answers, []
     expected_applicability = {rubric["rubric_id"] for rubric in rubrics}
     if set(app_answers) != expected_applicability:
         missing = sorted(expected_applicability - set(app_answers))

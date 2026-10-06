@@ -463,12 +463,16 @@ def signals_conclusion(text: str) -> bool:
 
 
 def doctor_turn_prompt(case: dict, dialogue: list[dict], turn: int, rounds: int) -> str:
-    final_turn_instruction = (
-        "\nThis is the final collaboration turn. Give your best-supported final answer explicitly."
-        if turn == rounds
-        else ""
-    )
-    return f"{case_text(case)}\n\nGrounding constraint: Use only the question, answer choices, dialogue, and established domain knowledge. If no patient vignette or event description is provided, do not invent one or add symptoms, injuries, tests, treatments, or events.\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nRespond naturally as the physician. This is discussion turn {turn} of {rounds}.{final_turn_instruction}"
+    agent_replies = [entry for entry in dialogue if entry.get("speaker") == "agent"]
+    repeat_note = ("The latest assistant response repeats its preceding response. Decide whether another reply "
+                   "could resolve a specific remaining issue; repetition alone does not require END.\n\n"
+                   if len(agent_replies) >= 2 and repeated_agent_response(dialogue[:next(i for i in range(len(dialogue)-1, -1, -1) if dialogue[i].get("speaker") == "agent")], agent_replies[-1]["text"]) else "")
+    return (f"{case_text(case)}\n\nGrounding constraint: Use only the question, answer choices, dialogue, and established domain knowledge. "
+            "Do not invent patient findings or scenarios.\n\n"
+            f"Conversation so far:\n{dialogue_text(dialogue)}\n\n{repeat_note}"
+            "Respond naturally as the physician. Follow the discussion decision instructions: "
+            "ask one focused question only if another reply is needed; otherwise state why you can end. "
+            "This is discussion, not the separate final decision.")
 
 
 def final_decision_prompt(case: dict, dialogue: list[dict]) -> str:
@@ -543,7 +547,7 @@ def repeated_agent_response(history: list[dict], response: str) -> bool:
     return signature(previous) == signature(response)
 
 
-EARLY_STOP_VERSION = "explicit_shared_choice_no_open_issue_v2"
+EARLY_STOP_VERSION = "doctor_available_issue_fresh_post_agent_review_v17"
 
 
 def conclusion_choice(text: str) -> str:
@@ -564,17 +568,158 @@ def has_open_issue(text: str) -> bool:
     return bool(re.search(r"\?|\b(?:uncertain|unsure|hesitant|ambiguous|ambiguity|unresolved|unclear|disagree|not convinced|need (?:more|further)|unless|if new evidence)\b|\b(?:not|never|cannot|can't)\s+(?:yet\s+)?(?:ready|conclude|finalize|resolved|satisfied|comfortable)\b",text,re.I))
 
 
-def stop_reason(turn: int, doctor: str, response: str, *, history: list[dict] | None = None):
-    """Stop only on repetition or explicit, unqualified shared conclusion."""
-    if turn < 2:
+class DoctorProtocolError(RuntimeError):
+    """Technical completion failure; never a clinical outcome failure."""
+
+
+def doctor_status(text: str) -> str | None:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    statuses = [line for line in lines if line.startswith("DISCUSSION_STATUS:")]
+    if len(statuses) != 1 or not lines or lines[-1] != statuses[0]:
         return None
-    if history is not None and repeated_agent_response(history,response):
+    return {"DISCUSSION_STATUS: END": "END", "DISCUSSION_STATUS: CONTINUE": "CONTINUE"}.get(statuses[0])
+
+
+def doctor_wants_to_stop(text: str) -> bool:
+    # Discussion producers validate/repair END before exposing it to rollout.
+    return doctor_status(text) == "END"
+
+
+def checked_doctor_turn(completion, system: str, prompt: str) -> str:
+    """Doctor first decides, then verbalizes. Code owns the final status line.
+
+    Same prefix in both stages; no Agent response, future turn or gold is added.
+    Invalid structured outputs get one format retry, then technical incomplete.
+    """
+    decision_system = system + (
+        '\n\n[Current operation: STRUCTURED DISCUSSION DECISION]\n'
+        'Do not write a clinical reply or DISCUSSION_STATUS yet. Decide whether another assistant reply is needed. '
+        'Return ONLY JSON with keys needs_reply (boolean), unresolved_issue (string or null), '
+        'why_reply_could_change_choice (string or null), issue_already_answered (boolean), '
+        'resolvable_from_available_context (boolean), requires_unavailable_information (boolean), new_evidence (string or null), '
+        'end_reason (string or null). Compare the proposed issue with earlier requests and replies. '
+        'A rephrased question is the same issue. New evidence must actually occur in this dialogue. '
+        'Continue only for a specific decision-relevant issue that available context/domain knowledge can address. '
+        'Do not invent patient details, speculative exceptions or author intentions to prolong discussion. '
+        'Before deciding, independently review the decisive premise, the strongest plausible supplied alternative, '
+        'and whether the assistant actually resolved the original request. For FALSE/EXCEPT questions, check '
+        'that the premise supports the correct statement polarity. Inspect contradictions within the reply and '
+        'between the reply and the case; do not accept a claim merely because the assistant agrees, repeats it, '
+        'sounds confident, or claims a guideline/source. Do not treat guessed author intent as established. '
+        'Your end_reason must describe the concrete check or comparison supporting closure, rather than saying '
+        'the assistant confirmed your reasoning. If the assistant left a decision-relevant comparison unanswered '
+        'or introduced a resolvable contradiction, request that specific check. A check can be completed from '
+        'existing dialogue and established knowledge; another turn is not mandatory. Do not demand unavailable '
+        'patient details or exhaustive speculative exceptions. Never invent a competing option merely to continue. '
+        'Set requires_unavailable_information=true if resolving your proposed question would require '
+        'unstated patient findings, morphology, exposure duration, comparative frequency data, an unspecified '
+        'guideline edition, or access to the question author. Questions asking what the author intended, '
+        'whether the question means a scope not stated in it, or repeatedly asking whether missing details '
+        'are present are not resolvable by another assistant reply. Do not turn such missing information '
+        'into a new request: acknowledge the limit and select the best-supported supplied option. '
+        'Distinguish missing case data from a specific factual/domain-knowledge comparison the assistant can '
+        'actually address; the latter may justify continuing. Do not stop merely because there is disagreement. '
+        'When the dialogue already includes an assistant reply saying the requested detail is absent, '
+        'do not ask for that detail again. In verbalization, do not invent an author intention to justify closure. '
+        'Residual uncertainty alone is not a reason to continue. If needs_reply is false, set unresolved_issue '
+        'and why_reply_could_change_choice to null and supply end_reason. If true, supply both strings. '
+        'This structured operation overrides ordinary discussion output formatting.')
+
+    def structured(stage_system, stage_prompt, validate, label):
+        for attempt in range(2):
+            raw = completion(stage_system, stage_prompt)
+            log = os.environ.get('API_USAGE_LOG')
+            if log:
+                import hashlib
+                audit = Path(log).parent / 'doctor_discussion_stage_outputs.jsonl'
+                audit.parent.mkdir(parents=True, exist_ok=True)
+                with audit.open('a') as handle:
+                    handle.write(json.dumps({'protocol': EARLY_STOP_VERSION, 'stage': label, 'attempt': attempt + 1,
+                        'prompt_sha256': hashlib.sha256(stage_prompt.encode()).hexdigest(),
+                        'raw_output': raw}, ensure_ascii=False) + '\n')
+            try:
+                value = raw.strip()
+                if value.startswith('```'):
+                    lines = value.splitlines()
+                    if len(lines) >= 3 and lines[-1].strip() == '```':
+                        value = '\n'.join(lines[1:-1])
+                obj = json.loads(value)
+                validate(obj)
+                return obj
+            except (ValueError, TypeError, KeyError) as exc:
+                if attempt:
+                    raise DoctorProtocolError(f'doctor_protocol_error: invalid {label} after one format repair') from exc
+                stage_prompt += ('\n\nFormat repair only: return the requested JSON schema on the SAME prefix. '
+                                 'Previous output:\n' + raw)
+        raise AssertionError('unreachable')
+
+    def validate_decision(obj):
+        if not isinstance(obj, dict):
+            raise ValueError('Decision must be an object')
+        for field in ('needs_reply', 'issue_already_answered', 'resolvable_from_available_context', 'requires_unavailable_information'):
+            if type(obj.get(field)) is not bool:
+                raise ValueError(field + ' must be boolean')
+        for field in ('unresolved_issue', 'why_reply_could_change_choice', 'new_evidence', 'end_reason'):
+            if field not in obj or (obj[field] is not None and not isinstance(obj[field], str)):
+                raise ValueError(field + ' must be text or null')
+        if obj['needs_reply']:
+            if not all(isinstance(obj[k], str) and obj[k].strip() for k in ('unresolved_issue', 'why_reply_could_change_choice')):
+                raise ValueError('Continue needs a specific issue and decision consequence')
+        elif (obj['unresolved_issue'] is not None or obj['why_reply_could_change_choice'] is not None
+              or not isinstance(obj['end_reason'], str) or not obj['end_reason'].strip()):
+            raise ValueError('End needs an end reason and null open-issue fields')
+
+    decision = structured(decision_system, prompt + '\n\nCurrent task: return only the structured decision JSON; no clinical reply yet.', validate_decision, 'Doctor decision')
+    needs_reply = decision['needs_reply'] and decision['resolvable_from_available_context'] and not decision['requires_unavailable_information'] and (
+        not decision['issue_already_answered'] or bool((decision['new_evidence'] or '').strip()))
+    # If Doctor identifies its own issue as answered/unresolvable, close it.
+    effective = {**decision, 'effective_needs_reply': needs_reply}
+    speech_system = system + (
+        '\n\n[Current operation: VERBALIZE FIXED DECISION]\n'
+        'Return ONLY JSON with assessment (a concise clinical statement) and question (one focused question or null). '
+        'Do not emit DISCUSSION_STATUS or another participant reply. Do not change the supplied decision. '
+        'Assessment must contain statements only, with no requests or questions. '
+        'If effective_needs_reply is true, question must ask ONLY about the selected unresolved issue. '
+        'Otherwise question must be null: state the best-supported option, reasoning and remaining limitation; '
+        'do not ask for verification or condition closure on a future answer. No new case facts. '
+        'Use at most five conversational sentences in total. This JSON formatting overrides discussion status instructions.')
+
+    def validate_speech(obj):
+        if not isinstance(obj, dict) or not isinstance(obj.get('assessment'), str) or not obj['assessment'].strip():
+            raise ValueError('Assessment missing')
+        if '?' in obj['assessment'] or 'DISCUSSION_STATUS:' in obj['assessment']:
+            raise ValueError('Assessment must contain statements only')
+        if needs_reply:
+            if not isinstance(obj.get('question'), str) or not obj['question'].strip() or 'DISCUSSION_STATUS:' in obj['question']:
+                raise ValueError('Continue requires one question')
+        elif obj.get('question', 'missing') is not None:
+            raise ValueError('End cannot contain a question')
+
+    speech = structured(speech_system, prompt + '\n\nFixed Doctor decision:\n' + json.dumps(effective) + '\n\nReturn only assessment/question JSON now; no status line.',
+                        validate_speech, 'Doctor speech')
+    text = speech['assessment'].strip()
+    if needs_reply:
+        text += ' ' + speech['question'].strip()
+    status = 'CONTINUE' if needs_reply else 'END'
+    log = os.environ.get('API_USAGE_LOG')
+    if log:
+        import hashlib
+        audit = Path(log).parent / 'doctor_discussion_decisions.jsonl'
+        audit.parent.mkdir(parents=True, exist_ok=True)
+        with audit.open('a') as handle:
+            handle.write(json.dumps({'protocol': EARLY_STOP_VERSION,
+                'prefix_prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(),
+                'decision': effective, 'speech': speech, 'status': status}, ensure_ascii=False) + '\n')
+    return text + '\n\nDISCUSSION_STATUS: ' + status
+
+
+def stop_reason(turn: int, doctor: str, response: str, *, history: list[dict] | None = None):
+    """A validated Doctor END or repetition of the preceding Agent reply ends discussion."""
+    if doctor_wants_to_stop(doctor) and (turn > 1 or not response.strip()):
+        # D1 END predates A1: always let Doctor assess the first Agent reply.
+        return "doctor_conclusion"
+    if history is not None and repeated_agent_response(history, response):
         return "repeated_agent_response"
-    doctor_choice,agent_choice=conclusion_choice(doctor),conclusion_choice(response)
-    if (doctor_choice and doctor_choice==agent_choice
-            and signals_conclusion(doctor) and signals_conclusion(response)
-            and not has_open_issue(doctor) and not has_open_issue(response)):
-        return "mutual_agreement"
     return None
 
 
@@ -644,8 +789,13 @@ def main() -> None:
     out = root / a.output
     out.parent.mkdir(parents=True, exist_ok=True)
     failure_out = out.with_name(out.stem + "_failures.jsonl")
+    import hashlib
+    resume_protocol = hashlib.sha256((doctor_system + agent_system + EARLY_STOP_VERSION + str(a.rounds)).encode()).hexdigest()
     existing_ids = set()
     if a.resume and out.exists():
+        previous_rows = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines() if line.strip()]
+        if any(row.get("resume_protocol_sha256") != resume_protocol for row in previous_rows):
+            raise ValueError("Resume protocol mismatch: use a new output file after changing prompts or stop rules")
         existing_ids = {
             json.loads(line).get("trajectory_id")
             for line in out.read_text(encoding="utf-8").splitlines()
@@ -667,12 +817,16 @@ def main() -> None:
             termination_reason = "max_agent_turns"
             for turn in range(1, a.rounds + 1):
                 prompt = doctor_turn_prompt(case, dialogue, turn, a.rounds)
-                doctor = doctor_call(
-                    key, a.doctor_model, doctor_system, prompt, a.max_tokens
+                doctor = checked_doctor_turn(
+                    lambda system, user: doctor_call(key, a.doctor_model, system, user, a.max_tokens),
+                    doctor_system, prompt,
                 )
                 if turn == 1:
                     doctor_initial_option = initial_option(doctor)
                 dialogue.append({"speaker": "doctor", "text": doctor, "round": turn})
+                if turn > 1 and doctor_wants_to_stop(doctor):
+                    termination_reason = 'doctor_conclusion'
+                    break
                 if turn == 1:
                     agent_prompt = build_initial_agent_response_prompt(
                         scenario=case.get("scenario", ""),
@@ -736,6 +890,7 @@ def main() -> None:
                 failure_record = {
                     "case_id": case["case_id"],
                     "trajectory_id": trajectory_id,
+                    "resume_protocol_sha256": resume_protocol,
                     "trajectory_status": "invalid",
                     "eligible_for_training": False,
                     "termination_reason": termination_reason,
@@ -793,6 +948,7 @@ def main() -> None:
                 failure_record = {
                     "case_id": case["case_id"],
                     "trajectory_id": trajectory_id,
+                    "resume_protocol_sha256": resume_protocol,
                     "trajectory_status": "invalid",
                     "eligible_for_training": False,
                     "termination_reason": "final_option_parse_failure",
@@ -811,6 +967,7 @@ def main() -> None:
             record = {
                 "case_id": case["case_id"],
                 "trajectory_id": trajectory_id,
+                "resume_protocol_sha256": resume_protocol,
                 "trajectory_status": "valid",
                 "eligible_for_training": True,
                 "belief_enabled": not a.disable_belief,

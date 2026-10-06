@@ -16,13 +16,13 @@ def test_repeat_ignores_punctuation_and_brief_agreement():
     assert not repeated_agent_response([{'speaker':'agent','text':'I agree.'}],'I agree.')
 
 
-def test_repeat_ends_branch_then_doctor_final():
+def test_repeat_stops_even_if_doctor_requested_continuation():
     class Agent:
         def sample(self,*args):return {'completion_text':TEXT}
     class Doctor:
         def turn(self,*args):return 'Discuss the evidence.'
         def final(self,*args):return 'Final answer: option C'
-    tree=build_tree({'case_id':'case'},max_agent_turns=5,branching=2,run_seed=0,
+    tree=build_tree({'case_id':'case'},max_agent_turns=3,branching=2,run_seed=0,
         policy_sha256='policy',protocol_sha256='protocol',agent=Agent(),doctor=Doctor(),
         stop_rule=lambda *args:None,final_option=lambda text:'C',outcome_fn=lambda *args:1.0,cache=CallCache(None))
     assert len(tree.nodes)==6 and len(tree.leaves)==4

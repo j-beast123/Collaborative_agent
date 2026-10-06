@@ -50,13 +50,34 @@ class ApiDoctor:
         self.call = call
 
     def turn(self, case: dict, dialogue: list[dict], round_: int, rounds: int) -> str:
-        from src.collaboration.generator import doctor_call
+        from src.collaboration.generator import doctor_call, checked_doctor_turn
         from src.online_rl.environment import discussion_prompt
-        return (self.call or doctor_call)(self.key, self.model, self.system, discussion_prompt(case, dialogue, round_, rounds), self.max_tokens)
+        return checked_doctor_turn(
+            lambda system, user: (self.call or doctor_call)(self.key, self.model, system, user, self.max_tokens),
+            self.system, discussion_prompt(case, dialogue, round_, rounds))
 
     def final(self, case: dict, dialogue: list[dict]) -> str:
         from src.collaboration.generator import doctor_call, final_decision_prompt
-        return (self.call or doctor_call)(self.key, self.model, self.system, final_decision_prompt(case, dialogue), self.max_tokens)
+        from src.collaboration.generator import DoctorProtocolError
+        prompt = final_decision_prompt(case, dialogue)
+        # Current operation overrides discussion status/request instructions.
+        system = self.system + ("\n\n[Current operation: FINAL ONLY]\n"
+            "The discussion is over. Choose one supplied option now, despite residual uncertainty. "
+            "Do not ask the assistant for another response or emit DISCUSSION_STATUS. "
+            "Finish with the requested Final answer: option marker. This overrides discussion-mode instructions.")
+        complete = self.call or doctor_call
+        for attempt in range(2):
+            text = complete(self.key, self.model, system, prompt, self.max_tokens)
+            if parse_final_option(text, dict(case['options'])) and 'DISCUSSION_STATUS:' not in text:
+                return text
+            if attempt == 0:
+                prompt = final_decision_prompt(case, dialogue) + (
+                    "\n\nYour previous output did not provide a valid final decision. "
+                    "Rewrite it on the SAME conversation, without another discussion turn. "
+                    "Choose the best-supported supplied option; acknowledge uncertainty briefly if needed. "
+                    "No questions or DISCUSSION_STATUS. End exactly with Final answer: option <letter> - <answer text>. "
+                    "No correct answer is supplied by this instruction.\nPrevious output:\n" + text)
+        raise DoctorProtocolError('doctor_protocol_error: missing valid FINAL after one repair')
 
 
 class PolicyAgent:
@@ -111,7 +132,11 @@ def api_rubric_generator(key: str, model: str | None = None, max_tokens: int | N
 
 
 def two_stage_scorer(client):
-    """Two-stage Jev scoring: applicability on the pre-reply dialogue, then the 0/1/2 level; 'NA' = No Match."""
+    """Luna/Jev adapter with separate state matching and response scoring.
+
+    Tree scoring batches independent Luna reviews before behavior scoring; direct
+    calls retain the combined two-stage interface for source diagnostics.
+    """
     from src.judges.rubric_scoring import two_stage_jev_score
 
     def score(view, prefix, rubrics, reply):
@@ -123,7 +148,57 @@ def two_stage_scorer(client):
                                 rubrics=[visible_behavior_rubric(x) for x in rubrics], purpose='tree_response_rubric_score')
         return {rid: {'applicable': r['applicability_labels'][rid] == 'Y', 'probabilities': r['behavior_probabilities'].get(rid),
                       'hard': r['behavior_scores'].get(rid)} for rid in (x['rubric_id'] for x in rubrics)}
+    def history(view, prefix):
+        state = {'trajectory_id': f"tree:{view['case_id']}", 'turn_id': len(prefix),
+                 'dialogue_before_target_turn': prefix,
+                 'case_context': {'question': view['question'], 'options': view['options']}}
+        if view.get('agent_pre_response_state'):
+            state['agent_pre_response_state'] = view['agent_pre_response_state']
+        return state
+
+    def match(view, prefix, rubrics):
+        from src.judges.rubric_scoring import _batched_jev_decisions, applicability_questions
+        answers, _ = _batched_jev_decisions(client, history(view, prefix), applicability_questions(rubrics),
+                                          purpose='tree_state_applicability', max_rubrics_per_call=None)
+        if set(answers) != {r['rubric_id'] for r in rubrics} or any(a.get('value') not in ('Y','N') for a in answers.values()):
+            raise ValueError('Invalid state applicability results')
+        return answers
+
+    def review(view, prefix, rubrics):
+        from src.judges.applicability_review import ApplicabilityReviewer
+        from pathlib import Path
+        conditions = {}
+        for r in rubrics:
+            condition = r['applicability_condition']
+            user, separator, agent = condition.partition('\n[Pre-response Agent state]\n')
+            conditions[r['rubric_id']] = {
+                'user_side_context': user.removeprefix('[Physician-side context]\n'),
+                'agent_side_state': agent if separator else 'No additional Agent-state condition is required.'}
+        audit = getattr(client, 'audit_path', None)
+        if audit is None:
+            raise ValueError('Independent matching review requires an audit path')
+        return ApplicabilityReviewer(client, Path(audit).with_name('state_applicability_reviews.jsonl')).review_many(
+            prefix, conditions, view.get('agent_pre_response_state'))
+
+    def behavior(view, prefix, rubrics, reply, matches):
+        hist = history(view, prefix)
+        r = two_stage_jev_score(client, history_state=hist,
+            target_state={**hist, 'target_turn': {'speaker': 'agent', 'text': reply}}, rubrics=rubrics,
+            purpose='tree_response_rubric_score', precomputed_app_answers=matches)
+        return {rid: {'applicable': r['applicability_labels'][rid] == 'Y',
+                      'probabilities': r['behavior_probabilities'].get(rid), 'hard': r['behavior_scores'].get(rid)}
+                for rid in (x['rubric_id'] for x in rubrics)}
+
+    if client is not None:
+        score.match_state = match
+        score.score_behavior = behavior
+    # Independent review uses the configured Luna transport, before scoring.
+    if getattr(client, 'post', None) and getattr(client, 'audit_path', None):
+        score.review_state = review
     score.judge_identity = client.identity() if hasattr(client, 'identity') else None
+    if getattr(score, 'review_state', None):
+        from src.judges.applicability_review import PROMPT
+        score.review_identity = {'model': client.model, 'prompt': PROMPT.read_text(), 'protocol': 'state_batch_review_v1'}
     return score
 
 
@@ -259,3 +334,18 @@ class PolicyInterventions:
             # of OpenRouter randomness. Agent sampling uses write()'s seed.
             'requested_continuation_seed': seed,
         }
+
+
+def api_rubric_consolidator(key: str, model: str, max_tokens: int = 8192):
+    """Use the configured Rubric Generator for a separate ID-only grouping call."""
+    import json
+    from src.prompt_opt import harness as H
+    def generate(system, payload):
+        raw = H.doctor_call(key, model, system, json.dumps(payload, ensure_ascii=False), max_tokens, 0)
+        value = raw.strip()
+        if value.startswith('```'):
+            lines = value.splitlines()
+            if len(lines) >= 3 and lines[-1].strip() == '```':
+                value = '\n'.join(lines[1:-1])
+        return json.loads(value)
+    return generate

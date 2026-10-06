@@ -23,7 +23,18 @@ class CallCache:
         with self._lock:
             if key in self.store:
                 self.hits[kind] = self.hits.get(kind, 0) + 1; return self.store[key]['value']
-        value = fn()
+        try:
+            value = fn()
+        except Exception as exc:
+            from src.collaboration.generator import DoctorProtocolError
+            if isinstance(exc, DoctorProtocolError) and self.path:
+                failure = {'kind': kind, 'identity': identity, 'status': 'technical_incomplete',
+                           'error_type': 'doctor_protocol_error', 'error': str(exc)}
+                with self._lock:
+                    self.path.parent.mkdir(parents=True, exist_ok=True)
+                    with self.path.with_name(self.path.stem + '_protocol_errors.jsonl').open('a') as f:
+                        f.write(json.dumps(failure, ensure_ascii=False) + '\n')
+            raise
         rec = {'key': key, 'kind': kind, 'identity': identity, 'value': value}
         json.dumps(rec)                                            # results must be JSON evidence
         with self._lock:

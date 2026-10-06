@@ -6,7 +6,9 @@ ROOT=Path(__file__).resolve().parents[2]
 
 def start(cfg):
     out=ROOT/cfg['output_dir']/'doctor_servers';out.mkdir(parents=True,exist_ok=True)
-    for gpu,url in enumerate(cfg['batch']['doctor_urls']):
+    gpu_ids=cfg['batch'].get('doctor_gpu_ids',list(range(len(cfg['batch']['doctor_urls']))))
+    if len(gpu_ids)!=len(cfg['batch']['doctor_urls']):raise ValueError('Doctor GPU IDs and URLs must have identical lengths')
+    for gpu,url in zip(gpu_ids,cfg['batch']['doctor_urls']):
         # A live foreign server is never adopted merely because its port matches.
         pidfile=out/f'gpu{gpu}.pid'
         if pidfile.exists():
@@ -17,7 +19,6 @@ def start(cfg):
                         with urllib.request.urlopen(url+'/api/tags',timeout=3):pass
                         continue
                     os.kill(pid,15)
-                    import time
                     for _ in range(40):
                         if not (Path('/proc')/str(pid)).exists():break
                         time.sleep(.25)

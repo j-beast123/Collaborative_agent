@@ -68,6 +68,7 @@ def run_interventions(case: dict, leaf: Leaf, node: AgentNode, rub: TrajectoryRu
         'case_sha256': sha256_json(case), 'level': level, 'policy': policy_sha256,
         'source_policy': node.policy_sha256, 'policy_mode': rerun_policy_mode,
     }
+    from src.collaboration.generator import DoctorProtocolError
     runs = []
     for i in range(reruns):
         intervention_seed = derive_seed(run_seed, key, 'guided', i)
@@ -85,6 +86,15 @@ def run_interventions(case: dict, leaf: Leaf, node: AgentNode, rub: TrajectoryRu
                                              'intervention_seed': intervention_seed},
                                     lambda text=text, seed=seed: continuation(
                                         deepcopy(case), deepcopy(prefix), node.depth, text, seed))
+                if isinstance(result, dict) and result.get('status') == 'incomplete':
+                    # Preserve immutable original evidence; retry only the Doctor
+                    # FINAL for incomplete cached continuations, with the same
+                    # fresh Agent text and requested seed. Successful calls stay.
+                    result = cache.call('rerun_final_recovery',
+                        {**ident, 'index': i, 'text': text, 'seed': seed,
+                         'intervention_seed': intervention_seed, 'recovery_protocol': 'bounded_final_repair_v1'},
+                        lambda text=text, seed=seed: continuation(
+                            deepcopy(case), deepcopy(prefix), node.depth, text, seed))
                 if not isinstance(result, dict):
                     error = 'continuation returned no result object'
                 else:
@@ -97,7 +107,7 @@ def run_interventions(case: dict, leaf: Leaf, node: AgentNode, rub: TrajectoryRu
                         error = 'missing parseable FINAL or valid binary outcome'
                     else:
                         outcome = float(result['outcome'])
-        except (OSError, TimeoutError) as exc:
+        except (OSError, TimeoutError, DoctorProtocolError) as exc:
             # Network/IO errors are incomplete executions, never task failures.
             # Do not swallow programming exceptions; callers can fix/resume them.
             error = f'{type(exc).__name__}: {exc}'

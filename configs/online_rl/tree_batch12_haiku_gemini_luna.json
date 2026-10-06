@@ -61,9 +61,9 @@
   "intervention": {
     "reruns_per_intervention": 3,
     "score2_template_file": "prompts/sherpa/guided_response_template_score2_target_only_v3.txt",
-    "score2_template_sha256": "6b29c06a6cde58ac1549847451cb3781b5a40d67d0b5e194eed354bf66bc55a4",
+    "score2_template_sha256": "aeda58e390db733fbdf69a9073dd010ac6940ea4d50e51689d4f337f509e3d63",
     "score0_template_file": "prompts/sherpa/guided_response_template_score0_target_only_v3.txt",
-    "score0_template_sha256": "f48e849e5e886d0dc7c188c0585c73475b1fe75d6c5f0d2da4d02a901aea6156"
+    "score0_template_sha256": "10c9cce0ded043f1a9d08e2bbb2c827a79f015a6d1ab2b7a974ea3ce4b950b23"
   },
   "selection": {
     "mode": "threshold",
@@ -82,9 +82,9 @@
     "retain_top_k": 1,
     "refinement_depth": 1,
     "feedback_prompt_file": "prompts/sherpa/tree_prompt_feedback_v1.txt",
-    "feedback_prompt_sha256": "e69c65e4c5c0abc4dc7b6b421a4c937eef0950c5ea8231b764393b0cfcce1caa",
+    "feedback_prompt_sha256": "b8bc39ffa7311659724fca008879ca47229c6270858e3d2a6517d8f010f91b82",
     "refiner_prompt_file": "prompts/sherpa/tree_prompt_refiner_v1.txt",
-    "refiner_prompt_sha256": "67a63fa2213e1cf248ced21b0cb620cf7fe18d5a313ac50c4bf30ba253eb8b84",
+    "refiner_prompt_sha256": "5e5a77fcc3be7c0b2b6d2ee8cde89999428a61209c62dd95626704ee1463c880",
     "objective": "success_failure_product_v1",
     "minimum_per_source": 1,
     "incomplete_policy": "defer",
@@ -116,7 +116,8 @@
     "minimum_trajectories": 4,
     "bootstrap_n": 2000,
     "bootstrap_seed": 0,
-    "minimum_per_source": 1
+    "minimum_per_source": 1,
+    "tie_break": "candidate"
   },
   "judge": {
     "backend": "openrouter_chat",

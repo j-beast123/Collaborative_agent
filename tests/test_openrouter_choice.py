@@ -97,3 +97,18 @@ def test_multiple_answer_objects_are_rejected():
     from src.judges.openrouter_choice import parse_judge_object
     with pytest.raises(ValueError,match='unambiguous'):
         parse_judge_object('{"answers":{"a":"Y"}} {"answers":{"a":"N"}}')
+
+
+def test_shared_instructions_hoisted_without_changing_criteria():
+    from src.judges.rubric_scoring import applicability_questions
+    payloads=[]
+    def post(url,payload,key,timeout):
+        data=json.loads(payload['messages'][1]['content']);payloads.append(data)
+        return {'choices':[{'finish_reason':'stop','message':{'content':json.dumps({'answers':{qid:'Y' for qid in data['questions']}})}}]}
+    rubrics=[{'rubric_id':f'r{i}','name':f'Rubric{i}','applicability_condition':f'condition{i}'} for i in range(2)]
+    questions=applicability_questions(rubrics)
+    OpenRouterChoiceJudge('test',post=post).decide('{}',questions)
+    packed=payloads[0]
+    for rid,q in questions.items():
+        assert packed['shared_question_instructions']+packed['questions'][rid]['instructions']==q['instructions']
+        assert packed['questions'][rid]['criteria']==q['criteria']

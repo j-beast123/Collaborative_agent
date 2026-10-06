@@ -384,17 +384,24 @@ def test_feedback_and_generator_backends_without_gold(monkeypatch):
     from src.prompt_opt import harness as H
     from src.online_rl.tree import backends as B
     calls = []
-    fake = lambda key, model, system, user, *a: calls.append((model, system, user)) or ('Final answer: option B' if 'final decision' in user.lower() else '{"name": "n"}')
+    def fake(key,model,system,user,*args):
+        calls.append((model,system,user))
+        if 'STRUCTURED DISCUSSION DECISION' in system:
+            from tests.test_doctor_protocol_repair import decision
+            return decision(True)
+        if 'VERBALIZE FIXED DECISION' in system:
+            return json.dumps({'assessment':'I favor B.','question':'Could you compare the alternatives?'})
+        return 'Final answer: option B' if 'final decision' in user.lower() else '{"name": "n"}'
     monkeypatch.setattr(G, 'doctor_call', fake); monkeypatch.setattr(H, 'doctor_call', fake)
     d = B.ApiDoctor('k', 'doc', 'SYS', 64); dlg = [{'speaker': 'doctor', 'stage': 'D1', 'round': 1, 'text': 'hi'}]
     d.turn(CASES[0], dlg, 2, 5); d.final(CASES[0], dlg)
-    assert 'turn 2 of at most 5' in calls[0][2] and 'final decision' in calls[1][2].lower()
+    assert 'turn 2 of at most 5' not in calls[0][2] and 'discussion decision' in calls[0][2] and 'final decision' in calls[2][2].lower()
     B.api_feedback('k', 'doc', 'FB', 64)(PH.case_view(CASES[0]), dlg, 'failure')
     log = Log(); tree, _ = tree_for(log, rounds=1, branching=1); leaf = tree.leaves[0]
     tin = PH.freeze_trajectory_input(CASES[0], leaf, PH.DoctorFeedback(leaf.leaf_id, leaf.outcome, 'the Agent ignored my question', 'fb'))
     B.api_rubric_generator('k')('GEN', tin)
     for _, _, user in calls[2:]: assert 'correct_option' not in user and 'atree option 0 is correct' not in user
-    assert 'the Agent ignored my question' in calls[3][2] and calls[3][0] == H.SOL
+    assert 'the Agent ignored my question' in calls[4][2] and calls[4][0] == H.SOL
 
 
 # ---------- team-decided strategies (src/online_rl/tree/team.py) ----------

@@ -1,25 +1,33 @@
 from src.collaboration.generator import stop_reason
 
 
-def text(choice):
-    return f'I choose option {choice}. The evidence resolves the issue. No remaining uncertainty. I am ready to conclude.'
+def test_doctor_end_alone_controls_termination():
+    for turn in (2,5):
+        assert stop_reason(turn,'I choose B.\nDISCUSSION_STATUS: END','I choose C. I am uncertain.')=='doctor_conclusion'
 
 
-def test_shared_choice_can_stop_only_from_second_turn():
-    assert stop_reason(1,text('C'),text('C')) is None
-    assert stop_reason(2,text('C'),text('C'))=='mutual_agreement'
+def test_continue_and_plain_readiness_do_not_stop():
+    for text in ['I am ready to conclude.', 'Could you verify?\nDISCUSSION_STATUS: CONTINUE', 'DISCUSSION_STATUS: END\nDISCUSSION_STATUS: CONTINUE', 'The literal marker DISCUSSION_STATUS: END is an example.']:
+        assert stop_reason(2,text,'I agree.') is None
 
 
-def test_different_choices_and_unilateral_final_do_not_stop():
-    assert stop_reason(2,text('B'),text('C')) is None
-    assert stop_reason(2,'Please compare the evidence.','Final answer: option C') is None
-    assert stop_reason(2,'I am ready to conclude.','I am ready to conclude.') is None
+def test_end_must_be_final_standalone_line():
+    assert stop_reason(2,'No further reply needed.\n\nDISCUSSION_STATUS: END\n','I disagree.')=='doctor_conclusion'
+    assert stop_reason(2,'DISCUSSION_STATUS: END\nPlease clarify.','I agree.') is None
+    assert stop_reason(2,'Please explain.','DISCUSSION_STATUS: END') is None
 
 
-def test_uncertainty_question_and_negated_readiness_prevent_stop():
-    for suffix in ['However, I am uncertain about the definition.','Could you confirm the assumption?','I am not ready to conclude.','Unless the terminology means something different.']:
-        assert stop_reason(2,text('C'),text('C')+' '+suffix) is None
+def test_rhetorical_question_and_residual_uncertainty_can_end():
+    assert stop_reason(2,'Why favor B? Its mechanism addresses the stated finding. Some uncertainty remains, but another reply would not resolve it.\nDISCUSSION_STATUS: END','I choose C.')=='doctor_conclusion'
 
 
-def test_mentioned_alternative_is_not_a_shared_recommendation():
-    assert stop_reason(2,text('C'),'I choose option B. Unlike option C, B has stronger support. I am ready to conclude.') is None
+def test_multiple_status_lines_are_not_an_unambiguous_end():
+    assert stop_reason(2,'DISCUSSION_STATUS: CONTINUE\nDISCUSSION_STATUS: END','I agree.') is None
+
+
+def test_doctor_discussion_prompt_does_not_force_final_turn():
+    from src.online_rl.environment import discussion_prompt
+    case={'question':'Example','options':{'A':'first','B':'second'}}
+    early=discussion_prompt(case,[],1,5);last=discussion_prompt(case,[],5,5)
+    assert early==last
+    assert 'final allowed' not in last and 'turn 5' not in last

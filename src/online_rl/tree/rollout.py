@@ -38,7 +38,12 @@ def build_tree(case: dict, *, max_agent_turns: int, branching: int, run_seed: in
                 nd = None
                 if why is None:
                     nd = cache.call('doctor_turn', {**ident, 'path': cpath, 'round': depth + 1}, lambda d=dialogue, r=depth + 1: doctor.turn(case, d, r, max_agent_turns))
-                    nxt.append((cpath, nid, dialogue + [{'speaker': 'doctor', 'stage': f'D{depth + 1}', 'round': depth + 1, 'text': nd}]))
+                    doctor_stop = stop_rule(depth + 1, nd, '')
+                    if doctor_stop == 'doctor_conclusion':
+                        why = doctor_stop
+                        dialogue = dialogue + [{'speaker': 'doctor', 'stage': f'D{depth + 1}', 'round': depth + 1, 'text': nd}]
+                    else:
+                        nxt.append((cpath, nid, dialogue + [{'speaker': 'doctor', 'stage': f'D{depth + 1}', 'round': depth + 1, 'text': nd}]))
                 nodes.append(AgentNode(nid, parent, cid, depth, to_turns(prefix), reply, trace, policy_sha256, seed, why, why is not None, nd))
                 if why is not None:
                     final = cache.call('final', {**ident, 'path': cpath}, lambda d=dialogue: doctor.final(case, d))

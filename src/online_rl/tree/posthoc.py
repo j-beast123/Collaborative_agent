@@ -9,7 +9,8 @@ from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.records import DoctorFeedback, Leaf, TrajectoryRubric, TrajectoryRubricInput, to_dialogue
 
 LEVELS = ('0', '1', '2')
-TRANSCRIPT_FORMAT = 'agent_reply_node_ids_v2'           # how feedback / generator transcripts are rendered; part of their cache keys
+TRANSCRIPT_FORMAT = 'agent_reply_node_ids_eligibility_v3'           # how feedback / generator transcripts are rendered; part of their cache keys
+GENERATION_ELIGIBILITY_POLICY = """Judge Agent behavior independently of the final outcome and Doctor praise. On a success source, generate only if an actual useful Agent behavior is supported by the dialogue; do not credit a correct final answer, agreement, repetition, or a contradictory response as evidence of useful behavior. On a failure source, generate only if a real Agent error or omission is supported; if the Agent handled the relevant need appropriately and failure came from the Doctor or elsewhere, do not manufacture an Agent failure. Mixed trajectories may qualify only when a specific supported behavior and its exact turn can be isolated. If no qualifying behavior exists, return ONLY {"eligible": false, "reason": "evidence-grounded explanation", "candidate_rubric": null}; do not select a turn or invent a rubric. Otherwise use the existing rubric schema unchanged. Abstention is not a technical error and has no reruns or behavior scores."""
 RUBRIC_KEYS = ('name', 'applicability', 'scores')
 CONTEXT_KEYS = ('user_side_context', 'agent_side_state')
 
@@ -135,6 +136,13 @@ def generate_rubric(prompt_text: str, prompt_sha256: str, tin: TrajectoryRubricI
         return TrajectoryRubric(rid, tin.leaf_id, prompt_sha256, None, None, False,
                                 ('generator result must be an object',), None, selected_agent_turn_id=None)
     rubric = _generation_payload(g)
+    if isinstance(rubric, dict) and rubric.get('eligible') is False:
+        reason = rubric.get('reason')
+        if isinstance(reason, str) and reason.strip() and rubric.get('candidate_rubric') is None:
+            return TrajectoryRubric(rid, tin.leaf_id, prompt_sha256, g.get('raw'),
+                                    {**rubric, 'rubric_id': rid}, False, (),
+                                    {'passed': False, 'eligible': False, 'reason': reason, 'status': 'ineligible'},
+                                    selected_agent_turn_id=None)
     problems = rubric_problems(rubric)
     selected, selection_problems = selected_agent_node_id(rubric, tin) if rubric is not None else (None, [])
     problems.extend(selection_problems)
@@ -160,7 +168,7 @@ def trajectory_message(tin: TrajectoryRubricInput) -> str:
             f'Outcome: the final decision was a {tin.outcome}.\n\nPhysician feedback after the decision:\n{tin.feedback}\n\n'
             f'Source case ID: {tin.case_id}\nSource trajectory ID: {tin.leaf_id}\n'
             'The caller assigns the canonical rubric_id after generation; do not infer it from case content.\n'
-            'Write ONE behavioral rubric. In analysis.selected_agent_turn_id, copy exactly one Agent turn_id '
+            + GENERATION_ELIGIBILITY_POLICY + '\nIf eligible, write ONE behavioral rubric. In analysis.selected_agent_turn_id, copy exactly one Agent turn_id '
             'printed above. Do not return the reply ordinal, a Doctor ID, or a fabricated ID.'
             + ('\n\nRecorded prefix-only Agent reconstruction and judgment for each turn:\n' + json.dumps(tin.agent_pre_response_states, ensure_ascii=False) if tin.agent_pre_response_states else ''))
 

@@ -12,13 +12,14 @@ from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.posthoc import case_view
 from src.online_rl.tree.records import AgentNode, ResponseRubricScore, TrajectoryRubric, to_dialogue
 
-SCORING_PROTOCOL = 'nested_rubric_legacy_judge_view_v2'
+SCORING_PROTOCOL = 'state_shared_matching_review_before_behavior_v3'
 
 
 def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric], scorer: Callable, cache: CallCache) -> list[ResponseRubricScore]:
     """scorer(view, prefix, visible_rubrics, reply) -> per-rubric match and level.
-    All rubrics for one response are sent in one call. Matching remains the
-    scorer's pre-response stage, not a condition inferred from the target reply.
+    Split-capable scorers match/review each distinct pre-response state once,
+    batching its rubric set before scoring any response. State includes recorded
+    Agent belief; sibling topology alone never establishes state equivalence.
     """
     if not kept:
         return []
@@ -40,6 +41,10 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
     rubrics.sort(key=lambda r: r['rubric_id'])
     rubric_hash = sha256_json(rubrics)
     out = []
+    prepared = []
+    state_matches = {}
+    split = callable(getattr(scorer, 'match_state', None)) and callable(getattr(scorer, 'score_behavior', None))
+    # Complete state-level matching and review before any response-level scoring.
     for n in nodes:
         if n.case_id != view['case_id']:
             raise ValueError(f'{n.node_id}: node belongs to a different case')
@@ -48,13 +53,39 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
         packet = n.trace.get('pre_response_belief')
         if packet:
             node_view['agent_pre_response_state'] = packet['state']
+        state_identity = {
+            'judge': getattr(scorer, 'judge_identity', None), 'protocol': SCORING_PROTOCOL,
+            'policy': n.policy_sha256, 'case_sha256': sha256_json(node_view),
+            'prefix_sha256': sha256_json(prefix), 'rubrics_sha256': rubric_hash,
+        }
+        state_key = sha256_json(state_identity)
+        if split and state_key not in state_matches:
+            matches = cache.call('state_applicability', state_identity,
+                                 lambda v=node_view, p=prefix: scorer.match_state(v, p, rubrics))
+            if callable(getattr(scorer, 'review_state', None)):
+                review_identity = {**state_identity, 'reviewer': getattr(scorer, 'review_identity', None)}
+                reviews = cache.call('state_applicability_review', review_identity,
+                                     lambda v=node_view, p=prefix: scorer.review_state(v, p, rubrics))
+                if set(reviews) != set(src) or any(type(r.get('applicable')) is not bool for r in reviews.values()):
+                    raise ValueError('Invalid state applicability review')
+                # Independent review decides final applicability; NA never becomes 0.
+                matches = {rid: {'value': 'Y' if r['applicable'] else 'N',
+                                 'probabilities': {'Y': float(r['applicable']), 'N': float(not r['applicable'])}}
+                           for rid, r in reviews.items()}
+            state_matches[state_key] = matches
+        prepared.append((n, prefix, node_view, state_key))
+    for n, prefix, node_view, state_key in prepared:
         identity = {
             'judge': getattr(scorer, 'judge_identity', None), 'protocol': SCORING_PROTOCOL, 'node': n.node_id, 'policy': n.policy_sha256,
             'case_sha256': sha256_json(node_view), 'prefix_sha256': sha256_json(prefix),
             'response_sha256': sha256_json(n.response), 'rubrics_sha256': rubric_hash,
+            'matching_sha256': sha256_json(state_matches[state_key]) if split else None,
+            'reviewer': getattr(scorer, 'review_identity', None),
         }
         result = cache.call('rubric_score', identity,
-                            lambda n=n, prefix=prefix, node_view=node_view: scorer(node_view, prefix, rubrics, n.response))
+                            lambda n=n, prefix=prefix, node_view=node_view, state_key=state_key:
+                                scorer.score_behavior(node_view, prefix, rubrics, n.response, state_matches[state_key])
+                                if split else scorer(node_view, prefix, rubrics, n.response))
         if not isinstance(result, dict):
             raise ValueError(f'{n.node_id}: scorer must return a per-rubric object')
         for rid in sorted(src):

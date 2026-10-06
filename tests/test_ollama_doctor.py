@@ -12,7 +12,14 @@ def transport(monkeypatch, *, done_reason='stop', digest='pinned'):
             body={'models':[{'name':'gemma3:12b','digest':digest}]}
         else:
             seen.append(json.loads(request.data))
-            body={'message':{'content':'Final answer: A'},'done':True,'done_reason':done_reason}
+            text=request.data.decode()
+            if 'STRUCTURED DISCUSSION DECISION' in text:
+                from tests.test_doctor_protocol_repair import decision
+                content=decision(True)
+            elif 'VERBALIZE FIXED DECISION' in text:
+                content=json.dumps({'assessment':'I favor A.','question':'Could you compare B?'})
+            else:content='Final answer: A'
+            body={'message':{'content':content},'done':True,'done_reason':done_reason}
         return io.BytesIO(json.dumps(body).encode())
     monkeypatch.setattr('urllib.request.urlopen',urlopen)
     monkeypatch.delenv('API_USAGE_LOG',raising=False)
@@ -45,7 +52,7 @@ def test_source_final_and_feedback_share_local_transport(monkeypatch):
     doctor.turn(case,[],1,5)
     doctor.final(case,[])
     api_feedback('SECRET','ollama/gemma3:12b','feedback',512,call=call)(case,[],1.0)
-    assert len(seen)==3
+    assert len(seen)==4
     assert all(p['model']=='gemma3:12b' for p in seen)
 
 

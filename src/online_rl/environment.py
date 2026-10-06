@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Any
 from src.belief import build_initial_agent_response_prompt, build_plain_agent_response_prompt
-from src.collaboration.generator import case_text, dialogue_text, doctor_call, final_answer_option, final_decision_prompt, stop_reason
+from src.collaboration.generator import case_text, dialogue_text, doctor_call, final_answer_option, final_decision_prompt, stop_reason, doctor_wants_to_stop
 
 # Raw policy log-probabilities before temperature/top-k/top-p warpers are applied.
 POLICY_LOGPROB_SEMANTICS = "raw_policy_before_sampling_warpers_v1"
@@ -79,20 +79,9 @@ def generate_with_trace(model: Any, tokenizer: Any, prompt: str, max_new_tokens:
 
 
 def discussion_prompt(case: dict, dialogue: list[dict], turn: int, rounds: int) -> str:
-    final_turn = (
-        " This is the final allowed discussion turn, so present your best-supported reasoning."
-        if turn == rounds else ""
-    )
-    return (
-        f"{case_text(case)}\n\n"
-        "Grounding constraint: Use only the question, answer choices, dialogue, and established domain knowledge. "
-        "If no patient vignette or event description is provided, do not invent one.\n\n"
-        f"Conversation so far:\n{dialogue_text(dialogue)}\n\n"
-        f"Respond naturally as the physician. This is discussion turn {turn} of at most {rounds}. "
-        "State your current reasoning and what you need from the collaborator. If the main uncertainty has been "
-        "resolved and you are ready to conclude, say so explicitly; a separate final-decision prompt will record "
-        f"the answer.{final_turn}"
-    )
+    # The code enforces the turn limit. Do not steer Doctor END using a countdown.
+    from src.collaboration.generator import doctor_turn_prompt
+    return doctor_turn_prompt(case, dialogue, turn, rounds)
 
 
 def final_outcome(case: dict, option: str) -> float | None:
@@ -109,14 +98,15 @@ def generate_trajectory(model: Any, tokenizer: Any, case: dict, doctor_system: s
     agent_traces: list[dict] = []
     termination_reason = "max_agent_turns"
     for round_index in range(1, args.rounds + 1):
-        doctor = doctor_call(
-            key,
-            args.doctor_model,
-            doctor_system,
-            discussion_prompt(case, dialogue, round_index, args.rounds),
-            args.max_tokens_doctor,
+        from src.collaboration.generator import checked_doctor_turn
+        doctor = checked_doctor_turn(
+            lambda system, user: doctor_call(key, args.doctor_model, system, user, args.max_tokens_doctor),
+            doctor_system, discussion_prompt(case, dialogue, round_index, args.rounds),
         )
         dialogue.append({"speaker": "doctor", "stage": f"D{round_index}", "text": doctor, "round": round_index})
+        if agent_traces and doctor_wants_to_stop(doctor):
+            termination_reason = 'doctor_conclusion'
+            break
         if round_index == 1:
             user_prompt = build_initial_agent_response_prompt(
                 scenario=case.get("scenario", ""), question=case["question"],

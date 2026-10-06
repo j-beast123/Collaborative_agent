@@ -3,8 +3,10 @@ matched, intervened on and rerun three times. Fitness is the product of success-
 ranks the candidates; source-stratified paired bootstrap tests the product gain. The branching skeleton, prompt store,
 lineage records and guards are those of src/online_rl/integrated."""
 from __future__ import annotations
+from src.online_rl.tree.posthoc import GENERATION_ELIGIBILITY_POLICY
 from dataclasses import dataclass
 import random
+import math
 from src.online_rl.guards import assert_not_protected
 from src.online_rl.integrated.prompt_search import PromptStore, SearchBackend, _propose, _quota
 from src.online_rl.integrated.records import PromptVersion, sha256_json, atomic_write_json, to_dict
@@ -78,6 +80,8 @@ class ScoringDeps:
     policy_sha256: str                    # policy that writes interventions and runs continuations
     strategies: Strategies
     cache: CallCache
+    consolidate_fn: object = None
+    consolidation_model_identity: object = None
 
 
 def score_prompt(text: str, sha: str, units: list[EvidenceUnit], cases: dict, d: ScoringDeps) -> dict[str, dict]:
@@ -86,14 +90,28 @@ def score_prompt(text: str, sha: str, units: list[EvidenceUnit], cases: dict, d:
     # current policy for every parent/candidate comparison.
     validate_units(units)
     out = {}
+    generated = {evidence_id(u): generate_rubric(text, sha, u.tin, d.generate_fn, d.cache, d.gate_fn) for u in units}
+    memberships = {}
+    if d.consolidate_fn is not None:
+        from src.online_rl.tree.consolidation import consolidate, serializable_consolidation
+        for cid in sorted({u.case_id for u in units}):
+            candidates = [generated[evidence_id(u)] for u in units if u.case_id == cid and generated[evidence_id(u)].valid]
+            consolidated = consolidate(cid, candidates, d.consolidate_fn, d.cache,
+                                       model_identity=d.consolidation_model_identity)
+            for group in consolidated['groups']:
+                for rid in group['member_ids']:
+                    memberships[rid] = group
+            if d.cache.path is not None:
+                atomic_write_json(d.cache.path.parent / 'consolidation' / sha / (sha256_json(cid)+'.json'), serializable_consolidation(consolidated))
     for u in units:
-        rub = generate_rubric(text, sha, u.tin, d.generate_fn, d.cache, d.gate_fn)
+        rub = generated[evidence_id(u)]
         source_scores, eff = evaluate_rubric(cases[u.case_id], {n.node_id: n for n in u.path_nodes}, u.leaf, rub, scorer=d.scorer, writer=d.writer,
                                  continuation=d.continuation, reruns=d.reruns, run_seed=d.run_seed, policy_sha256=d.policy_sha256,
                                  strategies=d.strategies, cache=d.cache, rerun_policy_mode='current')
         out[evidence_id(u)] = {'rubric': rub, 'effectiveness': eff,
                                'leaf_id': u.leaf.leaf_id, 'case_id': u.case_id,
-                               'source_policy_sha256': u.policy_sha256, 'input_sha256': u.tin.sha256, 'source_outcome': u.tin.outcome}
+                               'source_policy_sha256': u.policy_sha256, 'input_sha256': u.tin.sha256, 'source_outcome': u.tin.outcome,
+                               'consolidation': memberships.get(rub.rubric_id)}
         if d.cache.path is not None:
             owner = getattr(d.writer, '__self__', None)
             record = {'evidence_id': evidence_id(u), 'prompt_sha256': sha,
@@ -158,6 +176,17 @@ def paired_acceptance(parent: dict, cand: dict, acc: dict, outcomes: dict) -> di
         return {'accepted': False, 'checks': {'same_complete_evidence': False},
                 'n': len(outcomes), 'parent_objective': p, 'candidate_objective': c,
                 'reason': 'incomplete or insufficient paired source evidence', 'status': 'deferred'}
+    tie_policy = acc.get('tie_break', 'parent')
+    if tie_policy not in ('parent', 'candidate'):
+        raise ValueError('acceptance.tie_break must be parent or candidate')
+    if tie_policy == 'candidate' and math.isclose(c['J'], p['J'], rel_tol=0, abs_tol=1e-12):
+        enough = len(outcomes) >= acc['minimum_trajectories']
+        return {'accepted': enough, 'checks': {'same_complete_evidence': True, 'minimum_trajectories': enough,
+                                              'tie_break_candidate': True},
+                'n': len(outcomes), 'J_gain': c['J'] - p['J'], 'p_gain': None,
+                'parent_objective': p, 'candidate_objective': c,
+                'reason': 'accepted on objective tie: prefer candidate' if enough else 'insufficient paired trajectories',
+                'status': 'complete' if enough else 'deferred', 'tie_break': 'candidate'}
     groups = [[k for k in sorted(outcomes) if outcomes[k] == name] for name in ('success', 'failure')]
     rng = random.Random(acc['bootstrap_seed'])
     wins = 0
@@ -230,8 +259,11 @@ def reflection_view(units: list[EvidenceUnit], results: dict[str, dict]) -> list
                      'analysis': None if _answer_exposing(c.gate) else (c.rubric or {}).get('analysis'),
                      'intervention_behavior': None if _answer_exposing(c.gate) else ((c.rubric or {}).get('candidate_rubric', {}).get('scores', {}).get(e.level, {}) if e else None),
                      'selected_agent_turn_id': c.selected_agent_turn_id,
+                     'generator_eligible': False if c.gate and c.gate.get('eligible') is False else None,
+                     'eligibility_policy': GENERATION_ELIGIBILITY_POLICY,
                      'valid': c.valid, 'problems': list(c.problems) + _gate_problems(c.gate),
-                     'verification': e.status if e else 'not_verified', 'interventions': _interventions(e), 'R_O': e.R_O if e else None})
+                     'consolidation': r.get('consolidation'),
+                     'verification': e.status if e else ('ineligible' if c.gate and c.gate.get('eligible') is False else 'not_verified'), 'interventions': _interventions(e), 'R_O': e.R_O if e else None})
     values = {evidence_id(u): (results[evidence_id(u)]['effectiveness'].R_O if results[evidence_id(u)]['effectiveness'] is not None and results[evidence_id(u)]['effectiveness'].R_O is not None else 0.0) for u in units}
     missing = [evidence_id(u) for u in units if results[evidence_id(u)]['effectiveness'] is not None and results[evidence_id(u)]['effectiveness'].status == 'incomplete']
     for uid in missing:
