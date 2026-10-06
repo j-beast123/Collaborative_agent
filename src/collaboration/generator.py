@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import http.client
+from email.utils import parsedate_to_datetime
+import threading
 import json
 import os
 import random
@@ -173,6 +175,39 @@ def dialogue_text(dialogue: list[dict]) -> str:
     )
 
 
+# The shared Gemma provider is easily overloaded; pace requests across callers.
+_REQUEST_LOCK = threading.Lock()
+_LAST_REQUEST: dict[str, float] = {}
+
+
+def _pace_request(model: str) -> None:
+    interval = float(os.environ.get("OPENROUTER_GEMMA_MIN_INTERVAL", "4")) if "gemma" in model.lower() else 0.0
+    if interval <= 0:
+        return
+    with _REQUEST_LOCK:
+        previous = _LAST_REQUEST.get(model)
+        if previous is not None:
+            delay = interval - (time.monotonic() - previous)
+            if delay > 0:
+                time.sleep(delay)
+        _LAST_REQUEST[model] = time.monotonic()
+
+
+def _http_retry_delay(model: str, status: int, attempt: int, retry_after: str | None) -> float:
+    base = 10 if status == 429 and "gemma" in model.lower() else 2
+    delay = min(60, base * 2**attempt)
+    if retry_after:
+        try:
+            provider_delay = float(retry_after)
+        except ValueError:
+            try:
+                provider_delay = parsedate_to_datetime(retry_after).timestamp() - time.time()
+            except (ValueError, TypeError, OverflowError):
+                provider_delay = 0
+        delay = max(delay, provider_delay)
+    return max(0, delay)
+
+
 def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, temperature: float = 0.4) -> str:
     key = key.strip()
     payload = json.dumps(
@@ -195,6 +230,7 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, t
     )
     for attempt in range(7):
         try:
+            _pace_request(model)
             with urllib.request.urlopen(req, timeout=180) as response:
                 body = json.loads(response.read().decode())
             text = body["choices"][0]["message"]["content"].strip()
@@ -208,10 +244,7 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, t
             print(f"OpenRouter HTTP {error.code}", flush=True)
             print(f"Body: {body[:1000]}", flush=True)
             print(f"Retry-After: {retry_after or '(not provided)'}", flush=True)
-            try:
-                delay = float(retry_after) if retry_after else min(60, 2**attempt)
-            except ValueError:  # Retry-After given as an HTTP date
-                delay = min(60, 2**attempt)
+            delay = _http_retry_delay(model, error.code, attempt, retry_after)
             print(f"OpenRouter HTTP {error.code}; retrying in {delay:.0f}s", flush=True)
             time.sleep(delay)
         except (OSError, http.client.HTTPException, ValueError, KeyError, IndexError, AttributeError) as error:
@@ -488,23 +521,60 @@ def belief_agent_prompt(
     return agent_prompt, reconstruction, judgment, "valid"
 
 
-def stop_reason(turn: int, doctor: str, response: str):
-    """Early-termination rule after an agent turn, or None to continue."""
-    if re.search(r"final answer\s*:\s*(?:option\s*)?[A-E]", response, re.I):
-        return "agent_final_answer"
-    if turn >= 2:
-        doctor_choice = option(doctor)
-        agent_choice = option(response)
-        if (
-            doctor_choice
-            and agent_choice
-            and doctor_choice == agent_choice
-            and signals_conclusion(doctor)
-            and signals_conclusion(response)
-        ):
-            return "mutual_agreement"
-        if signals_conclusion(doctor) and signals_conclusion(response):
-            return "mutual_conclusion"
+REPETITION_STOP_VERSION = "consecutive_agent_text_repeat_v1"
+
+
+def repeated_agent_response(history: list[dict], response: str) -> bool:
+    """Conservative textual repetition, not agreement or semantic equivalence.
+    Ignore case, punctuation, sentence order and short agreement introductions.
+    Compare only the preceding Agent reply on this branch, never siblings.
+    """
+    previous = next((d['text'] for d in reversed(history) if d.get('speaker') == 'agent'), None)
+    if previous is None:
+        return False
+
+    def signature(text):
+        text = re.sub(r"^\s*(?:yes|indeed|certainly|absolutely|i agree)[,.!:\s]+", "", text, flags=re.I)
+        sentences = [tuple(re.findall(r"\w+", part.casefold())) for part in re.split(r"[.!?]+", text)]
+        return tuple(sorted(sentence for sentence in sentences if sentence))
+
+    if len(re.findall(r"\w+", response)) < 12:
+        return False
+    return signature(previous) == signature(response)
+
+
+EARLY_STOP_VERSION = "explicit_shared_choice_no_open_issue_v2"
+
+
+def conclusion_choice(text: str) -> str:
+    """Require a stated recommendation, rather than the last option mentioned."""
+    patterns = (
+        r"(?:final answer|final decision|my answer|our answer|agreed option|I (?:choose|select|recommend|favor|prefer))\s*[:\-]?\s*(?:is\s+)?(?:option\s+)?([A-E])\b",
+        r"\boption\s+([A-E])\s+is\s+(?:the\s+)?(?:best|correct|most appropriate|most accurate)\b",
+        r"(?:go with|agree on|settled on|stick with)\s+(?:option\s+)?([A-E])\b",
+    )
+    choices={m.group(1).upper() for pat in patterns for m in re.finditer(pat,text.replace('**',''),re.I)}
+    return next(iter(choices)) if len(choices)==1 else ''
+
+
+def has_open_issue(text: str) -> bool:
+    # Remove explicit declarations that issues are resolved before detecting
+    # unresolved ones. This is a conservative text check, not a medical judge.
+    text=re.sub(r"\b(?:no|without any)\s+(?:(?:remaining|unresolved|relevant|important)\s+)*(?:uncertainty|uncertainties|concerns?|issues?|questions?|doubts?)\b",'',text,flags=re.I)
+    return bool(re.search(r"\?|\b(?:uncertain|unsure|hesitant|ambiguous|ambiguity|unresolved|unclear|disagree|not convinced|need (?:more|further)|unless|if new evidence)\b|\b(?:not|never|cannot|can't)\s+(?:yet\s+)?(?:ready|conclude|finalize|resolved|satisfied|comfortable)\b",text,re.I))
+
+
+def stop_reason(turn: int, doctor: str, response: str, *, history: list[dict] | None = None):
+    """Stop only on repetition or explicit, unqualified shared conclusion."""
+    if turn < 2:
+        return None
+    if history is not None and repeated_agent_response(history,response):
+        return "repeated_agent_response"
+    doctor_choice,agent_choice=conclusion_choice(doctor),conclusion_choice(response)
+    if (doctor_choice and doctor_choice==agent_choice
+            and signals_conclusion(doctor) and signals_conclusion(response)
+            and not has_open_issue(doctor) and not has_open_issue(response)):
+        return "mutual_agreement"
     return None
 
 
@@ -658,7 +728,7 @@ def main() -> None:
                         "local_judgment_status": judgment_status,
                     }
                 )
-                reason = stop_reason(turn, doctor, response)
+                reason = stop_reason(turn, doctor, response, history=dialogue[:-1])
                 if reason:
                     termination_reason = reason
                     break

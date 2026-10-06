@@ -18,8 +18,8 @@ def smoke_config() -> dict:
     """The research config with the smoke contract sizes and placeholder values (a 'smoke' block enables the smoke checks)."""
     c = json.loads(json.dumps(RESEARCH))
     c['rollout'].update(branching=2, rounds=2); c['schedule']['cases'] = 2; c['optimizer']['learning_rate'] = 1e-5
-    c['advantage_normalization'] = {'mode': 'mean_center'}; c['intervention']['reruns_per_intervention'] = 2
-    c['selection'] = {'mode': 'threshold', 'min_R_O': 0.5}; c['agent_reward'] = {'w_outcome': 0.5, 'w_rubric': 0.5}
+    c['advantage_normalization'] = {'mode': 'mean_center'}; c['intervention']['reruns_per_intervention'] = 3
+    c['selection'] = {'mode': 'threshold', 'min_R_O': 2 / 3}; c['agent_reward'] = {'w_outcome': 0.5, 'w_rubric': 0.5}
     c['prompt_update'].update(every_n_cases=1, minimum_trajectories=2, candidate_count=1, retain_top_k=1, refinement_depth=1)
     c['acceptance'] = {'delta': 0.0, 'p_min': 0.5, 'minimum_trajectories': 1, 'bootstrap_n': 200, 'bootstrap_seed': 0}
     c['smoke'] = {'purpose': 'test'}; return c
@@ -186,9 +186,9 @@ def test_phase_b_without_phase_a_fails_before_any_call(wired, monkeypatch):
 
 
 @pytest.mark.parametrize('change,msg', [({'rollout': {'branching': 4, 'rounds': 5}}, 'smoke: rollout.branching=4 exceeds 2'),
-                                        ({'intervention': {'reruns_per_intervention': 3}}, 'reruns_per_intervention=3 exceeds 2'),
+                                        ({'intervention': {'reruns_per_intervention': 4}}, 'reruns_per_intervention must be exactly 3'),
                                         ({'prompt_update': {'candidate_count': 4}}, 'candidate_count=4 exceeds 1'),
-                                        ({'output_dir': 'outputs/sherpa_tree_v1'}, 'collides with configs/online_rl/tree_v1.json'),
+                                        ({'output_dir': json.loads((RT.ROOT / 'configs/online_rl/tree_v1.json').read_text())['output_dir']}, 'collides with configs/online_rl/tree_v1.json'),
                                         ({'rubric': {'prompt_sha256': '0' * 64}}, 'rubric.generator_prompt_file differs'),
                                         ({'schedule': {'cases': 'CALIBRATION_REQUIRED'}}, 'CALIBRATION_REQUIRED')])
 def test_pre_launch_validation_stops_before_any_call(wired, monkeypatch, tmp_path, change, msg):

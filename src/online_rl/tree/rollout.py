@@ -3,6 +3,7 @@ Agent replies from one identical prompt; each non-terminal reply gets one Doctor
 A branch ends on the stop rule or the turn limit, then the Doctor FINAL decides the outcome (no feedback, no rubric)."""
 from __future__ import annotations
 from typing import Callable, Optional
+from src.collaboration.generator import repeated_agent_response
 from src.online_rl.integrated.continuation import derive_seed
 from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.records import AgentNode, Leaf, Tree, to_turns
@@ -31,7 +32,9 @@ def build_tree(case: dict, *, max_agent_turns: int, branching: int, run_seed: in
                 trace = cache.call('agent', {**ident, 'path': cpath, 'seed': seed}, sample)
                 reply = trace['completion_text']
                 dialogue = prefix + [{'speaker': 'agent', 'stage': f'A{depth}', 'round': depth, 'text': reply}]
-                why = stop_rule(depth, prefix[-1]['text'], reply) or ('max_agent_turns' if depth == max_agent_turns else None)
+                why = (stop_rule(depth, prefix[-1]['text'], reply)
+                       or ('repeated_agent_response' if repeated_agent_response(prefix, reply) else None)
+                       or ('max_agent_turns' if depth == max_agent_turns else None))
                 nd = None
                 if why is None:
                     nd = cache.call('doctor_turn', {**ident, 'path': cpath, 'round': depth + 1}, lambda d=dialogue, r=depth + 1: doctor.turn(case, d, r, max_agent_turns))

@@ -2,7 +2,10 @@
 from __future__ import annotations
 import json, re
 from src.prompt_opt import harness as H
-FG = (H.ROOT / 'prompts/prompt_opt/feedback_generator_v1.txt').read_text()
+_feedback_path = H.ROOT / 'prompts/prompt_opt/feedback_generator_v1.txt'
+if not _feedback_path.exists():
+    _feedback_path = H.ROOT / 'prompts/prompt_opt/feedback_generator_online_v1.txt'
+FG = _feedback_path.read_text()
 RF = (H.ROOT / 'prompts/prompt_opt/prompt_refiner_v1.txt').read_text()
 SOL_REFLECT_TEMPERATURE = 0.4
 _t = lambda s, n: s if len(s) <= n else s[:n] + ' …'

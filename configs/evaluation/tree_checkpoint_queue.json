@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "device": "cuda:4",
+  "data_file": "data/interim/casimedicos/all_en_622.jsonl",
+  "data_sha256": "26171084bb18e82b5100b9fe9ba8c544b7ce51779d3f6988a0e8e7ff1aeb7b0d",
+  "rounds": 5,
+  "seed": 20261006,
+  "doctor_backend": {
+    "backend": "ollama",
+    "url": "http://127.0.0.1:11539",
+    "model": "gemma3:12b",
+    "digest": "f4031aab637d1ffa37b42570452ae0e4fad0314754d17ded67322e4b95836f8a",
+    "num_ctx": 16384,
+    "gpu": 0
+  }
+}

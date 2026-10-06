@@ -356,7 +356,7 @@ def applicability_questions(rubrics: list[dict]) -> dict[str, dict]:
         rubric["rubric_id"]: {
             "type": "choice",
             "instructions": (
-                "Apply a strict conjunctive gate using only the supplied dialogue before the target Agent response. "
+                "Apply a strict conjunctive gate using only the supplied dialogue and recorded Agent state before the target Agent response. "
                 "Every distinct requirement and relationship in the complete applicability condition must be "
                 "directly supported by visible dialogue. Choose N when any required actor, premise, comparison, "
                 "proxy-target distinction, exception structure, inconsistency, or missing discriminator is absent, "

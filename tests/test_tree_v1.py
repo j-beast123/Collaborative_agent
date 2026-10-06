@@ -13,9 +13,16 @@ from src.online_rl.tree.trainer import TreeEnv, TreeTrainer
 
 CASES = [{'case_id': f'tc{i}', 'question': f'Synthetic tree item {i}: which mechanism?', 'scenario': '', 'options': {k: f'{k.lower()}tree option {i}' for k in 'ABCD'},
           'ground_truth': {'correct_option': 'A', 'correct_text': f'atree option {i}'}} for i in range(4)]
-P0 = 'Rubric generator for completed discussions. Return JSON with "name", "applicability_condition", "required_behavior" and "scores". VARIANT=0'
+P0 = Path('prompts/sherpa/trajectory_rubric_generator_P0.txt').read_text() + '\nVARIANT=0'
 h = lambda s: int(hashlib.sha256(s.encode()).hexdigest()[:8], 16)
 CONDS = ('turn 1', 'turn 99', 'any turn')                    # per trajectory: single target / No Match / every turn
+
+
+def nested_rubric(flat, selected='tc0/0'):
+    app = {'user_side_context': flat['applicability_condition'], 'agent_side_state': 'No additional state condition'}
+    return {'rubric_id': flat.get('rubric_id', 'r'), 'analysis': {'selected_agent_turn_id': selected},
+            'candidate_rubric': {'name': flat['name'], 'applicability': app,
+                'scores': {k: {**app, 'behavior': v} for k, v in flat['scores'].items()}}}
 
 
 @pytest.fixture(autouse=True)
@@ -62,18 +69,18 @@ def mock_env(log, w, stop_every=0, k_conds=CONDS, gen_malformed=False):
         log.add('rubric', f'{tin.leaf_id}|{sha256_text(prompt)[:8]}'); assert not any('gold' in f or 'correct' in f for f in tin.__dataclass_fields__)
         v = int(re.search(r'VARIANT=(\d)', prompt).group(1)); i = h(tin.leaf_id)
         if gen_malformed and i % 2 == 0: return {'raw': 'nope', 'rubric': None}
-        return {'raw': '{}', 'rubric': {'name': f'r{i % 7}', 'applicability_condition': k_conds[i % len(k_conds)], 'required_behavior': f'behave v{v} i{i % 7}',
-                                        'scores': {'0': 'bad', '1': 'partial', '2': 'good'}}}
+        return {'raw': '{}', 'rubric': nested_rubric({'name': f'r{i % 7}', 'applicability_condition': k_conds[i % len(k_conds)],
+                'scores': {'0': 'bad', '1': 'partial', '2': f'behave v{v} i{i % 7}'}}, tin.agent_node_ids[0])}
 
     def scorer(view, prefix, rubrics, reply):
         log.add('score'); depth = sum(d['speaker'] == 'agent' for d in prefix) + 1; q = int(re.search(r'q(\d)', reply).group(1)); out = {}
         for r in rubrics:
-            c = r['applicability_condition']; app = c == 'any turn' or c == f'turn {depth}'
+            c = r['applicability_condition'].split('[Physician-side context]\n', 1)[-1].split('\n[Pre-response Agent state]', 1)[0]; app = c == 'any turn' or c == f'turn {depth}'
             out[r['rubric_id']] = {'applicable': app, 'probabilities': {'0': 1 - q / 2, '1': 0.0, '2': q / 2} if app else None, 'hard': (2 if q == 2 else 0) if app else None}
         return out
 
     def writer(case, prefix, turn, rubric, level, seed):
-        log.add('write', level); return f'[{level}] {rubric["required_behavior"]} q{2 if level == "2" else 0}'
+        log.add('write', level); return f'[{level}] {rubric["candidate_rubric"]["scores"][level]["behavior"]} q{2 if level == "2" else 0} seed{seed}'
 
     def continuation(case, prefix, turn, text, seed):
         log.add('rerun'); good = ('[2]' in text) == (h(f'{text}{seed}') % 3 > 0)
@@ -101,7 +108,7 @@ def cfg(cases=4, rounds=3, branching=2, k=3, every=2, min_traj=4):     # k = rer
     return {'name': 't', 'output_dir': 'x', 'data': {'train': 'mock'}, 'policy': {'base_model': 'mock'},
             'rollout': {'branching': branching, 'rounds': rounds, 'budget': 'full_tree'}, 'schedule': {'seed': 0, 'cases': cases},
             'rubric': {'generator_prompt_file': 'mock', 'prompt_id': 'P0', 'prompt_sha256': sha256_text(P0), 'gold_answer_visible': False},
-            'intervention': {'reruns_per_intervention': k}, 'selection': {'mode': 'threshold', 'min_R_O': 0.5},
+            'intervention': {'reruns_per_intervention': k}, 'selection': {'mode': 'threshold', 'min_R_O': 2 / 3},
             'acceptance': {'delta': 0.0, 'p_min': 0.5, 'minimum_trajectories': 1, 'bootstrap_n': 200, 'bootstrap_seed': 0},
             'prompt_update': {'enabled': True, 'every_n_cases': every, 'minimum_trajectories': min_traj, 'acceptance_fraction': 0.5,
                               'candidate_count': 4, 'retain_top_k': 2, 'refinement_depth': 2}}
@@ -203,26 +210,26 @@ def test_intervention_routing_and_k_reruns(outcome, level):
     log = Log(); leaf, _, (_, e) = _leaf_eval(log, outcome)
     assert e.level == level and e.status == 'single_target' and e.target_node_ids == (leaf.path[0],)        # matched response = turn 1
     assert len(e.runs) == 3 and {r.level for r in e.runs} == {level} and all(r.intervention_text.startswith(f'[{level}]') for r in e.runs)
-    assert len({r.intervention_text for r in e.runs}) == 1 and log.counts['write'] == 1                       # one fixed reply, K continuations
+    assert len({r.intervention_seed for r in e.runs}) == 3 and len({r.intervention_text for r in e.runs}) == 3 and log.counts['write'] == 3                       # independent Agent generation for every trial
     target = 1.0 if level == '2' else 0.0
     assert e.R_O == pytest.approx(sum(r.outcome == target for r in e.runs) / 3) == e.per_node_R_O[leaf.path[0]]
     assert all(r.continuation_policy_sha256 == 'p' for r in e.runs)
 
 
 def test_target_rate_convention():
-    assert EF.target_rate('2', [1.0, 1.0, 0.0]) == pytest.approx(2 / 3) and EF.target_rate('0', [1.0, 0.0, None]) == pytest.approx(2 / 3)
-    assert EF.target_rate('2', [None, None, 1.0]) == pytest.approx(1 / 3)
+    assert EF.target_rate('2', [1.0, 1.0, 0.0]) == pytest.approx(2 / 3) and EF.target_rate('0', [1.0, 0.0, None]) is None
+    assert EF.target_rate('2', [None, None, 1.0]) is None
     with pytest.raises(ValueError): EF.intervention_level(None)
 
 
-def test_no_match_and_multi_target():
-    log = Log(); _, _, (src, nm) = _leaf_eval(log, 0.0, k_conds=('turn 99',)); leaf, _, (_, mt) = _leaf_eval(Log(), 0.0, k_conds=('any turn',))
-    assert nm.status == 'no_match' and nm.R_O is None and nm.runs == () and nm.target_node_ids == ()
-    assert mt.status == 'multi_target' and mt.target_node_ids == leaf.path and set(mt.per_node_R_O) == set(leaf.path)
-    assert len(mt.runs) == 3 * len(leaf.path)                                                                  # every matched response, no pick
-    with pytest.raises(UnresolvedDecision, match='multi_target'): _leaf_eval(Log(), 0.0, k_conds=('any turn',), multi=False)
-    assert any(not s.match and s.score is None for s in src)
-
+def test_no_match_and_single_selected_target():
+    _, _, (src, nm) = _leaf_eval(Log(), 0.0, k_conds=('turn 99',))
+    leaf, _, (_, matched) = _leaf_eval(Log(), 0.0, k_conds=('any turn',), multi=False)
+    assert nm.status == 'no_match' and nm.R_O is None and nm.runs == ()
+    assert nm.target_node_ids == (leaf.path[0],)
+    assert matched.status == 'single_target' and matched.target_node_ids == (leaf.path[0],)
+    assert len(matched.runs) == 3 and set(matched.per_node_R_O) == {leaf.path[0]}
+    assert any(not score.match and score.score is None for score in src)
 
 # ---------- selection, response-level scoring, reward ----------
 def test_selection_scoring_and_provenance(tmp_path):
@@ -231,7 +238,7 @@ def test_selection_scoring_and_provenance(tmp_path):
     assert {d['rubric_id'] for d in rec['selection']} == set(effs)
     for d in rec['selection']:
         e = effs[d['rubric_id']]
-        assert d['retained'] == (e['R_O'] is not None and e['R_O'] >= 0.5) and e['status'] in d['reason']
+        assert d['retained'] == (e['R_O'] is not None and e['R_O'] >= 2 / 3) and e['status'] in d['reason']
     kept = {d['rubric_id'] for d in rec['selection'] if d['retained']}; cands = {c['rubric_id']: c for c in rec['trajectory_rubrics']}
     assert kept and not any(effs[r]['status'] == 'no_match' for r in kept)
     scores = rec['response_scores']; node_ids = {n['node_id'] for n in rec['tree']['nodes']}
@@ -263,12 +270,12 @@ def test_raw_scores_until_aggregation():
     assert got[0] == (s, {'r1': 1.0})                                                                                        # No Match passed through raw
 
 
-def test_selection_requires_explicit_calibration_values():
-    e = [type('E', (), {'rubric_id': f'r{i}', 'leaf_id': 'L', 'R_O': i / 3, 'status': 'single_target'})() for i in range(3)]
-    assert [d.retained for d in EF.select(e, {'mode': 'threshold', 'min_R_O': 0.5})] == [False, False, True]
-    for bad in ({'mode': 'CALIBRATION_REQUIRED'}, {'mode': 'threshold', 'min_R_O': 'CALIBRATION_REQUIRED'}, {'mode': 'top_k', 'k': 2}):
-        with pytest.raises(ValueError): EF.select(e, bad)
-
+def test_selection_requires_two_of_three_complete_trials():
+    effs = [_fixed_eval(0.0, outcomes, 3)[3] for outcomes in ([0,0,0], [1,0,0], [1,1,0], [1,1,1], [1,1,None])]
+    assert [d.retained for d in EF.select(effs, {'mode': 'threshold', 'min_R_O': 2/3})] == [False,False,True,True,False]
+    for bad in ({'mode':'CALIBRATION_REQUIRED'}, {'mode':'threshold','min_R_O':'CALIBRATION_REQUIRED'},
+                {'mode':'top_k','k':2}, {'mode':'threshold','min_R_O':0.5}):
+        with pytest.raises(ValueError): EF.select(effs,bad)
 
 # ---------- prompt optimization ----------
 def test_prompt_search_uses_rerun_effectiveness(tmp_path, monkeypatch):
@@ -339,29 +346,27 @@ def test_malformed_rubrics_are_recorded_not_rerun(tmp_path):
     assert {e['rubric_id'] for e in rec['effectiveness']} == {c['rubric_id'] for c in rec['trajectory_rubrics'] if c['valid']}
 
 
-def test_intervention_backends_reuse_the_guided_precedent(monkeypatch):
-    from src.prompt_opt import harness as H
+def test_intervention_backend_generates_then_doctor_final_only():
     from src.online_rl.tree import backends as B
-    calls = []
-
+    calls=[]
     class Pol:
-        def agent_user_prompt(self, case, prefix, t): calls.append(('prompt', t)); return 'USER'
-        def agent(self, user, seed): calls.append(('agent', user, seed)); return 'reply'
-        def continue_from(self, case, prefix, t, text, seed): calls.append(('continue', t, text, seed)); return {'final_option': 'A', 'correct': 1.0, 'termination_reason': 'x', 'agent_turns': 3}
-    pol = Pol(); rubric = {'name': 'n', 'applicability_condition': 'c', 'required_behavior': 'b', 'scores': {'0': 'z', '1': 'o', '2': 't'}, 'rubric_id': 'r'}
-    guided = []; real_guided = H.Env.guided
-    monkeypatch.setattr(H.Env, 'guided', lambda self, *a: guided.append(self) or real_guided(self, *a))
-    iv = B.PolicyInterventions(pol, Path('prompts/sherpa/guided_response_template_score0_v1.txt').read_text())
-    iv.write(CASES[0], [], 1, rubric, '2', 5); iv.write(CASES[0], [], 1, rubric, '0', 6)
-    assert guided == [pol] and 'Score-2' in calls[1][1] and 'Score-0' in calls[3][1] and 'Score-2' not in calls[3][1]       # Env.guided as-is for 2
-    assert iv.continue_(CASES[0], [], 1, 'reply', 9) == {'final_option': 'A', 'outcome': 1.0, 'termination_reason': 'x', 'agent_turns': 3}
-    assert calls[-1] == ('continue', 1, 'reply', 9)                                                              # same policy continues
-    with pytest.raises(ValueError): iv.write(CASES[0], [], 1, rubric, '1', 0)
-    class Sampler:
-        def sample_completions(self, case, prefix, turn, seeds):
-            return [{'prompt_text': 'p', 'prompt_input_ids': [1], 'completion_ids': [2], 'old_policy_logprobs': [-1.0], 'completion_text': 'x', 'seed': seeds[0], 'stage': 'A1'}]
-    assert set(B.PolicyAgent(Sampler()).sample(CASES[0], [], 1, 7)) == {'prompt_text', 'prompt_input_ids', 'completion_ids', 'old_policy_logprobs', 'completion_text', 'seed'}
-
+        def agent_user_prompt(self,case,prefix,t): return 'USER'
+        def agent(self,user,seed): calls.append(('agent',user,seed)); return 'fresh reply'
+        def continue_from(self,*a): raise AssertionError('No further discussion allowed')
+    class Doc:
+        def final(self,case,dialogue):
+            assert 'ground_truth' not in case and dialogue[-1]['text']=='fresh reply'
+            calls.append(('final',dialogue)); return 'Final answer: A'
+    iv=B.PolicyInterventions(Pol(),Path('prompts/sherpa/guided_response_template_score0_v1.txt').read_text(),
+                            Path('prompts/sherpa/guided_response_template_score2_v2.txt').read_text(),doctor=Doc())
+    for level in ('0','2'):
+        text=iv.write(CASES[0],[],1,nested_rubric(RUB),level,5)
+        result=iv.continue_(CASES[0],[],1,text,9)
+        assert result['outcome']==1 and result['additional_discussion_turns']==0
+        assert result['termination_reason']=='intervention_doctor_final_only'
+    assert [c[0] for c in calls]==['agent','final','agent','final']
+    assert 'Score-0' in calls[0][1] and 'Score-2' in calls[2][1]
+    with pytest.raises(ValueError): iv.write(CASES[0],[],1,nested_rubric(RUB),'1',0)
 
 def test_two_stage_scorer_maps_no_match(monkeypatch):
     import src.judges.rubric_scoring as RS
@@ -370,7 +375,7 @@ def test_two_stage_scorer_maps_no_match(monkeypatch):
         assert 'target_turn' not in history_state and target_state['target_turn']['text'] == 'reply'
         return {'applicability_labels': {'r1': 'Y', 'r2': 'N'}, 'behavior_probabilities': {'r1': {'0': 0, '1': 0, '2': 1}}, 'behavior_scores': {'r1': 2}}
     monkeypatch.setattr(RS, 'two_stage_jev_score', fake)
-    out = B.two_stage_scorer(None)(PH.case_view(CASES[0]), [], [{'rubric_id': 'r1'}, {'rubric_id': 'r2'}], 'reply')
+    out = B.two_stage_scorer(None)(PH.case_view(CASES[0]), [], [nested_rubric({**RUB, 'rubric_id': 'r1'}), nested_rubric({**RUB, 'rubric_id': 'r2'})], 'reply')
     assert out == {'r1': {'applicable': True, 'probabilities': {'0': 0, '1': 0, '2': 1}, 'hard': 2}, 'r2': {'applicable': False, 'probabilities': None, 'hard': None}}
 
 
@@ -398,23 +403,24 @@ from src.online_rl.tree import prompt_search as PS
 from src.online_rl.tree.prompt_search import unit_values
 
 
-def test_multi_target_R_O_is_mean_of_per_node_R_O():
-    assert T.mean_target_R_O({'a': 1.0, 'b': 0.0, 'c': 2 / 3}) == pytest.approx(5 / 9)
+def test_selected_target_does_not_average_other_matching_turns():
     st = T.team_strategies(None, 1.0, 1.0)
-    _, _, (_, nm) = _leaf_eval(Log(), 0.0, k_conds=('turn 99',), st=st); leaf, _, (_, mt) = _leaf_eval(Log(), 0.0, k_conds=('any turn',), st=st)
-    assert nm.status == 'no_match' and nm.R_O is None and not EF.select([nm], {'mode': 'threshold', 'min_R_O': 0.0})[0].retained   # removed
-    assert mt.status == 'multi_target' and len(mt.per_node_R_O) == len(leaf.path) > 1
-    assert mt.R_O == pytest.approx(sum(mt.per_node_R_O.values()) / len(mt.per_node_R_O))
+    _, _, (_, nm) = _leaf_eval(Log(), 0.0, k_conds=('turn 99',), st=st)
+    leaf, _, (_, matched) = _leaf_eval(Log(), 0.0, k_conds=('any turn',), st=st)
+    assert not EF.select([nm], {'mode':'threshold','min_R_O':2/3})[0].retained
+    assert len(leaf.path)>1 and matched.target_node_ids == (leaf.path[0],)
+    assert matched.R_O == matched.per_node_R_O[leaf.path[0]] and len(matched.runs)==3
 
-
-def test_prompt_fitness_is_sum_of_trajectory_s():
-    E = lambda r: type('E', (), {'R_O': r})()
-    res = {'L1': {'effectiveness': E(1 / 3)}, 'L2': {'effectiveness': E(1.0)}, 'L3': {'effectiveness': E(None)}, 'L4': {'effectiveness': None}}
+def test_prompt_fitness_is_product_of_source_means():
+    E = lambda r, status='verified': type('E', (), {'R_O': r, 'status': status})()
+    res = {'L1': {'effectiveness': E(1 / 3)}, 'L2': {'effectiveness': E(1.0)}, 'L3': {'effectiveness': E(None, 'incomplete')}, 'L4': {'effectiveness': None}}
     vals = unit_values(res, T.team_strategies(None, 1.0, 1.0))
-    assert vals == {'L1': pytest.approx(1 / 3), 'L2': 1.0, 'L3': 0.0, 'L4': 0.0}                              # No Match / invalid add nothing
-    assert PS.prompt_fitness(vals) == pytest.approx(4 / 3)
-    src = inspect.getsource(PS) + inspect.getsource(T)
-    assert not re.search(r'mean_value|mean_candidate|candidates_per_trajectory|generate_candidates|evaluate_candidates', src)
+    assert vals == {'L1': pytest.approx(1 / 3), 'L2': 1.0, 'L4': 0.0}
+    outcomes = {'L1':'success','L2':'failure','L3':'failure','L4':'success'}
+    assert PS.prompt_fitness(vals, outcomes) is None
+    vals['L3'] = 1.0
+    assert PS.prompt_fitness(vals, outcomes) == pytest.approx(1 / 6)
+
 
 
 def _tree_and_targets(w_outcome=1.0, w_rubric=0.5, r_a=None):
@@ -522,20 +528,20 @@ def test_posthoc_gates_subset(monkeypatch):
     from src.online_rl.tree import backends as B
     tin = _tin(); cases = {CASES[0]['case_id']: CASES[0]}
     seen = _gate_answers(monkeypatch, observable='N')
-    g = B.posthoc_gates(None, cases)(tin, RUB)
+    g = B.posthoc_gates(None, cases)(tin, nested_rubric(RUB, tin.agent_node_ids[0]))
     assert g['passed'] and g['observable'] is False and g['unresolved'] == ['observable']                        # observable recorded, not blocking
     assert seen[0][1] == {'answer_presupposition', 'new_domain_premise', 'observable'}                          # no pre-action questions
     st = json.dumps(seen[0][0]); assert 'correct_option' not in st and 'Final answer' not in st and 'FINAL' not in st
-    _gate_answers(monkeypatch, new_domain_premise='Y'); assert not B.posthoc_gates(None, cases)(tin, RUB)['passed']
-    _gate_answers(monkeypatch, answer_presupposition='Y'); assert not B.posthoc_gates(None, cases)(tin, RUB)['passed']
+    _gate_answers(monkeypatch, new_domain_premise='Y'); assert not B.posthoc_gates(None, cases)(tin, nested_rubric(RUB, tin.agent_node_ids[0]))['passed']
+    _gate_answers(monkeypatch, answer_presupposition='Y'); assert not B.posthoc_gates(None, cases)(tin, nested_rubric(RUB, tin.agent_node_ids[0]))['passed']
     _gate_answers(monkeypatch)
-    g = B.posthoc_gates(None, cases)(tin, {**RUB, 'required_behavior': 'endorse option A'}); assert not g['passed'] and g['leakage_deterministic']
-    g = B.posthoc_gates(None, cases)(tin, {**RUB, 'required_behavior': 'say atree option 0'}); assert 'gold_option_text' in g['leakage_deterministic']
+    g = B.posthoc_gates(None, cases)(tin, nested_rubric({**RUB, 'scores': {**RUB['scores'], '2': 'endorse option A'}}, tin.agent_node_ids[0])); assert not g['passed'] and g['leakage_deterministic']
+    g = B.posthoc_gates(None, cases)(tin, nested_rubric({**RUB, 'scores': {**RUB['scores'], '2': 'say atree option 0'}}, tin.agent_node_ids[0])); assert 'gold_option_text' in g['leakage_deterministic']
 
 
 def test_gate_failure_makes_rubric_invalid_and_is_cached():
     tin = _tin(); cache = CallCache(None); n = {'gate': 0, 'gen': 0}
-    def gen(p, t): n['gen'] += 1; return {'raw': '{}', 'rubric': dict(RUB)}
+    def gen(p, t): n['gen'] += 1; return {'raw': '{}', 'rubric': nested_rubric(RUB, t.agent_node_ids[0])}
     def gate(t, r): n['gate'] += 1; return {'passed': False}
     r = PH.generate_rubric(P0, sha256_text(P0), tin, gen, cache, gate)
     assert not r.valid and r.problems == () and r.gate == {'passed': False}
@@ -545,7 +551,7 @@ def test_gate_failure_makes_rubric_invalid_and_is_cached():
 
 
 def _leaf_of(tin):
-    return type('L', (), {'leaf_id': tin.leaf_id})()
+    return type('L', (), {'leaf_id': tin.leaf_id, 'dialogue': tin.dialogue, 'outcome': float(tin.outcome == 'success'), 'path': tin.agent_node_ids})()
 
 
 # ---------- one rubric per trajectory: verification semantics ----------
@@ -561,27 +567,30 @@ def _fixed_eval(outcome_wanted, rerun_outcomes, k):
     return log, log.counts['rubric'] - n0, rub, e
 
 
-def test_failure_s_is_successes_over_K():
-    _, _, _, e = _fixed_eval(0.0, [1.0, 0.0, 1.0, 1.0, None], 5)
-    assert e.level == '2' and [r.outcome for r in e.runs] == [1.0, 0.0, 1.0, 1.0, None] and e.R_O == pytest.approx(3 / 5)
+def test_failure_s_is_successes_over_three():
+    _, _, _, e = _fixed_eval(0.0, [1.0, 0.0, 1.0], 3)
+    assert e.level == '2' and e.R_O == pytest.approx(2/3)
+    _, _, _, incomplete = _fixed_eval(0.0, [1.0, None, 1.0], 3)
+    assert incomplete.status == 'incomplete' and incomplete.R_O is None
 
-
-def test_success_s_is_failures_over_K():
-    _, _, _, e = _fixed_eval(1.0, [1.0, 0.0, 1.0, 1.0, None], 5)
-    successes = 3
-    assert e.level == '0' and e.R_O == pytest.approx(2 / 5) == pytest.approx(1 - successes / 5)              # unparseable = not a success
-
+def test_success_s_is_failures_over_three():
+    _, _, _, e = _fixed_eval(1.0, [0.0, 1.0, 0.0], 3)
+    assert e.level == '0' and e.R_O == pytest.approx(2/3)
+    _, _, _, incomplete = _fixed_eval(1.0, [0.0, None, 0.0], 3)
+    assert incomplete.status == 'incomplete' and incomplete.R_O is None
 
 @pytest.mark.parametrize('k', [1, 3, 7])
-def test_K_is_the_rerun_count_not_a_rubric_count(k):
-    log, gen_calls, rub, e = _fixed_eval(0.0, [1.0] * k, k)
-    assert gen_calls == 1 and isinstance(rub, PH.TrajectoryRubric) and e.rubric_id == rub.rubric_id
-    assert log.counts['write'] == 1 and len(e.runs) == k == len({r.seed for r in e.runs})
-    assert 'candidates_per_trajectory' not in json.dumps(json.loads(Path('configs/online_rl/tree_v1.json').read_text())['rubric'])
-    shipped = json.loads(Path('configs/online_rl/tree_v1.json').read_text())
-    assert set(shipped['intervention']) >= {'reruns_per_intervention'} and 'reruns' not in shipped['intervention'] and shipped['rollout']['branching'] == 4
-    assert shipped['selection'] == {'mode': 'threshold', 'min_R_O': 'CALIBRATION_REQUIRED'}
-
+def test_rerun_count_is_exactly_three_not_rubric_count(k):
+    if k != 3:
+        with pytest.raises(ValueError, match='exactly 3'): _fixed_eval(0.0, [1.0]*k, k)
+        return
+    log, gen_calls, rub, e = _fixed_eval(0.0, [1.0]*3, 3)
+    assert gen_calls == 1 and e.rubric_id == rub.rubric_id
+    assert log.counts['write']==3 and len(e.runs)==3
+    assert len({r.intervention_seed for r in e.runs})==3
+    shipped=json.loads(Path('configs/online_rl/tree_v1.json').read_text())
+    assert shipped['intervention']['reruns_per_intervention']==3
+    assert shipped['selection']=={'mode':'threshold','min_R_O':2/3}
 
 def test_keep_remove_is_one_decision_per_trajectory_rubric(tmp_path):
     tr, _, _ = trainer(tmp_path, cfg(cases=1, every=99)); tr.run(max_cases=1)
@@ -607,19 +616,20 @@ def _units_and_deps(log, k_conds, gate_fn=None, continuation=None, scorer=None, 
     return units, deps, cache
 
 
-def test_reflection_view_has_no_doctor_final():
+def test_reflection_view_includes_full_original_trajectory():
     log = Log(); units, deps, _ = _units_and_deps(log, ('any turn',))
     view = reflection_view(units, score_prompt(P0, sha256_text(P0), units, {CASES[0]['case_id']: CASES[0]}, deps))
     assert all(u.tin.dialogue[-1][1] == 'FINAL' for u in units)                                         # the stored trajectory keeps it
     for row, u in zip(view, units):
-        assert u.tin.dialogue[-1][3] not in json.dumps(row) and 'Final answer' not in json.dumps(row) and 'option A' not in json.dumps(row)
+        assert row['full_trajectory'] == PH.to_dialogue(u.tin.dialogue)
+        assert u.tin.dialogue[-1][3] in json.dumps(row)
         assert len(row['dialogue']) == len(u.tin.dialogue) - 1
 
 
-def test_reflection_view_from_the_trainer_has_no_final(tmp_path):
+def test_reflection_view_from_trainer_includes_original_final(tmp_path):
     views = []; tr, log, _ = trainer(tmp_path, cfg(cases=4, every=2, min_traj=4))
     fb = tr.backend.feedback; tr.backend = type(tr.backend)(lambda p, v, n: views.append(v) or fb(p, v, n), tr.backend.refine, None, None, None); tr.run()
-    assert views and not any('Final answer' in json.dumps(v) for v in views)
+    assert views and all('full_trajectory' in row for view in views for row in view)
 
 
 def test_gate_failure_reasons_are_exposed_without_gold():
@@ -634,7 +644,7 @@ def test_gate_failure_reasons_are_exposed_without_gold():
     log2 = Log(); units, deps, _ = _units_and_deps(log2, ('any turn',), gate_fn=lambda t, r: {'passed': False, 'schema': False, 'reasons': ["schema: ['bad']"]})
     assert reflection_view(units, score_prompt(P0, sha256_text(P0), units, {CASES[0]['case_id']: CASES[0]}, deps))[0]['problems'] == ["schema: ['bad']"]
     tin = _tin(); bad = PH.generate_rubric(P0, sha256_text(P0), tin, lambda p, t: {'raw': 'x', 'rubric': None}, CallCache(None))
-    row = reflection_view([EvidenceUnit('tc0', _leaf_of(tin), (), tin, 'p')], {tin.leaf_id: {'rubric': bad, 'effectiveness': None}})[0]
+    row = reflection_view([EvidenceUnit('tc0', _leaf_of(tin), (), tin, 'p')], {PS.evidence_id(EvidenceUnit('tc0', _leaf_of(tin), (), tin, 'p')): {'rubric': bad, 'effectiveness': None}})[0]
     assert row['problems'] == ['no rubric object']                                                    # parse / format
 
 
@@ -645,7 +655,7 @@ def test_unverified_rubrics_get_no_rerun_and_count_zero(kind):
     res = score_prompt(P0, sha256_text(P0), units, {CASES[0]['case_id']: CASES[0]}, deps)
     assert log.counts.get('write', 0) == 0 and log.counts.get('rerun', 0) == 0
     vals = unit_values(res, deps.strategies)
-    assert vals == {u.leaf.leaf_id: 0.0 for u in units} and PS.prompt_fitness(vals) == 0.0
+    assert vals == {PS.evidence_id(u): 0.0 for u in units} and PS.prompt_fitness(vals, {PS.evidence_id(u): u.tin.outcome for u in units}) == 0.0
     assert all(r['verification'] == ('no_match' if kind == 'no_match' else 'not_verified') for r in reflection_view(units, res))
 
 
@@ -661,20 +671,17 @@ def test_operational_failure_is_an_error_not_zero(where):
     assert cache.calls.get(kind, 0) == 0                                                               # nothing cached -> resume retries it
 
 
-def test_multi_target_provenance_is_kept_per_target():
-    log = Log(); units, deps, _ = _units_and_deps(log, ('any turn',), reruns=3)
-    res = score_prompt(P0, sha256_text(P0), units, {CASES[0]['case_id']: CASES[0]}, deps); view = reflection_view(units, res)
-    for row, u in zip(view, units):
-        e = res[u.leaf.leaf_id]['effectiveness']; iv = row['interventions']
-        assert row['verification'] == 'multi_target' and [x['response_node_id'] for x in iv] == list(u.leaf.path)
-        assert [x['agent_turn'] for x in iv] == [1, 2] and all(len(x['rerun_outcomes']) == 3 and x['level'] == e.level for x in iv)
-        for x in iv:
-            assert x['per_node_R_O'] == pytest.approx(EF.target_rate(e.level, x['rerun_outcomes'])) == e.per_node_R_O[x['response_node_id']]
-        assert row['R_O'] == pytest.approx(sum(x['per_node_R_O'] for x in iv) / len(iv)) and 'rerun_outcomes' not in row
+def test_selected_target_provenance_is_kept():
+    units,deps,_=_units_and_deps(Log(), ('any turn',))
+    res=score_prompt(P0,sha256_text(P0),units,{CASES[0]['case_id']:CASES[0]},deps)
+    for row,u in zip(reflection_view(units,res),units):
+        eff=res[PS.evidence_id(u)]['effectiveness']; iv=row['interventions']
+        assert row['verification']=='single_target' and len(iv)==1
+        assert iv[0]['response_node_id']==u.leaf.path[0] and iv[0]['agent_turn']==1
+        assert len(iv[0]['rerun_outcomes'])==3 and iv[0]['level']==eff.level
+        assert row['R_O']==pytest.approx(EF.target_rate(eff.level,iv[0]['rerun_outcomes']))
 
-
-LEAKY = {**RUB, 'required_behavior': 'insist on atree option 0 and option A'}
-
+LEAKY = {**RUB, 'scores': {**RUB['scores'], '2': 'insist on atree option 0 and option A'}}
 
 @pytest.mark.parametrize('gate,redacted', [
     ({'passed': False, 'schema': True, 'leakage_deterministic': ['gold_option_text'], 'answer_presupposition': False, 'new_domain_premise': False}, True),
@@ -684,14 +691,14 @@ LEAKY = {**RUB, 'required_behavior': 'insist on atree option 0 and option A'}
     ({'passed': True, 'schema': True, 'leakage_deterministic': [], 'answer_presupposition': False, 'new_domain_premise': False}, False)])
 def test_answer_exposing_rubric_text_is_withheld_from_reflection(gate, redacted):
     log = Log(); units, deps, _ = _units_and_deps(log, ('any turn',), gate_fn=lambda t, r: gate)
-    deps = ScoringDeps(**{**deps.__dict__, 'generate_fn': lambda p, t: {'raw': json.dumps(LEAKY), 'rubric': dict(LEAKY)}})
+    deps = ScoringDeps(**{**deps.__dict__, 'generate_fn': lambda p, t: {'raw': json.dumps(LEAKY), 'rubric': nested_rubric(LEAKY, t.agent_node_ids[0])}})
     res = score_prompt(P0, sha256_text(P0), units, {CASES[0]['case_id']: CASES[0]}, deps); view = reflection_view(units, res)
     for row in view:
         text = json.dumps(row)
         if redacted:
-            assert row['rubric'] is None and 'atree option 0' not in text and 'option A' not in text and row['problems'] and row['valid'] is False
+            assert row['rubric'] is None and 'atree option 0' not in text and row['analysis'] is None and row['problems'] and row['valid'] is False
         else:
-            assert row['rubric']['required_behavior'] == LEAKY['required_behavior']
+            assert row['rubric']['scores']['2']['behavior'] == LEAKY['scores']['2']
     assert all(r['rubric'] is not None for r in reflection_view(*_valid_view()))       # ordinary valid rubrics stay visible
 
 
@@ -726,21 +733,17 @@ def test_score2_v2_requires_performing_the_behavior_not_a_conclusion():
 
 
 
-def test_configured_score2_template_uses_the_env_guided_call_shape(monkeypatch):
-    from src.prompt_opt import harness as H
+def test_configured_score2_template_receives_behavior_projection():
     from src.online_rl.tree import backends as B
-    seen = []
-
+    seen=[]
     class Pol:
-        def agent_user_prompt(self, case, prefix, t): return 'USER'
-        def agent(self, user, seed): seen.append(user); return 'reply'
-    rubric = {'name': 'n', 'applicability_condition': 'c', 'required_behavior': 'b', 'scores': {'0': 'z', '1': 'o', '2': 't'}, 'rubric_id': 'r'}
-    H.Env.guided(Pol(), CASES[0], [], 1, rubric, 3)
-    B.PolicyInterventions(Pol(), 'S0 {rubric_json}', S2_V1.read_text()).write(CASES[0], [], 1, rubric, '2', 3)
-    assert seen[0] == seen[1]                                                       # v1 file through the config = Env.guided exactly
-    B.PolicyInterventions(Pol(), 'S0 {rubric_json}', S2_V2.read_text()).write(CASES[0], [], 1, rubric, '2', 3)
-    assert 'without performing that behavior does not meet Score-2' in seen[2] and '"required_behavior": "b"' in seen[2]
-
+        def agent_user_prompt(self,case,prefix,t): return 'USER'
+        def agent(self,user,seed): seen.append(user); return 'reply'
+    B.PolicyInterventions(Pol(),'S0 {rubric_json}',S2_V2.read_text(),doctor=object()).write(CASES[0],[],1,nested_rubric(RUB),'2',3)
+    assert 'without performing that behavior does not meet Score-2' in seen[0]
+    assert '"target_behavior": "specific question about the stated evidence"' in seen[0]
+    assert '"scores"' not in seen[0] and '"required_behavior"' not in seen[0]
+    assert 'selected_agent_turn_id' not in seen[0] and 'analysis' not in seen[0]
 
 def test_feedback_transcript_has_stable_agent_reply_labels():
     dlg = [{'speaker': 'doctor', 'stage': 'D1', 'round': 1, 'text': 'start'}, {'speaker': 'agent', 'stage': 'A1', 'round': 1, 'text': 'first'},
@@ -784,13 +787,13 @@ def test_generator_transcript_uses_the_feedback_reply_labels(tmp_path):
     log = Log(); tree, _ = tree_for(log, rounds=2, branching=1); leaf = tree.leaves[0]
     tin = PH.freeze_trajectory_input(CASES[0], leaf, PH.DoctorFeedback(leaf.leaf_id, leaf.outcome, 'Agent reply 2 echoed me', 'fb'))
     gen, fb = PH.trajectory_message(tin), PH.feedback_message(PH.case_view(CASES[0]), PH.to_dialogue(leaf.dialogue), 'failure')
-    labels = lambda m: re.findall(r'^(Agent reply \d+|Doctor(?: \(final decision\))?):', m, re.M)
+    labels = lambda m: re.findall(r'^(Agent reply \d+|Doctor(?: \(final decision\))?)(?: \[turn_id=[^]]+\])?:', m, re.M)
     assert labels(gen) == labels(fb) == ['Doctor', 'Agent reply 1', 'Doctor', 'Agent reply 2', 'Doctor (final decision)']
     for turn in leaf.dialogue: assert turn[3] in gen                                                   # content unchanged, same order
     assert [gen.index(t[3]) for t in leaf.dialogue] == sorted(gen.index(t[3]) for t in leaf.dialogue)
     assert 'correct_option' not in gen and 'ground_truth' not in gen
     assert hashlib.sha256(Path('prompts/sherpa/trajectory_rubric_generator_P0.txt').read_bytes()).hexdigest() == \
-        json.loads(Path('configs/online_rl/tree_v1.json').read_text())['rubric']['prompt_sha256'] == '9d9116275b08ba8e0c50e533aa3ac33b39be20ab6eb0d721860401fc25b948d0'
+        json.loads(Path('configs/online_rl/tree_v1.json').read_text())['rubric']['prompt_sha256']
 
 
 def test_transcript_format_is_part_of_the_post_hoc_cache_keys(monkeypatch):
@@ -810,3 +813,25 @@ def test_score2_v2_is_pinned_and_v1_untouched():
     assert hashlib.sha256(S2_V1.read_bytes()).hexdigest() == 'b98732fa33d09dc8eeb9df7a2be0fa0d6d5bbefa041d648f9628d6cbe3fa8d5b'
     smoke = Path('configs/online_rl/tree_smoke.json')                                                   # local provenance of the completed smoke
     if smoke.exists(): assert json.loads(smoke.read_text())['intervention']['score2_template_file'] == str(S2_V1)
+
+
+def test_prompt_event_defers_one_sided_sources_and_keeps_evidence(tmp_path):
+    log = Log(); w = {'v': 0}; env = mock_env(log, w)
+    env = type(env)(**{**env.__dict__, 'outcome_fn': lambda *args: 1.0})
+    tr, _, _ = trainer(tmp_path, cfg(cases=3, every=1), log=log, w=w, env=env)
+    tr.run(max_cases=1)
+    event = read_json(tmp_path / 'prompt_events/event_0001.json')
+    assert event['decision']['status'] == 'deferred'
+    assert tr.state.last_event_cursor == 0 and tr.state.prompt_sha256 == sha256_text(P0)
+    assert log.counts.get('reflect', 0) == 0
+    assert tr._units()
+
+
+def test_score0_intervention_excludes_ideal_behavior():
+    from src.online_rl.tree import backends as B
+    rubric=nested_rubric(RUB)
+    rubric['candidate_rubric']['scores']['2']['behavior']='IDEAL_BEHAVIOR_SENTINEL'
+    instruction=B.PolicyInterventions(object(),'TARGET {rubric_json}','IDEAL {rubric_json}',doctor=object()).instruction(rubric,'0')
+    assert 'IDEAL_BEHAVIOR_SENTINEL' not in instruction
+    assert '"target_level": "0"' in instruction
+    assert rubric['candidate_rubric']['scores']['0']['behavior'] in instruction

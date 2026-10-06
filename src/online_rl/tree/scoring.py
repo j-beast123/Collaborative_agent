@@ -1,33 +1,81 @@
-"""Response-level rubric scoring with the two-stage scorer (applicability on the pre-reply dialogue, then the 0/1/2 level;
-non-applicable = No Match, kept as a record without a score). Scores stay raw, one record per (response, rubric)."""
+"""Response-level scoring of canonical nested rubrics through a legacy judge view.
+
+Stored rubrics keep user_side_context / agent_side_state / behavior. Only the
+scorer input is projected to name/applicability_condition/required_behavior/scores.
+No Match is recorded without a score, not converted into score zero.
+"""
 from __future__ import annotations
 from typing import Callable
 from src.online_rl.integrated.metrics import hard_value, r_a
+from src.online_rl.integrated.records import sha256_json
 from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.posthoc import case_view
 from src.online_rl.tree.records import AgentNode, ResponseRubricScore, TrajectoryRubric, to_dialogue
 
-VISIBLE = ('rubric_id', 'name', 'applicability_condition', 'required_behavior', 'scores')
+SCORING_PROTOCOL = 'nested_rubric_legacy_judge_view_v2'
 
 
 def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric], scorer: Callable, cache: CallCache) -> list[ResponseRubricScore]:
-    """scorer(case_view, prefix, rubrics, reply) -> {rubric_id: {'applicable': bool, 'probabilities': dict|None, 'hard': int|None}};
-    all rubrics of one response go in one call."""
-    if not kept: return []
-    rubrics = [{k: c.rubric[k] for k in VISIBLE} for c in kept]; src = {c.rubric_id: c.leaf_id for c in kept}; out = []
+    """scorer(view, prefix, visible_rubrics, reply) -> per-rubric match and level.
+    All rubrics for one response are sent in one call. Matching remains the
+    scorer's pre-response stage, not a condition inferred from the target reply.
+    """
+    if not kept:
+        return []
+    # Local import avoids importing GPU/API libraries at module import time.
+    from src.online_rl.tree.backends import visible_behavior_rubric
+    view = case_view(case)
+    rubrics, src = [], {}
+    for c in kept:
+        if not c.valid or not isinstance(c.rubric, dict):
+            raise ValueError(f'{c.rubric_id}: only structurally valid rubrics can be scored')
+        if c.rubric_id in src:
+            raise ValueError(f'Duplicate rubric_id in one scoring call: {c.rubric_id}')
+        source_case = c.rubric.get('source_case_id')
+        if source_case is not None and source_case != view['case_id']:
+            raise ValueError(f'{c.rubric_id}: rubric belongs to a different case')
+        # Do not send analysis, FINAL/outcome, feedback, or selected-turn metadata.
+        rubrics.append(visible_behavior_rubric({**c.rubric, 'rubric_id': c.rubric_id}))
+        src[c.rubric_id] = c.leaf_id
+    rubrics.sort(key=lambda r: r['rubric_id'])
+    rubric_hash = sha256_json(rubrics)
+    out = []
     for n in nodes:
-        res = cache.call('rubric_score', {'node': n.node_id, 'policy': n.policy_sha256, 'rubrics': sorted(src)},
-                         lambda n=n: scorer(case_view(case), to_dialogue(n.prefix), rubrics, n.response))
+        if n.case_id != view['case_id']:
+            raise ValueError(f'{n.node_id}: node belongs to a different case')
+        prefix = to_dialogue(n.prefix)
+        node_view = dict(view)
+        packet = n.trace.get('pre_response_belief')
+        if packet:
+            node_view['agent_pre_response_state'] = packet['state']
+        identity = {
+            'judge': getattr(scorer, 'judge_identity', None), 'protocol': SCORING_PROTOCOL, 'node': n.node_id, 'policy': n.policy_sha256,
+            'case_sha256': sha256_json(node_view), 'prefix_sha256': sha256_json(prefix),
+            'response_sha256': sha256_json(n.response), 'rubrics_sha256': rubric_hash,
+        }
+        result = cache.call('rubric_score', identity,
+                            lambda n=n, prefix=prefix, node_view=node_view: scorer(node_view, prefix, rubrics, n.response))
+        if not isinstance(result, dict):
+            raise ValueError(f'{n.node_id}: scorer must return a per-rubric object')
         for rid in sorted(src):
-            r = res[rid]
-            if r['applicable']:
-                out.append(ResponseRubricScore(n.node_id, rid, src[rid], True, r_a(r['probabilities']), hard_value(r['hard']), r['probabilities']))
-            else:
+            if rid not in result or not isinstance(result[rid], dict):
+                raise ValueError(f'{n.node_id}: missing scorer result for {rid}')
+            record = result[rid]
+            if type(record.get('applicable')) is not bool:
+                raise ValueError(f'{n.node_id}/{rid}: applicability must be boolean')
+            if not record['applicable']:
                 out.append(ResponseRubricScore(n.node_id, rid, src[rid], False, None, None, None))
+                continue
+            probabilities, hard = record.get('probabilities'), record.get('hard')
+            if not isinstance(probabilities, dict):
+                raise ValueError(f'{n.node_id}/{rid}: matched rubric requires probabilities; do not silently assign zero')
+            out.append(ResponseRubricScore(n.node_id, rid, src[rid], True,
+                                           r_a(probabilities), hard_value(hard) if hard is not None else None, probabilities))
     return out
 
 
 def scores_by_response(scores: list[ResponseRubricScore]) -> dict[str, list[ResponseRubricScore]]:
     out: dict[str, list[ResponseRubricScore]] = {}
-    for s in scores: out.setdefault(s.response_node_id, []).append(s)
+    for score in scores:
+        out.setdefault(score.response_node_id, []).append(score)
     return out

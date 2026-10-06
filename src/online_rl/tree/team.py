@@ -3,7 +3,8 @@
 - R_A: s(tau)-weighted mean of the matched kept rubric scores; None if none matches.
 - credit: outcome component = mean of the node's descendant leaf outcomes; reward = w_outcome * outcome + w_rubric * R_A
   (a missing R_A is omitted, not renormalised); same-state siblings form one GRPO group.
-- prompt unit value: the trajectory's s(tau); S(p) = sum_i s(tau_i)."""
+- prompt unit value: completed trajectory R_O; invalid/no-match zero, technical incomplete None.
+  Prompt objective: product of source-stratified mean R_O values."""
 from __future__ import annotations
 from typing import Optional
 from src.online_rl.integrated.episode import assert_single_prompt
@@ -46,10 +47,11 @@ def sibling_grpo_update(updater):
     return update
 
 
-def trajectory_score(unit_result: dict) -> float:
-    """s(tau) of the trajectory's one rubric. A rubric with no s(tau) (invalid, or No Match) adds nothing to S(p) = sum s(tau):
-    it counts 0, which also keeps the paired comparison on every trajectory."""
+def trajectory_score(unit_result: dict) -> Optional[float]:
+    """Invalid/no-match rubrics count zero; technical incompletes defer comparison."""
     e = unit_result['effectiveness']
+    if e is not None and (e.status == 'incomplete' or any(r.status != 'complete' for r in getattr(e, 'runs', ()))):
+        return None
     return e.R_O if e is not None and e.R_O is not None else 0.0
 
 

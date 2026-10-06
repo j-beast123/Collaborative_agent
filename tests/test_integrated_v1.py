@@ -534,7 +534,7 @@ def _tiny_updater(lr=1e-2, mode='mean_center'):
     model = peft.get_peft_model(base, peft.LoraConfig(r=2, lora_alpha=4, target_modules=['q_proj', 'v_proj'], lora_dropout=0.0))
     cfg = {'optimizer': {'learning_rate': lr, 'beta': 0.04, 'clip_epsilon': 0.2, 'grad_clip': 1.0, 'logprob_token_chunk_size': 16,
                          'pre_update_ratio_tolerance': 1e-3}, 'advantage_normalization': {'mode': mode}}
-    return torch, model, make_updater(SimpleNamespace(torch=torch, model=model), cfg)
+    return torch, model, make_updater(SimpleNamespace(torch=torch, model=model, trainable=True), cfg)
 
 
 def _group(up, rewards, offset=0):

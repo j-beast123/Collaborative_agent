@@ -7,6 +7,7 @@ __pycache__/
 *.egg-info/
 build/
 .venv/
+.venv-tests/
 .ipynb_checkpoints/
 
 # Local env / secrets
@@ -63,3 +64,10 @@ configs/online_rl/*_approval*.json
 docs/
 *.md
 !README.md
+
+.venv-pilot/
+
+# Local training environment and CUDA driver aliases
+.venv-train/
+.cuda_libraries/
+monitor_progress.json

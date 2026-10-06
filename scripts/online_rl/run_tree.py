@@ -11,7 +11,7 @@ PROMPT_HASHES = (('rubric', 'generator_prompt_file', 'prompt_sha256'), ('feedbac
                  ('prompt_update', 'feedback_prompt_file', 'feedback_prompt_sha256'), ('prompt_update', 'refiner_prompt_file', 'refiner_prompt_sha256'),
                  ('intervention', 'score0_template_file', 'score0_template_sha256'), ('intervention', 'score2_template_file', 'score2_template_sha256'))
 SMOKE_DIR = 'outputs/online_rl/tree_smoke'
-SMOKE_LIMITS = ((('schedule', 'cases'), 2), (('rollout', 'branching'), 2), (('rollout', 'rounds'), 2), (('intervention', 'reruns_per_intervention'), 2),
+SMOKE_LIMITS = ((('schedule', 'cases'), 2), (('rollout', 'branching'), 2), (('rollout', 'rounds'), 2),
                 (('prompt_update', 'candidate_count'), 1), (('prompt_update', 'retain_top_k'), 1), (('prompt_update', 'refinement_depth'), 1))
 
 
@@ -30,6 +30,8 @@ def smoke_problems(cfg: dict) -> list[str]:
     """The smoke launch contract; a config without a "smoke" block is not checked here."""
     if 'smoke' not in cfg: return []
     out = [f'smoke: {s}.{k}={cfg[s][k]!r} exceeds {lim}' for (s, k), lim in SMOKE_LIMITS if not isinstance(cfg[s][k], int) or cfg[s][k] > lim]
+    if type(cfg['intervention']['reruns_per_intervention']) is not int or cfg['intervention']['reruns_per_intervention'] != 3:
+        out.append('smoke: intervention.reruns_per_intervention must be exactly 3')
     if (ROOT / cfg['output_dir']).resolve() != (ROOT / SMOKE_DIR).resolve(): out.append(f'smoke: output_dir must be {SMOKE_DIR}')
     return out
 
@@ -45,6 +47,7 @@ def setup_problems(cfg: dict, config_path: str) -> list[str]:
     elif not file_sha(cfg['data']['train']).startswith(cfg['data']['train_sha256']): out.append('training split hash mismatch')
     for sec, k in (('policy', 'base_model'), ('rollout', 'doctor_model'), ('rollout', 'max_tokens_doctor'), ('feedback', 'max_tokens'),
                    ('advantage_normalization', 'mode')):
+        if sec == 'advantage_normalization' and cfg.get('pilot', {}).get('prompt_only'): continue
         if not (cfg.get(sec) or {}).get(k): out.append(f'missing {sec}.{k}')
     return out
 
@@ -73,9 +76,26 @@ def jev_client():
     return H.jev()
 
 
+def judge_client(cfg: dict, key: str):
+    settings = cfg.get('judge', {})
+    if settings.get('backend', 'jev') == 'jev':
+        return jev_client()
+    if settings.get('backend') != 'openrouter_chat':
+        raise ValueError('Unknown rubric judge backend')
+    from src.judges.openrouter_choice import OpenRouterChoiceJudge
+    return OpenRouterChoiceJudge(key, settings['model'], settings.get('max_tokens', 4096), settings.get('batch_size', 8), max_retries=settings.get('max_retries', 2),
+                                 audit_path=ROOT / cfg['output_dir'] / 'judge_calls_raw.jsonl')
+
+
 def make_policy(cfg: dict, key: str):
+    if cfg.get('pilot', {}).get('backend') == 'ollama':
+        from src.online_rl.tree.ollama_policy import OllamaPolicy
+        return OllamaPolicy(cfg, key)
     from src.online_rl.runtime import SharedPolicy
-    return SharedPolicy(cfg, key)
+    if cfg.get('pilot', {}).get('prompt_only'):
+        import torch
+        torch.manual_seed(cfg['schedule']['seed'])
+    return SharedPolicy(cfg, key, trainable=not cfg.get('pilot', {}).get('prompt_only', False))
 
 
 def build(cfg: dict):
@@ -91,21 +111,42 @@ def build(cfg: dict):
     from src.online_rl.tree.trainer import TreeEnv, TreeTrainer
     text = lambda rel: (ROOT / rel).read_text()
     ro, pu, ar = cfg['rollout'], cfg['prompt_update'], cfg['agent_reward']
-    key = load_key(); client = jev_client(); policy = make_policy(cfg, key)
+    key = load_key(); client = judge_client(cfg, key); policy = make_policy(cfg, key)
     if (policy.args.rounds, policy.args.doctor_model) != (ro['rounds'], ro['doctor_model']):
         raise RuntimeError('policy/harness rounds or Doctor model differ from rollout config')
-    updater = make_updater(policy, cfg); cases = load_cases(ROOT / cfg['data']['train'])
-    iv = PolicyInterventions(policy, text(cfg['intervention']['score0_template_file']), text(cfg['intervention']['score2_template_file']))
-    env = TreeEnv(agent=PolicyAgent(policy), doctor=ApiDoctor(key, ro['doctor_model'], policy.doctor_system, ro['max_tokens_doctor']),
+    prompt_only = cfg.get('pilot', {}).get('prompt_only', False)
+    updater = None if prompt_only else make_updater(policy, cfg)
+    cases = load_cases(ROOT / cfg['data']['train'])
+    doctor_call = None
+    if cfg.get('doctor_backend', {}).get('backend') == 'ollama':
+        from src.online_rl.tree.ollama_doctor import OllamaDoctorCall
+        doctor_call = OllamaDoctorCall(cfg['doctor_backend'])
+    elif cfg.get('doctor_backend', {}).get('backend', 'openrouter') != 'openrouter':
+        raise ValueError('Unknown Doctor backend')
+    doctor = ApiDoctor(key, ro['doctor_model'], policy.doctor_system, ro['max_tokens_doctor'], call=doctor_call)
+    iv = PolicyInterventions(policy, text(cfg['intervention']['score0_template_file']), text(cfg['intervention']['score2_template_file']), doctor=doctor)
+    if cfg.get('pilot', {}).get('backend') == 'ollama':
+        from src.online_rl.tree.ollama_policy import OllamaAgent
+        agent = OllamaAgent(policy)
+    else:
+        agent = PolicyAgent(policy)
+    env = TreeEnv(agent=agent, doctor=doctor,
                   stop_rule=stop_reason, final_option=final_answer_option, outcome_fn=final_outcome,
-                  feedback_fn=api_feedback(key, ro['doctor_model'], text(cfg['feedback']['prompt_file']), cfg['feedback']['max_tokens']),
-                  generate_fn=api_rubric_generator(key), scorer=two_stage_scorer(client), writer=iv.write, continuation=iv.continue_,
-                  gate_fn=posthoc_gates(client, {c['case_id']: c for c in cases}), behavior_logprobs=updater.behavior_logprobs)
+                  feedback_fn=api_feedback(key, ro['doctor_model'], text(cfg['feedback']['prompt_file']), cfg['feedback']['max_tokens'], call=doctor_call),
+                  generate_fn=api_rubric_generator(key, cfg.get('pilot', {}).get('prompt_model'), cfg.get('pilot', {}).get('generator_max_tokens')),  scorer=two_stage_scorer(client), writer=iv.write, continuation=iv.continue_,
+                  gate_fn=posthoc_gates(client, {c['case_id']: c for c in cases}), behavior_logprobs=updater.behavior_logprobs if updater else None)
     # the tree prompt search uses only the reflection / refinement calls of the approved Sol backend
-    backend = sol_backend(key, text(pu['feedback_prompt_file']), text(pu['refiner_prompt_file']), env.generate_fn, env.gate_fn, env.scorer)
-    return TreeTrainer(cfg, out_dir=ROOT / cfg['output_dir'], cases=cases, env=env, strategies=team_strategies(updater, ar['w_outcome'], ar['w_rubric']),
-                       search_backend=backend, initial_prompt=text(cfg['rubric']['generator_prompt_file']), policy_sha=lambda: adapter_sha256(policy.model),
+    backend = sol_backend(key, text(pu['feedback_prompt_file']), text(pu['refiner_prompt_file']), env.generate_fn, env.gate_fn, env.scorer, model=cfg.get('pilot', {}).get('prompt_model'), feedback_model=pu.get('feedback_model'), refiner_model=pu.get('refiner_model'))
+    strategies = team_strategies(updater, ar['w_outcome'], ar['w_rubric'])
+    if prompt_only:
+        from dataclasses import replace
+        strategies = replace(strategies, agent_update=lambda *args: {'optimizer_step': False, 'reason': 'prompt-only pilot; fixed Agent policy'})
+    trainer = TreeTrainer(cfg, out_dir=ROOT / cfg['output_dir'], cases=cases, env=env, strategies=strategies,
+                       search_backend=backend, initial_prompt=text(cfg['rubric']['generator_prompt_file']), policy_sha=lambda: policy.policy_sha() if hasattr(policy, 'policy_sha') else adapter_sha256(policy.model),
                        protocol_sha=protocol_sha256(cfg, ROOT), feedback_prompt_sha256=cfg['feedback']['prompt_sha256'], updater=updater)
+    if hasattr(policy, 'policy_sha'):
+        policy.cache = trainer.cache
+    return trainer
 
 
 def launch(cfg: dict, phase) -> dict:

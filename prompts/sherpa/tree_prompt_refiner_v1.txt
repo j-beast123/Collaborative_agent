@@ -4,12 +4,18 @@ ONE revision direction, and earlier prompt-update decisions. Return an improved 
 that direction.
 
 Hard constraints on the new prompt:
-- Keep the task and the exact JSON output format (one rubric: name, applicability_condition, required_behavior,
-  scores 0/1/2).
+- Keep the task and the exact nested JSON output format: rubric_id, source_case_id, source_trajectory_id,
+  source_outcome, analysis, and candidate_rubric. analysis includes user_contribution, agent_side_state,
+  agent_handling, selected_agent_turn_id, and evidence_spans. candidate_rubric contains name, applicability
+  (user_side_context and agent_side_state), and scores 0/1/2, each containing the same two contexts and behavior.
+- Preserve the pre-response information boundary and exactly identical applicability contexts across all scores.
+  Select exactly one supplied Agent turn ID. Preserve source-grounded evidence and the SUCCESS/FAILURE rules:
+  success Score-2 is an observed helpful behavior and Score-0 omits only that behavior; failure Score-0 is an
+  observed problem and Score-2 corrects it. Do not turn outcome labels into applicability or scoring conditions.
 - The generator is not given a separate gold-answer field; the prompt must keep it from inferring, stating, copying
   or encoding the correct option from the final decision or outcome.
 - Rubrics describe observable collaborative behavior in a single Agent reply.
 - Never copy or paraphrase case content: no medical facts, diseases, drugs, diagnoses, option texts, answer letters,
   question wording or example details. No few-shot examples.
-- Make targeted, general edits for this direction. Keep it under 900 words.
+- Make targeted, general edits for this direction. Keep it under 1600 words, including the JSON schema.
 Return only the new system prompt text, with no preamble or commentary.

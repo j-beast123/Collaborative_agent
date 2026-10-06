@@ -87,7 +87,7 @@ class TreeTrainer:
                                                            'missing_strategies': self.st.missing(), 'doctor_api_seeded': False})
         ckpt = None
         if self.updater is not None:
-            p = self.out / 'checkpoints' / 'case_000000'; tmp = p.with_name(p.name + '.tmp'); self.updater.save(tmp); tmp.rename(p); ckpt = str(p)
+            p = self.out / 'checkpoints' / 'recovery' / 'case_000000'; tmp = p.with_name(p.name + '.tmp'); p.parent.mkdir(parents=True, exist_ok=True); self.updater.save(tmp); tmp.rename(p); ckpt = str(p)
         s = TreeRunState(self.config_sha, self.cfg['schedule']['seed'], 0, self.cfg['rubric']['prompt_id'], sha, self.policy_sha(), ckpt, 0, 0,
                          ({'prompt_id': self.cfg['rubric']['prompt_id'], 'sha256': sha, 'event': None, 'case_cursor': 0},))
         self._write(s); return s
@@ -122,7 +122,8 @@ class TreeTrainer:
                           outcome_fn=e.outcome_fn, cache=self.cache, behavior_logprobs=e.behavior_logprobs)
         decided = [l for l in tree.leaves if l.outcome is not None]
         feedback = [doctor_feedback(case, l, e.feedback_fn, self.fb_sha, self.cache) for l in decided]
-        tins = [freeze_trajectory_input(case, l, f) for l, f in zip(decided, feedback)]
+        nodes = {n.node_id:n for n in tree.nodes}
+        tins = [freeze_trajectory_input(case, l, f, nodes=nodes) for l, f in zip(decided, feedback)]
         prompt = self.store.get(s.prompt_sha256)
         rubrics = [generate_rubric(prompt, s.prompt_sha256, t, e.generate_fn, self.cache, e.gate_fn) for t in tins]
         nodes = {n.node_id: n for n in tree.nodes}; source_scores, effs = [], []
@@ -144,14 +145,21 @@ class TreeTrainer:
                   'selection': [to_dict(d) for d in selection],
                   'response_scores': [to_dict(x) for x in scores], 'rubric_weights': weights, 'agent_targets': targets, 'update': update}
         atomic_write_json(self._case_path(s.case_cursor), record)
-        self._commit(); return record
+        self._commit()
+        from src.online_rl.tree.artifacts import export_run
+        export_run(self.out)
+        return record
 
     def _commit(self) -> None:
         s = self.state; sha = self.policy_sha(); ckpt = s.checkpoint
         if sha != s.policy_sha256:
             if self.updater is None: raise RuntimeError('policy changed but no updater is available to checkpoint it')
-            p = self.out / 'checkpoints' / f'case_{s.case_cursor + 1:06d}'; tmp = p.with_name(p.name + '.tmp'); self.updater.save(tmp); tmp.rename(p); ckpt = str(p)
-        self._write(dataclasses.replace(s, case_cursor=s.case_cursor + 1, policy_sha256=sha, checkpoint=ckpt))
+            p = self.out / 'checkpoints' / 'recovery' / f'case_{s.case_cursor + 1:06d}'; tmp = p.with_name(p.name + '.tmp'); p.parent.mkdir(parents=True, exist_ok=True); self.updater.save(tmp); tmp.rename(p); ckpt = str(p)
+        committed = dataclasses.replace(s, case_cursor=s.case_cursor + 1, policy_sha256=sha, checkpoint=ckpt)
+        from src.online_rl.tree.checkpoints import save_periodic_snapshot
+        save_periodic_snapshot(self.out, to_dict(committed), self.cfg.get('checkpoint', {}).get('every_cases', 30),
+                               self.store.get(committed.prompt_sha256))
+        self._write(committed)
 
     def _units(self) -> list[EvidenceUnit]:
         out = []
@@ -164,7 +172,7 @@ class TreeTrainer:
 
     def _maybe_prompt_event(self) -> None:
         pu, s = self.cfg['prompt_update'], self.state
-        if not pu['enabled'] or s.case_cursor >= self.total_cases() or s.case_cursor - s.last_event_cursor < pu['every_n_cases']: return
+        if not pu['enabled'] or s.case_cursor - s.last_event_cursor < pu['every_n_cases']: return
         units = self._units()
         if len(units) < pu['minimum_trajectories']: return
         event = s.lineage_cursor + 1
@@ -172,13 +180,21 @@ class TreeTrainer:
                    for d in (read_json(self._event_path(e)) for e in range(1, event))]
         deps = ScoringDeps(self.cfg['intervention']['reruns_per_intervention'], s.run_seed, self.env.generate_fn,
                            self.env.gate_fn, self.env.scorer, self.env.writer, self.env.continuation, s.policy_sha256, self.st, self.cache)
+        frozen_policy_sha = self.policy_sha()
+        if frozen_policy_sha != s.policy_sha256:
+            raise RuntimeError('Live policy differs from the prompt evaluation policy')
         res = run_event(event, s.prompt_id, s.prompt_sha256, units, self.cases, self.store, self.backend, deps, self.cfg, s.run_seed, s.case_cursor, history)
+        if self.policy_sha() != frozen_policy_sha:
+            raise RuntimeError('Agent policy changed during prompt comparison')
         atomic_write_json(self._event_path(event), {**res, 'versions': [to_dict(v) for v in res['versions']],
                                                     'rerun_policy_sha256': s.policy_sha256, 'evidence_policy_sha256': sorted({u.policy_sha256 for u in units}),
                                                     'policy_note': 'event reruns use the current policy, not the policy that produced the stored trajectories'})
-        d = res['decision']; new = dataclasses.replace(s, lineage_cursor=event, last_event_cursor=s.case_cursor)
+        d = res['decision']; new = dataclasses.replace(s, lineage_cursor=event,
+            last_event_cursor=s.last_event_cursor if d.get('status') == 'deferred' else s.case_cursor)
         if d['accepted']:
             new = dataclasses.replace(new, prompt_id=d['candidate_prompt_id'], prompt_sha256=d['candidate_sha256'],
                                       history=s.history + ({'prompt_id': d['candidate_prompt_id'], 'sha256': d['candidate_sha256'], 'event': event,
                                                             'case_cursor': s.case_cursor},))
         self._write(new)
+        from src.online_rl.tree.artifacts import export_run
+        export_run(self.out)

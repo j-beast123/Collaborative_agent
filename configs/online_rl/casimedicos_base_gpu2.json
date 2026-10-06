@@ -1,0 +1,59 @@
+{
+  "policy": {
+    "base_model": "Qwen/Qwen3-8B",
+    "init_adapter": null,
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.0,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "use_rslora": true
+    }
+  },
+  "rollout": {
+    "branching": 2,
+    "rounds": 5,
+    "budget": "full_tree",
+    "doctor_model": "ollama/gemma3:12b",
+    "max_tokens_doctor": 1024,
+    "max_completion_length": 2048,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": null
+  },
+  "pilot": {
+    "prompt_only": true,
+    "total_questions": 5,
+    "heldout_questions": 1,
+    "backend": "ollama",
+    "ollama_url": "http://127.0.0.1:11437",
+    "ollama_model": "qwen3-8b-med:latest",
+    "prompt_model": "openai/gpt-5.6-sol",
+    "generator_max_tokens": 4096
+  },
+  "doctor_backend": {
+    "backend": "ollama",
+    "url": "http://127.0.0.1:11437",
+    "model": "gemma3:12b",
+    "digest": "f4031aab637d1ffa37b42570452ae0e4fad0314754d17ded67322e4b95836f8a",
+    "num_ctx": 16384,
+    "gpu": 2
+  },
+  "belief": {
+    "enabled": false
+  },
+  "rank": 1,
+  "world_size": 4,
+  "gpu": 2,
+  "seed": 20261006,
+  "output_dir": "outputs/test/base/casimedicos_exp_5turn_seed20261006/gpu2",
+  "data": {
+    "all": "data/interim/casimedicos/all_en_622.jsonl",
+    "sha256": "26171084bb18e82b5100b9fe9ba8c544b7ce51779d3f6988a0e8e7ff1aeb7b0d"
+  }
+}

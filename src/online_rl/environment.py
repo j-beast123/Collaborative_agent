@@ -146,7 +146,7 @@ def generate_trajectory(model: Any, tokenizer: Any, case: dict, doctor_system: s
             "prompt_text": prompt,
             **trace,
         })
-        reason = stop_reason(round_index, doctor, trace["completion_text"])
+        reason = stop_reason(round_index, doctor, trace["completion_text"], history=dialogue[:-1])
         if reason:
             termination_reason = reason
             break

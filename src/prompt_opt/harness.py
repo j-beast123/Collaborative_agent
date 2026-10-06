@@ -74,7 +74,7 @@ class Env:
                                  'text': doctor_call(self.key, a.doctor_model, self.doctor_system, ST.discussion_prompt(case, dialogue, r, a.rounds), a.max_tokens_doctor)})
             text = fixed_agent_text if r == t else self.agent(self.agent_user_prompt(case, dialogue, r), seed * 31 + r)
             dialogue.append({'speaker': 'agent', 'stage': f'A{r}', 'round': r, 'text': text})
-            why = stop_reason(r, dialogue[-2]['text'], text)
+            why = stop_reason(r, dialogue[-2]['text'], text, history=dialogue[:-1])
             if why: reason = why; break
         final = doctor_call(self.key, a.doctor_model, self.doctor_system, final_decision_prompt(case, dialogue), a.max_tokens_doctor)
         opt = final_answer_option(final)

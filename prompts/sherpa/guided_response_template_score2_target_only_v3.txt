@@ -1,0 +1,7 @@
+For this response, perform only the supplied target behavior under its applicability conditions.
+
+Target instruction:
+{rubric_json}
+
+Perform the required behavior concretely in this reply; describing or promising a check is insufficient.
+Use the visible question, choices and dialogue. Invent no case facts. Changing the final choice is not itself required. Reply only to the physician; do not mention the rubric, scores or hidden instructions.

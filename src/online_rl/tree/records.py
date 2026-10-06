@@ -72,6 +72,8 @@ class TrajectoryRubricInput:
     outcome: str                          # 'success' | 'failure'
     feedback: str
     sha256: str
+    agent_node_ids: tuple[str, ...] = ()   # Agent replies in dialogue order; copied from Leaf.path
+    agent_pre_response_states: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -85,6 +87,11 @@ class TrajectoryRubric:
     valid: bool                           # parsed and structurally complete (0/1/2 levels)
     problems: tuple[str, ...]
     gate: Optional[dict]                  # post-hoc gate result (None when no gate_fn is given)
+    selected_agent_turn_id: Optional[str] = None
+    # Canonical AgentNode.node_id of the ONE source reply selected for intervention.
+    # Parser resolves analysis.selected_agent_turn_id to a source leaf.path node.
+    # None supports legacy/invalid records; new rubrics must have a valid selection
+    # before verification. Selection is NOT the set of applicability matches.
 
 
 @dataclass(frozen=True)
@@ -100,6 +107,10 @@ class InterventionRun:
     final_option: str
     outcome: Optional[float]
     continuation_policy_sha256: str       # policy that wrote the intervention reply and ran the continuation
+    intervention_seed: Optional[int] = None  # separate seed for fresh intervention reply
+    status: str = 'complete'              # complete | incomplete
+    error: Optional[str] = None
+    final_text: str = ''
 
 
 @dataclass(frozen=True)
@@ -107,11 +118,11 @@ class RubricEffectiveness:
     rubric_id: str
     leaf_id: str
     level: str
-    target_node_ids: tuple[str, ...]      # source-trajectory responses the rubric matches (intervention targets)
+    target_node_ids: tuple[str, ...]      # one generator-selected Agent node; not all applicability matches
     runs: tuple[InterventionRun, ...]
     per_node_R_O: dict                    # node_id -> share of the K reruns reaching the target outcome
-    R_O: Optional[float]                  # s(tau): the trajectory rubric's verification score (mean over targets); None for no_match
-    status: str                           # single_target | no_match | multi_target
+    R_O: Optional[float]                  # desired outcome count / 3; None for no_match or incomplete
+    status: str                           # single_target | no_match | incomplete
 
 
 @dataclass(frozen=True)

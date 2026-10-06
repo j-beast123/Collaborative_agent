@@ -130,7 +130,8 @@ def _summary(results: dict[str, dict]) -> dict:
             **M.gate_rates([g for r in results.values() for g in r['gates']])}
 
 
-def _propose(parent_text: str, view: list[dict], n: int, history: list[dict], backend: SearchBackend, allowed: list[str], cases: list[dict]) -> dict:
+def _propose(parent_text: str, view: list[dict], n: int, history: list[dict], backend: SearchBackend, allowed: list[str], cases: list[dict],
+             *, prompt_guard: Callable = prompt_violations) -> dict:
     """One reflection, then n refinements; each refinement gets one retry if it violates a prompt guard."""
     reflection, errors = None, []
     for _ in range(2):
@@ -144,7 +145,7 @@ def _propose(parent_text: str, view: list[dict], n: int, history: list[dict], ba
         note, attempts = None, []
         while True:
             text = backend.refine(parent_text, reflection['diagnosis'], direction, history, note)
-            viol = prompt_violations(text, allowed, cases); attempts.append(viol)
+            viol = prompt_guard(text, allowed, cases); attempts.append(viol)
             if not viol or len(attempts) == 2: break
             note = 'Your previous draft was rejected: ' + '; '.join(viol[:10]) + '. Return a corrected complete prompt.'
         proposals.append({'direction': direction, 'text': None if attempts[-1] else text, 'violations': attempts})
@@ -215,17 +216,17 @@ def run_event(event: int, parent_id: str, parent_sha: str, window: list[StateEvi
             'parent_search_summary': _summary(parent_search), 'reflections': reflections, 'versions': versions, 'decision': decision}
 
 
-def sol_backend(key: str, feedback_system: str, refiner_system: str, generate: Callable, gate: Callable, score: Callable) -> SearchBackend:
+def sol_backend(key: str, feedback_system: str, refiner_system: str, generate: Callable, gate: Callable, score: Callable, model: str | None = None, *, feedback_model: str | None = None, refiner_model: str | None = None) -> SearchBackend:
     """Real reflection/refinement with frozen Sol (lazy: needs API credentials)."""
     from src.prompt_opt import harness as H
 
     def feedback(parent, view, n):
         user = (f'CURRENT RUBRIC-GENERATOR PROMPT:\n{parent}\n\nNUMBER OF DIRECTIONS: {n}\n\n'
                 f'TRAINING EVIDENCE (JSON):\n{json.dumps(view, ensure_ascii=False)}')
-        return parse_reflection(H.doctor_call(key, H.SOL, feedback_system, user, 3000, 0.4), n)
+        return parse_reflection(H.doctor_call(key, feedback_model or model or H.SOL, feedback_system, user, 3000, 0.4), n)
 
     def refine(parent, diagnosis, direction, history, note):
         user = (f'CURRENT PROMPT:\n{parent}\n\nDIAGNOSTIC REFLECTION:\n{diagnosis}\n\nDIRECTION TO IMPLEMENT:\n{direction}\n\n'
                 f'EARLIER PROMPT-UPDATE DECISIONS (JSON):\n{json.dumps(history, ensure_ascii=False)}' + (f'\n\n{note}' if note else ''))
-        return re.sub(r'^```(?:\w+)?\s*|\s*```$', '', H.doctor_call(key, H.SOL, refiner_system, user, 3000, 0.4).strip()).strip()
+        return re.sub(r'^```(?:\w+)?\s*|\s*```$', '', H.doctor_call(key, refiner_model or model or H.SOL, refiner_system, user, 3000, 0.4).strip()).strip()
     return SearchBackend(feedback, refine, generate, gate, score)

@@ -30,8 +30,9 @@ def in_baseline(mode: str, fraction: float, run_seed: int, state_key: str) -> bo
 
 
 def protocol_sha256(cfg: dict, root: Path) -> str:
+    from src.collaboration.generator import REPETITION_STOP_VERSION, EARLY_STOP_VERSION
     ro = cfg['rollout']
-    return sha256_json({'base_model': cfg['policy']['base_model'],
+    return sha256_json({'base_model': cfg['policy']['base_model'], 'repetition_stop_version': REPETITION_STOP_VERSION, 'early_stop_version': EARLY_STOP_VERSION, 'batch_generation': cfg.get('batch',{}),
                         'rollout': {k: ro[k] for k in ('rounds', 'doctor_model', 'max_tokens_doctor', 'max_completion_length', 'temperature', 'top_p', 'top_k')},
                         'agent_prompt': sha256_text((root / 'prompts/agent.txt').read_text()),
                         'doctor_prompt': sha256_text((root / 'prompts/user_simulator.txt').read_text())})
@@ -40,7 +41,7 @@ def protocol_sha256(cfg: dict, root: Path) -> str:
 def adapter_sha256(model) -> str:
     """Hash of the trainable (LoRA) tensors: any optimizer step changes it."""
     h = hashlib.sha256()
-    for name, p in sorted((n, p) for n, p in model.named_parameters() if p.requires_grad):
+    for name, p in sorted((n, p) for n, p in model.named_parameters() if p.requires_grad or "lora_" in n):
         h.update(name.encode()); h.update(p.detach().float().cpu().numpy().tobytes())
     return h.hexdigest()
 
