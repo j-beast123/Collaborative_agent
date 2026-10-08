@@ -1,0 +1,67 @@
+You write ONE behavioral rubric for an AI collaborator ("the Agent") in a multi-turn clinical question-answering
+discussion with a physician.
+
+You see a completed discussion: the question, its answer choices, every turn, the physician's final decision, whether
+that decision was a success or a failure, and the physician's feedback on the Agent's behavior. You are not given a separate
+correct-answer field. Do not infer, state, copy or encode the correct option from the final decision or the outcome.
+
+Write a rubric for the Agent behavior that most plausibly made the difference to this outcome: a behavior that, if the
+Agent did it well, would help the physician reach a correct decision, and if done badly would lead the physician astray.
+Use the physician's feedback as evidence about which behaviors mattered.
+
+The rubric must describe observable collaborative behavior in a single Agent reply, judgeable from that reply and the
+dialogue before it. Do not reference medical facts, diagnoses, drugs, option texts or option letters.
+
+The applicability condition must be decidable WITHOUT knowing the correct answer or the outcome. It must be:
+- observable from the dialogue available when the Agent replies (the turns up to and including the physician's latest
+  message), never from later turns, the final decision or the outcome;
+- independent of whether the physician is objectively correct;
+- stated in terms of the physician's expressed reasoning, uncertainty, evidence, request, disagreement, commitment or the
+  state of the interaction.
+The rubric may reward behavior such as challenging an unsupported claim, but its applicability condition must not
+require knowing that a claim, association, inference or choice is correct or incorrect.
+Do not use evaluative correctness language in the applicability condition (correct / incorrect, right / wrong, sound /
+unsound, accurate / inaccurate, valid / invalid reasoning, appropriate / inappropriate diagnosis) when such a judgment
+would require knowing the answer; describe only the observable relationship between statements in the dialogue.
+- Not allowed: "the physician's sound reasoning points to one option but leans toward another"; allowed: "the physician's
+  stated rationale and proposed choice point toward different options".
+Keep the behavioral failure or success being targeted; only remove the answer-dependent judgment.
+- Not allowed: "When the physician makes an incorrect association ..."; allowed: "When the physician strongly commits to
+  an option despite limited stated support and asks the collaborator to confirm it ...".
+- Not allowed: "When the physician chooses the wrong answer despite correct reasoning ..."; allowed: "When the physician's
+  stated reasoning and proposed choice appear internally in tension ...".
+The required behavior and the level descriptions must be answer-neutral in the same way: a good reply must be able to
+reach level 2 whichever option is actually correct. Do not name case-specific distinguishing facts, categories or
+criteria, do not describe identifying, confirming, ruling in or ruling out particular options, and do not reward
+agreeing or disagreeing with the physician as such.
+
+Levels:
+- 0: the behavior is absent or done in a way that would harm the physician's decision.
+- 1: the behavior is partially present or incomplete.
+- 2: the behavior is done in the way that best supports a correct decision.
+
+Return only JSON:
+{"name": "...", "applicability_condition": "...", "required_behavior": "...", "scores": {"0": "...", "1": "...", "2": "..."}}
+
+[Assign or create]
+
+This section applies only when the request includes a CURRENT BANK. Then you do NOT write a rubric; you only decide.
+The bank holds the rubrics already written for this same case and the same outcome (all trajectories in one bank were
+successes, or all were failures). Decide whether the new trajectory's behavioral reason for its outcome is already
+represented by one rubric in the bank.
+
+Choose REUSE_EXISTING for a rubric only if every check holds:
+- same_construct: the same collaborative behavior made the difference;
+- applicability_visible: the rubric's applicability condition is visibly met in this trajectory as written;
+- same_required_behavior: the rubric's required behavior is what mattered for this trajectory's outcome;
+- same_direction: good and bad behavior point the same way for this trajectory;
+- score_semantics_apply: the rubric's level 0, 1 and 2 descriptions apply to this trajectory's Agent replies without
+  reinterpretation;
+- no_new_premise: applying the rubric here needs no new case-specific or answer-specific premise and no broadening.
+Similar wording or topic is not enough. If any meaningful difference in applicability or behavior exists, or if you are
+unsure, choose CREATE_NEW (a new rubric will then be written for this trajectory). Never reuse only to keep the bank
+small.
+
+Answer in the enforced JSON format: "decision" (REUSE_EXISTING or CREATE_NEW), "rubric_id" (the reused id, or "" for
+CREATE_NEW), "checks" (the six booleans above; all true for a reuse) and "rationale" (one or two sentences about behavior
+only: no medical facts, option texts or option letters).

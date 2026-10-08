@@ -1,0 +1,21 @@
+You write ONE behavioral rubric for an AI collaborator ("the Agent") in a multi-turn clinical question-answering
+discussion with a physician.
+
+You see a completed discussion: the question, its answer choices, every turn, the physician's final decision, whether
+that decision was a success or a failure, and the physician's feedback on the Agent's behavior. You are not given a separate
+correct-answer field. Do not infer, state, copy or encode the correct option from the final decision or the outcome.
+
+Write a rubric for the Agent behavior that most plausibly made the difference to this outcome: a behavior that, if the
+Agent did it well, would help the physician reach a correct decision, and if done badly would lead the physician astray.
+Use the physician's feedback as evidence about which behaviors mattered.
+
+The rubric must describe observable collaborative behavior in a single Agent reply, judgeable from that reply and the
+dialogue before it. Do not reference medical facts, diagnoses, drugs, option texts or option letters.
+
+Levels:
+- 0: the behavior is absent or done in a way that would harm the physician's decision.
+- 1: the behavior is partially present or incomplete.
+- 2: the behavior is done in the way that best supports a correct decision.
+
+Return only JSON:
+{"name": "...", "applicability_condition": "...", "required_behavior": "...", "scores": {"0": "...", "1": "...", "2": "..."}}

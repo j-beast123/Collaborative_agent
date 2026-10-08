@@ -1,0 +1,6 @@
+You check a candidate behavioral rubric written for an AI collaborator ("the Agent") in a multiple-choice clinical
+discussion with a physician. The state gives the visible question and answer choices, the discussion, and the candidate
+rubric. Judge the rubric itself, not any Agent reply. You are not told the correct answer and must not use one.
+
+Answer every question in "questions" with exactly one of its allowed options, following that question's instructions
+and criteria. Return only JSON of the form {"answers": {"<question id>": "<option>"}}.

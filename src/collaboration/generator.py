@@ -9,7 +9,6 @@ import os
 import random
 import re
 import sys
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -27,6 +26,7 @@ from src.belief import (
     map_judgment_to_roles,
     parse_local_judgment,
 )
+from src.common import retry as _retry
 from src.common import usage as api_usage
 
 
@@ -39,7 +39,24 @@ def args() -> argparse.Namespace:
     p.add_argument(
         "--output", default="outputs/collaboration/collaboration_pilot_10.jsonl"
     )
-    p.add_argument("--model", required=True, help="agent model (Qwen family); set per run")
+    p.add_argument("--model", required=True, help="agent model path or OpenRouter model ID")
+    p.add_argument(
+        "--adapter",
+        default="",
+        help="optional PEFT/LoRA adapter directory applied to a local Agent model",
+    )
+    p.add_argument(
+        "--agent-backend",
+        choices=("local", "openrouter"),
+        default="local",
+        help="run the Agent from a local Transformers checkpoint or through OpenRouter",
+    )
+    p.add_argument(
+        "--agent-temperature",
+        type=float,
+        default=0.0,
+        help="Agent sampling temperature when --agent-backend=openrouter",
+    )
     p.add_argument("--doctor-model", required=True, help="doctor simulator (GPT family); set per run")
     p.add_argument("--reconstructor-model", required=True, help="state reconstructor; set per run")
     p.add_argument("--doctor-prompt", default="prompts/user_simulator.txt", help="doctor system prompt file")
@@ -54,7 +71,7 @@ def args() -> argparse.Namespace:
         "--rounds",
         type=int,
         required=True,
-        help="Maximum agent responses/collaboration rounds; must match the SERL training pipeline",
+        help="Maximum agent responses/collaboration rounds; must match the training pipeline",
     )
     p.add_argument("--max-tokens", type=int, default=512)
     p.add_argument(
@@ -72,7 +89,7 @@ def args() -> argparse.Namespace:
         "--final-decision-role",
         choices=("doctor", "agent"),
         required=True,
-        help="Who states the final answer after the discussion; must match the SERL training pipeline.",
+        help="Who states the final answer after the discussion; must match the training pipeline.",
     )
     p.add_argument("--prompt-version", default="grounded-collaboration-v2")
     p.add_argument("--seed", type=int, default=0)
@@ -156,7 +173,10 @@ def dialogue_text(dialogue: list[dict]) -> str:
     )
 
 
-def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, temperature: float = 0.4) -> str:
+def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, temperature: float = 0.4,
+                extra: dict | None = None, meta: dict | None = None) -> str:
+    """One OpenRouter chat completion (retry policy: src/common/retry.py). `extra` adds request fields (e.g. reasoning
+    settings); `meta`, when given, receives finish_reason / native_finish_reason / usage of the returned completion."""
     key = key.strip()
     payload = json.dumps(
         {
@@ -168,6 +188,7 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, t
             "temperature": temperature,
             "max_tokens": max_tokens,
             "usage": {"include": True},
+            **(extra or {}),
         }
     ).encode()
     req = urllib.request.Request(
@@ -176,35 +197,52 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, t
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         method="POST",
     )
-    for attempt in range(7):
+    retry = _retry.Retry(f"OpenRouter {model}")
+    while True:
         try:
             with urllib.request.urlopen(req, timeout=180) as response:
                 body = json.loads(response.read().decode())
+            error = body.get("error") if isinstance(body, dict) else None
+            if error:  # a 200 response carrying a provider error instead of a completion
+                raise _ProviderError(error)
             text = body["choices"][0]["message"]["content"].strip()
-            api_usage.record("collaboration", body.get("model", model), body.get("usage"), attempt + 1)
+            if meta is not None:
+                choice = body["choices"][0]
+                meta.update(finish_reason=choice.get("finish_reason"), native_finish_reason=choice.get("native_finish_reason"),
+                            usage=body.get("usage"), model=body.get("model"), provider=body.get("provider"))
+            api_usage.record("collaboration", body.get("model", model), body.get("usage"), retry.attempts)
+            retry.succeeded()
             return text
         except urllib.error.HTTPError as error:
-            if error.code not in {429, 500, 502, 503, 504} or attempt == 6:
-                raise
             body = error.read().decode("utf-8", errors="replace")
-            retry_after = error.headers.get("Retry-After")
-            print(f"OpenRouter HTTP {error.code}", flush=True)
-            print(f"Body: {body[:1000]}", flush=True)
-            print(f"Retry-After: {retry_after or '(not provided)'}", flush=True)
-            try:
-                delay = float(retry_after) if retry_after else min(60, 2**attempt)
-            except ValueError:  # Retry-After given as an HTTP date
-                delay = min(60, 2**attempt)
-            print(f"OpenRouter HTTP {error.code}; retrying in {delay:.0f}s", flush=True)
-            time.sleep(delay)
-        except (OSError, http.client.HTTPException, ValueError, KeyError, IndexError, AttributeError) as error:
-            # Timeouts and dropped connections, or a 200 response that is not a completion
-            # (provider error body, empty content).
-            if attempt == 6:
+            reason = f"HTTP {error.code} {body[:300]}"
+            if error.code not in _retry.RETRYABLE_STATUS:
+                print(f"OpenRouter {model}: not retried: {reason}", flush=True)
                 raise
-            delay = min(60, 2**attempt)
-            print(f"OpenRouter call failed ({type(error).__name__}: {str(error)[:200]}); retrying in {delay}s", flush=True)
-            time.sleep(delay)
+            kind = "rate_limit" if _retry.rate_limited(error.code, body) else "transient"
+            if not retry.wait(kind, reason, error.headers.get("Retry-After")):
+                raise
+        except _ProviderError as error:
+            if error.code is not None and 400 <= error.code < 500 and error.code not in _retry.RETRYABLE_STATUS:
+                print(f"OpenRouter {model}: not retried: {error}", flush=True)
+                raise
+            kind = "rate_limit" if _retry.rate_limited(error.code, str(error)) else "transient"
+            if not retry.wait(kind, str(error)):
+                raise
+        except (OSError, http.client.HTTPException, ValueError, KeyError, IndexError, AttributeError) as error:
+            # Timeouts and dropped connections, or a 200 response that is not a completion (empty content).
+            if not retry.wait("transient", f"{type(error).__name__}: {str(error)[:200]}"):
+                raise
+
+
+class _ProviderError(RuntimeError):
+    """An error object in a 200 OpenRouter response (e.g. the provider was overloaded mid-request)."""
+
+    def __init__(self, error):
+        error = error if isinstance(error, dict) else {"message": str(error)}
+        code = error.get("code")
+        self.code = code if isinstance(code, int) else int(code) if isinstance(code, str) and code.isdigit() else None
+        super().__init__(f"provider error {error.get('code')}: {str(error.get('message', ''))[:300]} {json.dumps(error.get('metadata') or {})[:300]}")
 
 
 # Prompts list the fields in this fixed order.
@@ -353,13 +391,17 @@ def agent_call(model, tokenizer, system: str, user: str, max_tokens: int, *, do_
     ).strip()
 
 
+def final_answer_option(text: str) -> str:
+    """Extract an explicit final option, including an out-of-range choice for audit."""
+    pattern = r"final\s+answer\s*[:\-]?\s*(?:is\s*)?(?:option\s+)?(?:\*\*)?([A-Z])\b"
+    matches = list(re.finditer(pattern, text, re.I))
+    return matches[-1].group(1).upper() if matches else ""
+
+
 def option(text: str, *, first: bool = False) -> str:
-    final_pattern = (
-        r"final\s+answer\s*[:\-]?\s*(?:is\s*)?(?:option\s+)?(?:\*\*)?([A-E])\b"
-    )
-    final_hits = list(re.finditer(final_pattern, text, re.I))
-    if final_hits:
-        return final_hits[0].group(1).upper()
+    final_choice = final_answer_option(text)
+    if final_choice:
+        return final_choice
     patterns = (
         r"(?:answer|option|choice)\s*[:\-]?\s*(?:is\s*)?(?:\*\*)?([A-E])\b",
         r"(?:^|\n)\s*(?:\*\*)?([A-E])(?:\*\*)?\s*[.):-]",
@@ -489,16 +531,21 @@ def stop_reason(turn: int, doctor: str, response: str):
 
 def main() -> None:
     a = args()  # validate CLI arguments before loading heavy libraries/models
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
     random.seed(a.seed)
-    torch.manual_seed(a.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(a.seed)
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise SystemExit("OPENROUTER_API_KEY is not set")
+    if a.agent_temperature < 0:
+        raise ValueError("agent-temperature must be non-negative")
     root = ROOT
+    if a.adapter and a.agent_backend != "local":
+        raise ValueError("--adapter is supported only with --agent-backend local")
+    adapter_path = None
+    if a.adapter:
+        requested_adapter = Path(a.adapter).expanduser()
+        adapter_path = requested_adapter if requested_adapter.is_absolute() else root / requested_adapter
+        if not (adapter_path / "adapter_config.json").is_file():
+            raise FileNotFoundError(f"PEFT adapter is missing adapter_config.json: {adapter_path}")
     if a.start_index < 0:
         raise ValueError("start-index must be non-negative")
     rubric_guidance, rubric_set_version = load_rubric_guidance(
@@ -513,11 +560,38 @@ def main() -> None:
     judgment_system = (root / "prompts/local_epistemic_judgment.txt").read_text(
         encoding="utf-8"
     )
-    tokenizer = AutoTokenizer.from_pretrained(a.model, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        a.model, dtype=torch.float16, device_map="auto", trust_remote_code=True
-    )
-    model.eval()
+    if a.agent_backend == "local":
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        torch.manual_seed(a.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(a.seed)
+        # A PEFT adapter may contain tokenizer metadata written by a different
+        # Transformers version. The adapter was trained on this base model, so
+        # use the base tokenizer and load only LoRA weights from the adapter.
+        tokenizer = AutoTokenizer.from_pretrained(a.model, trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            a.model, dtype=torch.float16, device_map="auto", trust_remote_code=True
+        )
+        if adapter_path is not None:
+            from peft import PeftModel
+
+            model = PeftModel.from_pretrained(model, str(adapter_path), is_trainable=False)
+        model.eval()
+
+        def call_agent(system: str, user: str, max_tokens: int) -> str:
+            return agent_call(model, tokenizer, system, user, max_tokens)
+    else:
+        def call_agent(system: str, user: str, max_tokens: int) -> str:
+            return doctor_call(
+                key,
+                a.model,
+                system,
+                user,
+                max_tokens,
+                temperature=a.agent_temperature,
+            )
     out = root / a.output
     out.parent.mkdir(parents=True, exist_ok=True)
     failure_out = out.with_name(out.stem + "_failures.jsonl")
@@ -583,9 +657,7 @@ def main() -> None:
                         reconstruct=lambda c, d: reconstruct_call(
                             key, a.reconstructor_model, c, d, a.reconstruction_max_tokens
                         ),
-                        judge=lambda p: agent_call(
-                            model, tokenizer, judgment_system, p, 384
-                        ),
+                        judge=lambda p: call_agent(judgment_system, p, 384),
                     )
                     if judgment_status != "valid":
                         # reconstruction_failure or judgment_failure
@@ -594,9 +666,7 @@ def main() -> None:
                         break
                 if rubric_guidance:
                     agent_prompt = agent_prompt + "\n\n" + rubric_guidance
-                response = agent_call(
-                    model, tokenizer, agent_system, agent_prompt, a.max_tokens
-                )
+                response = call_agent(agent_system, agent_prompt, a.max_tokens)
                 if turn == 1:
                     agent_initial_option = initial_option(response)
                 dialogue.append(
@@ -659,9 +729,7 @@ def main() -> None:
                     key, a.doctor_model, doctor_system, final_prompt, a.max_tokens
                 )
             else:
-                final = agent_call(
-                    model, tokenizer, agent_system, final_prompt, a.max_tokens
-                )
+                final = call_agent(agent_system, final_prompt, a.max_tokens)
             actual_rounds = sum(1 for item in dialogue if item["speaker"] == "agent")
             dialogue.append(
                 {
@@ -726,10 +794,16 @@ def main() -> None:
                     "doctor": a.doctor_model,
                     "reconstructor": a.reconstructor_model,
                     "agent": a.model,
+                    "agent_adapter": str(adapter_path) if adapter_path is not None else None,
                 },
                 "generation": {
                     "doctor_temperature": 0.4,
+                    "agent_backend": a.agent_backend,
+                    "agent_adapter": str(adapter_path) if adapter_path is not None else None,
                     "agent_do_sample": False,
+                    "agent_temperature": a.agent_temperature
+                    if a.agent_backend == "openrouter"
+                    else None,
                     "max_tokens": a.max_tokens,
                     "prompt_version": a.prompt_version,
                     "doctor_prompt": a.doctor_prompt,

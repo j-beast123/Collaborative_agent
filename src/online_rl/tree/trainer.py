@@ -1,0 +1,356 @@
+"""Case-tree trainer. Per case: branching rollout -> FINAL/outcome per leaf -> Doctor feedback -> ONE rubric per trajectory
+-> match on the source trajectory -> Score-0/Score-2 intervention, K reruns per target, s(tau) -> KEEP/REMOVE -> kept rubrics
+score every response of the tree (No Match kept) -> Agent targets/update (injected).
+run_state.json is written last per case; every external call goes through the immutable call cache, so a resumed case
+repeats no completed API or model work."""
+from __future__ import annotations
+import dataclasses, shutil, time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable, Optional
+from src.online_rl.guards import assert_not_protected
+from src.online_rl.integrated.episode import schedule
+from src.online_rl.integrated.prompt_search import PromptStore, SearchBackend
+from src.online_rl.integrated.records import atomic_write_json, dir_sha256, from_dict, read_json, sha256_json, to_dict
+from src.online_rl.tree.cache import CallCache
+from src.online_rl.tree.decisions import Strategies
+from src.online_rl.tree import rubric_bank as RB
+from src.online_rl.tree.conditions import active_unresolved
+from src.online_rl.tree.reward import interaction_diagnostics, sibling_group_diagnostics
+from src.online_rl.tree.effectiveness import evaluate_rubric, select
+from src.online_rl.tree.posthoc import doctor_feedback, freeze_trajectory_input, generate_rubric
+from src.online_rl.tree.prompt_search import EvidenceUnit, ScoringDeps, ready, run_event
+from src.online_rl.tree.records import SelectionDecision, Tree, TrajectoryRubricInput
+from src.online_rl.tree.reward import agent_targets
+from src.online_rl.tree.rollout import build_tree, tree_counts
+from src.online_rl.tree.scoring import score_nodes
+from src.online_rl.tree import witness as W
+
+VERSION = 'sherpa_tree_v1'
+
+
+def model_roles(cfg: dict) -> dict:
+    """Provider model id of every pipeline role (provenance)."""
+    r, j, pu = cfg.get('rubric', {}), cfg.get('judges', {}), cfg.get('prompt_update', {})
+    b = cfg.get('rollout', {}).get('doctor_backend')
+    doctor = cfg.get('rollout', {}).get('doctor_model') if not b else f"{b['model']} ({b['engine']} {b['ollama_version']}, {b['quantization']}, digest {b['model_digest']}; source {b.get('source_model')})"
+    return {'doctor': doctor, 'agent': f"{cfg.get('policy', {}).get('base_model')} + LoRA (local)",
+            'feedback_generator': (cfg.get('feedback') or {}).get('model'), 'rubric_generator': r.get('generator_model'),
+            'rubric_gate': j.get('gate_model'), 'rubric_scorer': j.get('scorer_model'),
+            'prompt_reflection': pu.get('reflection_model'), 'prompt_refiner': pu.get('refiner_model')}
+
+
+@dataclass(frozen=True)
+class TreeRunState:
+    config_sha256: str
+    run_seed: int
+    case_cursor: int
+    prompt_id: str
+    prompt_sha256: str
+    policy_sha256: str
+    checkpoint: Optional[str]
+    lineage_cursor: int
+    last_event_cursor: int
+    history: tuple[dict, ...] = field(default_factory=tuple)
+    eval_cursor: int = 0                  # last milestone whose held-out evaluation is complete
+
+
+@dataclass(frozen=True)
+class TreeEnv:
+    """External components: agent.sample, doctor.turn/final, stop_rule, final_option, outcome_fn (gold, rollout side only),
+    feedback_fn, generate_fn, scorer (two-stage, No Match), writer (Score-0/Score-2 reply), continuation (rerun to FINAL),
+    gate_fn (post-hoc rubric gate) and behavior_logprobs (pi_old for the update)."""
+    agent: object
+    doctor: object
+    stop_rule: Callable
+    final_option: Callable
+    outcome_fn: Callable
+    feedback_fn: Callable
+    generate_fn: Callable
+    scorer: Callable
+    writer: Callable
+    continuation: Callable
+    gate_fn: Optional[Callable] = None
+    behavior_logprobs: Optional[Callable] = None
+    assign_fn: Optional[Callable] = None        # MATCH-vs-NEW decision (rubric.reuse)
+    opening: Optional[Callable] = None          # frozen shared D1 table (rollout.doctor_opening; src/online_rl/doctor_openings.py)
+
+
+class TreeTrainer:
+    def __init__(self, cfg: dict, *, out_dir: Path, cases: list[dict], env: TreeEnv, strategies: Strategies, search_backend: SearchBackend,
+                 initial_prompt: str, policy_sha: Callable[[], str], protocol_sha: str, feedback_prompt_sha256: str, updater=None,
+                 evaluator: Optional[Callable] = None, execution: Optional[dict] = None, before_case: Optional[Callable] = None):
+        if active_unresolved(cfg): raise ValueError(f'unresolved settings: {active_unresolved(cfg)}')
+        if cfg['rubric']['gold_answer_visible']: raise NotImplementedError('a gold-visible Rubric Generator contract is not defined')
+        assert_not_protected(cases, 'tree training cases')
+        self.cfg, self.out, self.cases, self.env, self.st = cfg, Path(out_dir), {c['case_id']: c for c in cases}, env, strategies
+        self.backend, self.policy_sha, self.protocol_sha, self.fb_sha, self.updater = search_backend, policy_sha, protocol_sha, feedback_prompt_sha256, updater
+        self.every = (cfg.get('evaluation') or {}).get('checkpoint_every_cases'); self.evaluator = evaluator
+        self.rubric_on = cfg['rubric'].get('enabled', True); self.fb_model = (cfg.get('feedback') or {}).get('model')
+        self.reuse = cfg['rubric'].get('reuse') == RB.ASSIGNMENT_VERSION
+        ex = cfg.get('execution') or {}                                # execution only: same values, more threads
+        self.doctor_workers, self.rerun_workers = int(ex.get('doctor_workers', 1)), int(ex.get('rerun_workers', 1))
+        rx = execution or {}                                           # runtime-only concurrency (not in the config; same values)
+        self.agent_workers, self.api_workers, self.member_workers = (int(rx.get(k, 1)) for k in ('agent_workers', 'api_workers', 'member_workers'))
+        self.before_case = before_case                                 # e.g. Agent replica sync + hash barrier
+        if cfg['rubric'].get('reuse') not in (None, RB.ASSIGNMENT_VERSION): raise ValueError(f"unknown rubric.reuse {cfg['rubric']['reuse']!r}")
+        if self.reuse and self.rubric_on and getattr(env, 'assign_fn', None) is None: raise ValueError('rubric.reuse needs env.assign_fn')
+        if not self.rubric_on and cfg['prompt_update']['enabled']: raise ValueError('prompt evolution needs the rubric pipeline (rubric.enabled)')
+        self.verification = (cfg.get('verification') or {}).get('mode', 'exhaustive_members_v1')     # training-time rubric verification
+        if self.verification not in ('exhaustive_members_v1', W.PROTOCOL): raise ValueError(f'unknown verification.mode {self.verification!r}')
+        if self.verification == W.PROTOCOL and self.rubric_on:
+            if not self.reuse: raise ValueError(f'{W.PROTOCOL} verifies consolidated rubrics: it needs rubric.reuse')
+            if (cfg.get('agent_reward') or {}).get('r_a_weighting') != 'equal': raise ValueError(f'{W.PROTOCOL} needs agent_reward.r_a_weighting = equal')
+            if not (cfg.get('feedback') or {}).get('behavioral_locus'): raise ValueError(f'{W.PROTOCOL} needs feedback.behavioral_locus (target_reply_id)')
+            if getattr(env.scorer, 'applicability', None) is None: raise ValueError(f'{W.PROTOCOL} needs a scorer with a Stage-1 applicability call')
+        if self.verification != W.PROTOCOL and (cfg.get('agent_reward') or {}).get('r_a_weighting', 'effectiveness') != 'effectiveness':
+            raise ValueError('equal R_A weighting is defined only with bounded witness verification')
+        if (cfg.get('feedback') or {}).get('protocol') == 'behavior_observer_v4' and self.rubric_on and not self.reuse:
+            raise ValueError('feedback behavior_observer_v4 (invalid feedback excluded from rubric mapping) needs rubric.reuse')
+        sch = cfg['schedule']; self.calibration_only = set(sch.get('calibration_only_cursors') or [])   # e.g. pool positions 401-410
+        if sch.get('positions') is not None and not set(sch['positions']) <= self.calibration_only:
+            raise ValueError('schedule.positions may only replay the calibration-only positions (schedule.calibration_only_cursors)')
+        import os; self.parallel_strata = os.environ.get('SHERPA_PARALLEL_STRATA') == '1'     # execution only: identical banks
+        self.opening_spec = (cfg.get('rollout') or {}).get('doctor_opening')
+        if self.opening_spec:                                          # never a silent fallback to generating D1
+            op = getattr(env, 'opening', None)
+            if op is None: raise ValueError('rollout.doctor_opening is set but no frozen opening table is bound (env.opening)')
+            if getattr(op, 'sha256', None) != self.opening_spec['train_table_sha256']: raise ValueError('env.opening is not the pinned training table')
+        elif getattr(env, 'opening', None) is not None: raise ValueError('env.opening is bound but rollout.doctor_opening is not set')
+        if self.every is not None and (not isinstance(self.every, int) or self.every < 1 or evaluator is None or updater is None):
+            raise ValueError('evaluation.checkpoint_every_cases needs a positive integer, an evaluator and an updater')
+        self.out.mkdir(parents=True, exist_ok=True)
+        self.store = PromptStore(self.out / 'prompts'); self.cache = CallCache(self.out / 'calls.jsonl')
+        self.config_sha = sha256_json(cfg); self.state_path = self.out / 'run_state.json'
+        self.state = self._resume() if self.state_path.exists() else self._start(initial_prompt)
+
+    def _case_path(self, i: int) -> Path: return self.out / 'cases' / f'case_{i:06d}.json'
+
+    def _event_path(self, e: int) -> Path: return self.out / 'prompt_events' / f'event_{e:04d}.json'
+
+    def _write(self, s: TreeRunState) -> None: atomic_write_json(self.state_path, to_dict(s)); self.state = s
+
+    def _start(self, prompt: str) -> TreeRunState:
+        if any((self.out / d).exists() for d in ('cases', 'prompt_events')): raise RuntimeError(f'{self.out} has run artifacts but no run_state.json')
+        sha = self.store.put(prompt)
+        if self.cfg['rubric']['prompt_sha256'] != sha: raise RuntimeError('initial Rubric-Generator prompt does not match rubric.prompt_sha256')
+        ckpt = self._save_checkpoint(0, milestone=True) if self.updater is not None else None
+        pol = self.cfg.get('policy') or {}
+        atomic_write_json(self.out / 'run_manifest.json', {'version': VERSION, 'config': self.cfg, 'config_sha256': self.config_sha,
+                                                           'protocol_sha256': self.protocol_sha, 'initial_prompt_sha256': sha, 'initial_policy_sha256': self.policy_sha(),
+                                                           'lora_init_seed': (pol.get('lora') or {}).get('init_seed'), 'init_adapter': pol.get('init_adapter'),
+                                                           'initial_checkpoint': ckpt, 'initial_checkpoint_sha256': dir_sha256(Path(ckpt)) if ckpt else None,
+                                                           'feedback_model': self.fb_model, 'doctor_model': self.cfg['rollout'].get('doctor_model'),
+                                                           'model_roles': model_roles(self.cfg),
+                                                           'doctor_backend': self.cfg['rollout'].get('doctor_backend') or 'openrouter',
+                                                           'doctor_protocol_sha256': getattr(self.env.doctor, 'protocol', None),
+                                                           'halting': self.cfg['rollout'].get('halting'),
+                                                           'doctor_runtime_endpoints': getattr(getattr(self.env.doctor, 'doctor', None), 'endpoints', None),   # provenance only
+                                                           'missing_strategies': self.st.missing(), 'doctor_api_seeded': bool(self.cfg['rollout'].get('doctor_backend')),
+                                                           'doctor_opening': self._opening_identity()})
+        s = TreeRunState(self.config_sha, self.cfg['schedule']['seed'], 0, self.cfg['rubric']['prompt_id'], sha, self.policy_sha(), ckpt, 0, 0,
+                         ({'prompt_id': self.cfg['rubric']['prompt_id'], 'sha256': sha, 'event': None, 'case_cursor': 0},))
+        self._write(s); return s
+
+    def _opening_identity(self) -> Optional[dict]:
+        if not self.opening_spec: return None
+        from src.online_rl.doctor_openings import protocol_identity
+        return {**protocol_identity(self.opening_spec), 'train_table': self.opening_spec['train_table'], 'eval_table': self.opening_spec['eval_table']}
+
+    def _resume(self) -> TreeRunState:
+        s = from_dict(TreeRunState, read_json(self.state_path))
+        if s.config_sha256 != self.config_sha: raise RuntimeError('config changed since the run started; refusing to resume')
+        man = read_json(self.out / 'run_manifest.json') if (self.out / 'run_manifest.json').exists() else {}
+        if man.get('initial_checkpoint_sha256') and dir_sha256(Path(man['initial_checkpoint'])) != man['initial_checkpoint_sha256']:
+            raise RuntimeError('checkpoint_000000 changed since the run started; refusing to resume')
+        if s.checkpoint and self.updater is not None: self.updater.load(s.checkpoint)
+        if self.policy_sha() != s.policy_sha256: raise RuntimeError('policy hash differs from the committed one')
+        if man.get('doctor_opening') != self._opening_identity():
+            raise RuntimeError('Doctor-opening protocol (mode / table SHA256) differs from the run manifest; refusing to resume')
+        self.store.get(s.prompt_sha256)
+        self._prune(s)
+        stale = [p for p in sorted((self.out / 'cases').glob('case_*.json')) if int(p.stem[5:]) >= s.case_cursor]
+        stale += [p for p in sorted((self.out / 'prompt_events').glob('event_*.json')) if int(p.stem[6:]) > s.lineage_cursor]
+        if stale:
+            dest = self.out / 'recovered' / f'resume_{len(list((self.out / "recovered").glob("resume_*")))}'; dest.mkdir(parents=True)
+            for p in stale: p.rename(dest / f'{p.parent.name}__{p.name}')
+        return s
+
+    def total_cases(self) -> int:
+        pos = self.cfg['schedule'].get('positions')
+        return len(pos) if pos else self.cfg['schedule']['cases']
+
+    def _position(self, cursor: int) -> int:
+        """Pool position of the cursor-th case: the cursor itself, or schedule.positions[cursor] (calibration runs replay fixed
+        positions of the main pool permutation, so position p is exactly the case a main run sees at cursor p)."""
+        pos = self.cfg['schedule'].get('positions')
+        return pos[cursor] if pos else cursor
+
+    def run(self, max_cases: Optional[int] = None) -> None:
+        done = 0
+        while True:
+            self._maybe_eval()                                       # a pending milestone is evaluated before anything else
+            self._maybe_prompt_event()
+            if self.state.case_cursor >= self.total_cases() or (max_cases is not None and done >= max_cases): break
+            self.step(); done += 1
+
+    def step(self) -> dict:
+        t_case = time.time()
+        s, cfg = self.state, self.cfg; ro, iv = cfg['rollout'], cfg['intervention']
+        if not self.cfg['schedule'].get('positions') and s.case_cursor in self.calibration_only:
+            raise RuntimeError(f'pool position {s.case_cursor + 1} is calibration-only (data/splits/calibration_only_v1.json); a training run must not reach it')
+        cid = schedule(sorted(self.cases), s.run_seed, self._position(s.case_cursor), 1)[0]; case = self.cases[cid]; e = self.env
+        if self.before_case is not None: self.before_case(s.policy_sha256)
+        tree = build_tree(case, max_agent_turns=ro['rounds'], branching=ro['branching'], run_seed=s.run_seed, policy_sha256=s.policy_sha256,
+                          protocol_sha256=self.protocol_sha, agent=e.agent, doctor=e.doctor, stop_rule=e.stop_rule, final_option=e.final_option,
+                          outcome_fn=e.outcome_fn, cache=self.cache, behavior_logprobs=e.behavior_logprobs, workers=self.doctor_workers,
+                          opening=getattr(e, 'opening', None), agent_workers=self.agent_workers)
+        decided = [l for l in tree.leaves if l.outcome is not None]
+        feedback, tins, rubrics, source_scores, effs, selection, scores, weights, bank = [], [], [], [], [], [], [], {}, None
+        if self.rubric_on:                                           # Outcome-only arm: no feedback, rubric, verification or scoring
+            fb = lambda l: doctor_feedback(case, l, e.feedback_fn, self.fb_sha, self.cache, self.fb_model)
+            if self.api_workers > 1:                                 # independent per trajectory; collected in leaf order
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(self.api_workers) as pool: feedback = list(pool.map(fb, decided))
+            else: feedback = [fb(l) for l in decided]
+            invalid_fb = [f.leaf_id for f in feedback if not getattr(f, 'valid', True)]    # v4 leakage guard failed after its repair
+            ruled = [l for l, f in zip(decided, feedback) if getattr(f, 'valid', True)]       # trajectories that get a rubric mapping
+            tins = [freeze_trajectory_input(case, l, f) for l, f in zip(decided, feedback) if getattr(f, 'valid', True)]
+            prompt = self.store.get(s.prompt_sha256)
+            nodes = {n.node_id: n for n in tree.nodes}
+            if self.reuse and self.verification == W.PROTOCOL:       # consolidation + bounded causal-witness verification (witness.py)
+                canon, assignments = RB.build_banks(case, ruled, {t.leaf_id: t for t in tins}, prompt, s.prompt_sha256, e.generate_fn,
+                                                    e.assign_fn, e.gate_fn, self.cache, parallel_strata=self.parallel_strata)
+                vcfg = cfg['verification']; loci = {f.leaf_id: f.target_reply_id for f in feedback if getattr(f, 'valid', True)}
+                wit = W.verify_witness(case, nodes, {l.leaf_id: l for l in ruled}, canon, assignments, loci, applicability=e.scorer.applicability,
+                                       writer=e.writer, continuation=e.continuation, reruns=iv['reruns_per_intervention'], run_seed=s.run_seed,
+                                       policy_sha256=s.policy_sha256, cache=self.cache, max_valid_supports=vcfg['max_valid_supports'],
+                                       workers=self.member_workers)
+                rubrics = list(canon.values()); kept = {cid for cid, w in wit.items() if w.decision == 'KEEP'}
+                selection = [SelectionDecision(cid, canon[cid].leaf_id, w.decision == 'KEEP', W.PROTOCOL,
+                                               f'{w.decision} ({w.stop_reason}); validated_by={w.validated_by_trajectory_id}; '
+                                               f'valid_supports={w.num_valid_supports}; reruns={w.num_reruns_executed}') for cid, w in wit.items()]
+                scores = score_nodes(case, list(tree.nodes), [canon[c] for c in sorted(kept)], e.scorer, self.cache, workers=self.api_workers)
+                weights = {cid: 1.0 for cid in sorted(kept)}                                  # equal weight: verification is a gate only
+                bank = {'assignments': [to_dict(a) for a in assignments], 'witness': [to_dict(w) for w in wit.values()],
+                        'telemetry': {**RB.assignment_telemetry(canon, assignments), **W.witness_telemetry(wit),
+                                      'locus': dict(__import__('collections').Counter((f.locus or {}).get('status') for f in feedback)),
+                                      'feedback_invalid': invalid_fb,
+                                      'feedback_invalid_by_stratum': {st: sum(1 for f in feedback if not getattr(f, 'valid', True) and f.outcome == o)
+                                                                      for st, o in (('success', 1.0), ('failure', 0.0))},
+                                      'feedback_by_stratum': {st: sum(1 for f in feedback if f.outcome == o) for st, o in (('success', 1.0), ('failure', 0.0))},
+                                      'feedback_leakage_first_try': sum(bool(((f.locus or {}).get('leakage') or {}).get('first')) for f in feedback)}}
+            elif self.reuse:                                         # same-reason REUSE vs NEW (src/online_rl/tree/rubric_bank.py)
+                canon, assignments = RB.build_banks(case, ruled, {t.leaf_id: t for t in tins}, prompt, s.prompt_sha256, e.generate_fn,
+                                                    e.assign_fn, e.gate_fn, self.cache)
+                source_scores, member = RB.verify_members(case, nodes, {l.leaf_id: l for l in decided}, canon, assignments, scorer=e.scorer,
+                                                          writer=e.writer, continuation=e.continuation, reruns=iv['reruns_per_intervention'],
+                                                          run_seed=s.run_seed, policy_sha256=s.policy_sha256, strategies=self.st, cache=self.cache,
+                                                          workers=self.rerun_workers, member_workers=self.member_workers)
+                support = RB.canonical_support(canon, assignments, member, cfg['selection']['min_R_O'])
+                rubrics, effs = list(canon.values()), [x for x in member.values() if x is not None]
+                selection = [SelectionDecision(cid, canon[cid].leaf_id, sp.retained, 'existential_member_support',
+                                               f'max member s = {sp.max_s} vs {cfg["selection"]["min_R_O"]} ({sp.supported_member_count}/{sp.member_count} members)')
+                             for cid, sp in support.items()]
+                kept = {cid for cid, sp in support.items() if sp.retained}
+                scores = score_nodes(case, list(tree.nodes), [canon[c] for c in sorted(kept)], e.scorer, self.cache, workers=self.api_workers)
+                weights = {cid: support[cid].weight for cid in sorted(kept)}             # R_O(R) = max_j s_j, once per rubric
+                bank = {'assignments': [to_dict(a) for a in assignments], 'rubric_support': [to_dict(v) for v in support.values()],
+                        'telemetry': RB.bank_telemetry(canon, assignments, support)}
+            else:
+                rubrics = [generate_rubric(prompt, s.prompt_sha256, t, e.generate_fn, self.cache, e.gate_fn) for t in tins]
+                for leaf, rub in zip(decided, rubrics):
+                    ss, eff = evaluate_rubric(case, nodes, leaf, rub, scorer=e.scorer, writer=e.writer, continuation=e.continuation,
+                                              reruns=iv['reruns_per_intervention'], run_seed=s.run_seed, policy_sha256=s.policy_sha256,
+                                              strategies=self.st, cache=self.cache)
+                    source_scores += ss; effs += [eff] if eff is not None else []
+                selection = select(effs, cfg['selection'])
+                kept = {d.rubric_id for d in selection if d.retained}
+                scores = score_nodes(case, list(tree.nodes), [r for r in rubrics if r.rubric_id in kept], e.scorer, self.cache)
+                weights = {e.rubric_id: e.R_O for e in effs if e.rubric_id in kept}
+        targets = agent_targets(tree, scores, weights, self.st)
+        update = self.st.need('agent_update')(tree, targets)
+        record = {'case_cursor': s.case_cursor, 'case_id': cid, 'prompt_id': s.prompt_id, 'prompt_sha256': s.prompt_sha256,
+                  'policy_sha256': s.policy_sha256, 'counts': tree_counts(tree), 'tree': to_dict(tree), 'feedback': [to_dict(f) for f in feedback],
+                  'trajectory_inputs': [to_dict(t) for t in tins], 'trajectory_rubrics': [to_dict(r) for r in rubrics],
+                  'source_path_scores': [to_dict(x) for x in source_scores], 'effectiveness': [to_dict(x) for x in effs],
+                  'selection': [to_dict(d) for d in selection],
+                  'response_scores': [to_dict(x) for x in scores], 'rubric_weights': weights, 'agent_targets': targets, 'update': update,
+                  **({'rubric_bank': bank} if bank is not None else {}),
+                  'group_diagnostics': sibling_group_diagnostics(tree, targets, update if isinstance(update, dict) else None),
+                  'interaction_diagnostics': interaction_diagnostics(tree, targets if isinstance(targets, dict) else None),
+                  'seconds': time.time() - t_case}
+        atomic_write_json(self._case_path(s.case_cursor), record)
+        self._commit(); return record
+
+    def _commit(self) -> None:
+        """Save the checkpoint of the finished case, write run_state, then drop rolling checkpoints it no longer points to.
+        Every `evaluation.checkpoint_every_cases` cases the checkpoint is a permanent milestone."""
+        s = self.state; sha = self.policy_sha(); ckpt = s.checkpoint; n = s.case_cursor + 1
+        milestone = bool(self.every) and n % self.every == 0
+        if sha != s.policy_sha256 or milestone:
+            if self.updater is None: raise RuntimeError('policy changed but no updater is available to checkpoint it')
+            ckpt = self._save_checkpoint(n, milestone)
+        self._write(dataclasses.replace(s, case_cursor=n, policy_sha256=sha, checkpoint=ckpt))
+        self._prune(self.state)
+
+    def _checkpoint_dir(self, n: int, milestone: bool) -> Path:
+        return self.out / 'checkpoints' / f"{'checkpoint' if milestone else 'rolling'}_{n:06d}"
+
+    def _save_checkpoint(self, n: int, milestone: bool) -> str:
+        p = self._checkpoint_dir(n, milestone); tmp = p.with_name(p.name + '.tmp')
+        for d in (p, tmp):
+            if d.exists(): shutil.rmtree(d)                          # leftover of an uncommitted attempt at this case
+        self.updater.save(tmp); tmp.rename(p); return str(p)
+
+    def _prune(self, s: TreeRunState) -> None:
+        """Remove rolling checkpoints other than the committed one, and anything written after the committed case."""
+        for p in sorted((self.out / 'checkpoints').glob('*')) if (self.out / 'checkpoints').exists() else []:
+            kind, _, idx = p.name.removesuffix('.tmp').partition('_')
+            if p.name.endswith('.tmp') or int(idx) > s.case_cursor or (kind == 'rolling' and str(p) != s.checkpoint): shutil.rmtree(p)
+
+    def _maybe_eval(self) -> None:
+        """Held-out evaluation of the milestone checkpoint before the next case; read-only for training. A failure stops the
+        run, and a resumed run retries it first."""
+        s = self.state
+        if not self.every or s.eval_cursor + self.every > s.case_cursor: return
+        m = s.eval_cursor + self.every; ckpt = self._checkpoint_dir(m, True)
+        if s.case_cursor != m or s.checkpoint != str(ckpt): raise RuntimeError(f'milestone {m} must be evaluated on its checkpoint before training continues')
+        before = (self.policy_sha(), s.prompt_sha256)
+        if self.before_case is not None: self.before_case(s.policy_sha256)          # replicas evaluate the milestone policy
+        self.evaluator(milestone=m, checkpoint=ckpt, out_dir=self.out / 'eval' / ckpt.name,
+                       provenance={'milestone': m, 'checkpoint': str(ckpt), 'checkpoint_sha256': dir_sha256(ckpt), 'policy_sha256': s.policy_sha256,
+                                   'prompt_id': s.prompt_id, 'prompt_sha256': s.prompt_sha256, 'config_sha256': s.config_sha256})
+        if (self.policy_sha(), self.state.prompt_sha256) != before: raise RuntimeError('evaluation changed the policy or the prompt')
+        self._write(dataclasses.replace(s, eval_cursor=m))
+
+    def _units(self) -> list[EvidenceUnit]:
+        out = []
+        for i in range(self.state.last_event_cursor, self.state.case_cursor):
+            r = read_json(self._case_path(i)); tree = from_dict(Tree, r['tree']); nodes = {n.node_id: n for n in tree.nodes}
+            for t in r['trajectory_inputs']:
+                tin = from_dict(TrajectoryRubricInput, t); leaf = next(l for l in tree.leaves if l.leaf_id == tin.leaf_id)
+                out.append(EvidenceUnit(r['case_id'], leaf, tuple(nodes[n] for n in leaf.path), tin, r['policy_sha256']))
+        return out
+
+    def _maybe_prompt_event(self) -> None:
+        pu, s = self.cfg['prompt_update'], self.state
+        if not pu['enabled'] or s.case_cursor >= self.total_cases() or s.case_cursor - s.last_event_cursor < pu['every_n_cases']: return
+        units = self._units()
+        if len(units) < pu['minimum_trajectories'] or not ready(units, s.run_seed, pu['acceptance_fraction']): return   # wait for both strata
+        event = s.lineage_cursor + 1
+        history = [{'event': d['event'], 'accepted': d['decision']['accepted'], 'reason': d['decision']['reason']}
+                   for d in (read_json(self._event_path(e)) for e in range(1, event))]
+        deps = ScoringDeps(pu['reruns_per_intervention'], s.run_seed, self.env.generate_fn,
+                           self.env.gate_fn, self.env.scorer, self.env.writer, self.env.continuation, s.policy_sha256, self.st, self.cache,
+                           self.env.assign_fn if self.reuse else None)
+        res = run_event(event, s.prompt_id, s.prompt_sha256, units, self.cases, self.store, self.backend, deps, self.cfg, s.run_seed, s.case_cursor, history)
+        atomic_write_json(self._event_path(event), {**res, 'versions': [to_dict(v) for v in res['versions']],
+                                                    'rerun_policy_sha256': s.policy_sha256, 'evidence_policy_sha256': sorted({u.policy_sha256 for u in units}),
+                                                    'policy_note': 'event reruns use the current policy, not the policy that produced the stored trajectories'})
+        d = res['decision']; new = dataclasses.replace(s, lineage_cursor=event, last_event_cursor=s.case_cursor)
+        if d['accepted']:
+            new = dataclasses.replace(new, prompt_id=d['candidate_prompt_id'], prompt_sha256=d['candidate_sha256'],
+                                      history=s.history + ({'prompt_id': d['candidate_prompt_id'], 'sha256': d['candidate_sha256'], 'event': event,
+                                                            'case_cursor': s.case_cursor},))
+        self._write(new)

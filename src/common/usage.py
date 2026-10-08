@@ -15,6 +15,11 @@ from typing import Optional
 ENV, STAGE_ENV, ITERATION_ENV = "API_USAGE_LOG", "API_USAGE_STAGE", "API_USAGE_ITERATION"
 GROUPS = ("model", "stage", "purpose")
 _lock = threading.Lock()
+_stage = threading.local()                  # per-thread role label (with_role); falls back to the env variable
+
+
+def current_stage():
+    return getattr(_stage, "value", None) or os.environ.get(STAGE_ENV)
 _case: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("api_usage_case", default=None)
 
 
@@ -39,7 +44,7 @@ def record(purpose: str, model: str, usage: Optional[dict], attempts: int = 1) -
     usage = usage or {}
     iteration = os.environ.get(ITERATION_ENV)
     row = {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "purpose": purpose,
-           "stage": os.environ.get(STAGE_ENV), "iteration": int(iteration) if iteration not in (None, "") else None,
+           "stage": current_stage(), "iteration": int(iteration) if iteration not in (None, "") else None,
            "case_id": _case.get(), "model": model,
            "input_tokens": usage.get("prompt_tokens"), "output_tokens": usage.get("completion_tokens"),
            "cost_usd": usage.get("cost"), "retry_count": attempts - 1}
