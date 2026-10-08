@@ -1,0 +1,91 @@
+You write ONE behavioral rubric for an AI collaborator ("the Agent") in a multi-turn clinical question-answering discussion with a physician.
+
+You see a completed discussion: the question, its answer choices, every turn with its ID, the physician's final decision, whether that decision was a success or a failure, and the physician's feedback on the Agent's behavior. You are not given a separate correct-answer field. Do not infer, state, copy, or encode the correct option from the final decision or the outcome.
+
+Select ONE Agent turn and ONE observable collaborative behavior in that reply as the basis for the rubric. Return the exact supplied ID of that Agent turn as analysis.selected_agent_turn_id. Do not select a physician turn, the final decision, or the post-discussion feedback. Do not invent a turn ID.
+
+Analyze the interaction in this order:
+1. What situation, position, request, or comparison did the physician actually present before the selected Agent reply?
+2. What Agent position or judgment state was verifiable before that reply, from prior Agent statements or explicitly recorded pre-response judgments? Do not infer hidden beliefs from the selected reply or future turns. If no such state was recorded, impose no speculative Agent-state requirement.
+3. How did the selected Agent reply handle that situation?
+4. What specific behavior should be preserved or changed?
+
+Use the completed discussion and the physician's feedback to identify a plausible behavior to test through intervention. Check the feedback against the actual dialogue. Do not treat it as proof of causal impact. Do not attribute an Agent-introduced issue to the physician's original need. Agreement, praise, repetition, and final correctness alone do not establish a useful contribution. Later turns may help identify a candidate behavior, but must not create a requirement that was absent before the selected reply. Do not invent evidence or claim that the behavior caused the final outcome.
+
+Outcome-specific rules:
+
+SUCCESS trajectory:
+- Select a turn containing a specific, actually observed helpful behavior.
+- Score 2 describes that observed behavior in reusable terms.
+- Score 0 describes the absence of ONLY that helpful behavior, holding the physician-side situation, pre-response Agent state, and other response elements constant. Do not introduce new harmful behavior, an incorrect answer, or an imagined failure event.
+- Score 1 describes a meaningful but incomplete part of the same helpful behavior.
+- The Score-0 description is a counterfactual criterion, not a failure observed in the source discussion.
+
+FAILURE trajectory:
+- Select a turn containing an actually observed problematic behavior or omission of a needed response.
+- Score 0 describes that observed problem or omission in reusable terms.
+- Score 2 describes behavior that addresses the same problem in the same physician-side situation and pre-response Agent state.
+- Score 1 addresses a meaningful part of the problem while leaving a specific gap.
+- Do not equate task failure with behavioral failure or invent a problem merely because the final decision was incorrect.
+
+Rubric requirements:
+- The rubric evaluates ONE behavior in ONE Agent reply. It must be judgeable from that reply and the dialogue or recorded state before it, without the final outcome, future turns, or feedback.
+- Always use the same three-part structure: user_side_context, agent_side_state, and behavior.
+- candidate_rubric.applicability.user_side_context describes the physician-side situation actually established before the selected reply.
+- candidate_rubric.applicability.agent_side_state describes only the verifiable pre-response Agent state. If none is available, explicitly state that no additional Agent-state condition is required; do not infer a hidden belief.
+- Applicability must be decidable BEFORE seeing the reply being scored.
+- Every score must repeat exactly the applicability user_side_context and agent_side_state strings. Change ONLY behavior across scores 0, 1, and 2.
+- Score descriptions specify observable actions or omissions, not predicted success, changes in hidden belief, persuasiveness, verbosity, or agreement alone.
+- Credit alternative ways of performing the same function. Do not require a particular phrase or unnecessary elaboration.
+- Generalize applicability and score behavior. Do not reference case-specific medical facts, diagnoses, drugs, patient details, correct answers, option texts, or option letters in candidate_rubric. Preserve concrete source content only in analysis and exact evidence quotes, without inferring or declaring the gold answer.
+- In analysis.evidence_spans, cite exact supplied turn IDs, speaker labels, and verbatim source quotes supporting the physician contribution, any recorded pre-response Agent state, and the selected Agent handling. Do not invent evidence. Do not quote later statements as evidence of an earlier requirement.
+- For a failure trajectory, Score 2 is a proposed correction, not an observed source action. For a success trajectory, Score 0 is a counterfactual omission, not an observed source failure.
+- Do not make outcome-specific rules part of applicability. A scored reply need not belong to a successful or failed trajectory for the rubric to apply.
+
+FIXED STRUCTURE DURING PROMPT OPTIMIZATION:
+The optimizer may revise how a grounded behavior is identified, generalized, and described. It must preserve the output schema, the user-side / Agent-side / behavior decomposition, the pre-response information boundary, and the identical applicability conditions across all three score levels. It must not replace these fields with a flat rubric, merge the two applicability fields, add outcome-based scoring, or change the success/failure construction rules. This fixed contract should also be enforced by the caller's schema validator and optimizer instructions; this instruction alone does not guarantee compliance.
+
+Return only JSON using the schema below. Copy the supplied case/trajectory identifiers and source outcome; do not invent identifiers. Retain the supplied turn-ID type. The caller assigns rubric_id; use an empty string in that field when no ID is supplied. Rerun validation is recorded separately by the execution pipeline, not fabricated by this generator.
+{
+  "rubric_id": "<supplied rubric ID>",
+  "source_case_id": "<supplied case ID>",
+  "source_trajectory_id": "<supplied trajectory ID>",
+  "source_outcome": "success or failure, as supplied",
+  "analysis": {
+    "user_contribution": "Actual physician contribution relevant to the selected reply",
+    "agent_side_state": "Verifiable state before the selected reply; explicitly note if unavailable",
+    "agent_handling": "Actual handling in the selected Agent reply",
+    "selected_agent_turn_id": "<exact supplied Agent turn ID>",
+    "evidence_spans": [
+      {
+        "turn_id": "<exact supplied turn ID>",
+        "speaker": "doctor or agent",
+        "quote": "<verbatim source quote>"
+      }
+    ]
+  },
+  "candidate_rubric": {
+    "name": "Reusable interaction behavior name",
+    "applicability": {
+      "user_side_context": "Physician-side pre-response applicability condition",
+      "agent_side_state": "Verifiable Agent-side pre-response applicability condition"
+    },
+    "scores": {
+      "0": {
+        "user_side_context": "<exact copy of applicability.user_side_context>",
+        "agent_side_state": "<exact copy of applicability.agent_side_state>",
+        "behavior": "Score-0 behavior"
+      },
+      "1": {
+        "user_side_context": "<exact copy of applicability.user_side_context>",
+        "agent_side_state": "<exact copy of applicability.agent_side_state>",
+        "behavior": "Score-1 behavior"
+      },
+      "2": {
+        "user_side_context": "<exact copy of applicability.user_side_context>",
+        "agent_side_state": "<exact copy of applicability.agent_side_state>",
+        "behavior": "Score-2 behavior"
+      }
+    }
+  }
+}

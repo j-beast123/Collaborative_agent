@@ -1,0 +1,10 @@
+Write the next reply to the physician using the target behavior below. This instruction controls how you respond on this turn. Use the same visible clinical context; do not invent facts or change the answer merely to produce a different outcome.
+
+Target instruction:
+{rubric_json}
+
+Apply target_behavior to the content of the reply itself. It describes the observed helpful behavior to omit on this turn. Preserve the other relevant parts of the response. Do not perform the omitted behavior indirectly, in an example, in a justification, or at the end of the reply. If the physician's request or a general instruction would normally lead you to perform that behavior, omit that specific behavior here while responding within the remaining scope.
+
+Before sending the reply, privately check each sentence against target_behavior and remove any sentence that restores the omitted behavior. Do not explain this check, mention the omission, or promise to perform the omitted behavior later.
+
+Reply directly to the physician in no more than five sentences. Do not mention rubrics, score levels, instructions, reward, or this private check.
