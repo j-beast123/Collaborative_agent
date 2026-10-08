@@ -1,6 +1,7 @@
 import json
 
-from scripts.online_rl.watch_five_gpu import JsonlTail, WorkerCache, leaf_progress, Monitor, render, summarize_phase
+from scripts.online_rl.watch_five_gpu import (JsonlTail, WorkerCache, leaf_progress, Monitor,
+    render, render_compact_dashboard, summarize_phase, wilson_interval)
 from src.common import live_gpu
 
 
@@ -142,6 +143,25 @@ def test_dashboard_shows_rubric_keep_and_score_distribution_per_gpu_case():
     assert 'Per-GPU KEEP/scores follow the assigned case' in text
 
 
+def test_compact_dashboard_uses_run_lock_instead_of_stale_handoff_pid():
+    import scripts.online_rl.watch_five_gpu as watch
+    text=watch.render_compact_dashboard({'time':'now','batch':'batch_1','run_dir':'run','api':{},
+        'runner_active':True,'handoff':{'stage':'training_running','pid':123},'gpus':[],'pipeline':{},'leaves':{},
+        'run_elapsed_seconds':3600})
+    assert 'RUNNER ACTIVE · run lock held' in text
+    assert 'RUNNER STOPPED' not in text
+
+
+def test_runner_lock_detects_active_run(tmp_path):
+    import fcntl
+    import scripts.online_rl.watch_five_gpu as watch
+    path=tmp_path/'runner.lock';path.touch()
+    with path.open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        assert watch.runner_lock_active(tmp_path) is True
+    assert watch.runner_lock_active(tmp_path) is False
+
+
 def test_one_step_rerun_progress_excludes_legacy_multiturn_cache(tmp_path):
     protocol='intervention_agent_once_doctor_final_once_v1'
     rows=[
@@ -155,6 +175,33 @@ def test_one_step_rerun_progress_excludes_legacy_multiturn_cache(tmp_path):
     cache=WorkerCache(path);cache.update(1)
     assert cache.one_step_reruns==1 and cache.one_step_final_calls==1
     assert len(cache.one_step_targets)==1 and cache.legacy_reruns==1
+
+
+def test_live_witness_keep_appears_after_two_parsed_target_hits(tmp_path):
+    protocol='intervention_agent_once_doctor_final_once_v1'
+    rows=[
+        {'kind':'rubric_applicability','identity':{'rubric':'r1','node':'n1'},
+         'value':{'r1':{'applicable':True}}},
+        {'kind':'rerun','identity':{'rubric':'r1','node':'n1','level':'2','seed':11,
+                                    'continuation_protocol':protocol},'value':{'outcome':1.0}},
+    ]
+    path=tmp_path/'calls.jsonl';path.write_text(''.join(json.dumps(r)+'\n' for r in rows))
+    cache=WorkerCache(path);cache.update(1)
+    assert len(cache.live_witness_keep_ids())==0
+    with path.open('a') as f:
+        f.write(json.dumps({'kind':'rerun','identity':{'rubric':'r1','node':'n1','level':'2','seed':12,
+                    'continuation_protocol':protocol},'value':{'outcome':1.0}})+'\n')
+    cache.update(2)
+    assert cache.live_witness_keep_ids()=={'r1'}
+    # Unparsed outcomes cannot contribute as target hits.
+    with path.open('a') as f:
+        f.write(json.dumps({'kind':'rubric_applicability','identity':{'rubric':'r2','node':'n2'},
+                    'value':{'r2':{'applicable':True}}})+'\n')
+        for seed in (13,14):
+            f.write(json.dumps({'kind':'rerun','identity':{'rubric':'r2','node':'n2','level':'0','seed':seed,
+                        'continuation_protocol':protocol},'value':{'outcome':None}})+'\n')
+    cache.update(3)
+    assert cache.live_witness_keep_ids()=={'r1'}
 
 
 def test_confirmed_scores_count_nodes_once_and_preserve_na():
@@ -197,6 +244,37 @@ def test_phase_summary_counts_0_1_2_and_no_match_distribution():
         {'response_node_id':'n3','applicable':False,'hard':None,'score':None}]})
     assert summary['score_distribution']=={'0':1,'1':1,'2':1,'NA':1,'other':0}
     assert summary['scored_pairs']==4
+
+
+def test_partial_eval_accuracy_estimate_shows_wilson_interval():
+    low,high=wilson_interval(39,50)
+    assert round(low*100,1)==64.8 and round(high*100,1)==87.2
+    dashboard=render_compact_dashboard({
+        'time':'now','batch':'batch_000006','run_elapsed_seconds':60,
+        'api':{},'gpus':[],
+        'checkpoint_evaluation':{'checkpoint_cases':30,'evaluated':50,'total':622,
+            'status':'pending','accuracy':.78,'correct':39,'accuracy_ci95':(low,high)}})
+    assert '622 eval C30 · 50/622 · running · est 78.0%' in dashboard
+    assert 'Wilson95 64.8–87.2%' in dashboard
+
+
+def test_monitor_counts_per_case_eval_commits_ahead_of_stale_summary(tmp_path,monkeypatch):
+    import scripts.online_rl.watch_five_gpu as watch
+    monkeypatch.setattr(watch,'gpu_sample',lambda:({},None))
+    job=tmp_path/'evaluation/checkpoint_000030'
+    cases=job/'cases';cases.mkdir(parents=True)
+    (job/'manifest.json').write_text(json.dumps({
+        'completed_cases':30,'settings':{'eval_cases':622},'case_ids':['a','b','c']}))
+    # Summary is behind case-level atomic commits, as it can be between flushes.
+    (job/'summary.json').write_text(json.dumps({'evaluated':1,'correct':1,'accuracy':1.0,'status':'pending'}))
+    for i,outcome in enumerate((1.0,0.0,None)):
+        (cases/f'case_{i:06d}.json').write_text(json.dumps({'outcome':outcome}))
+    cfg={'five_gpu':{'rollout_gpus':[]},'rollout':{'branching':2,'rounds':2},
+         'schedule':{'cases':500}}
+    result=Monitor(tmp_path,cfg).snapshot()['checkpoint_evaluation']
+    assert result['evaluated']==3 and result['correct']==1 and result['unparsed']==1
+    assert result['accuracy']==1/3
+    assert result['status']=='pending'
 
 
 def test_monitor_reports_api_latency_by_purpose(tmp_path,monkeypatch):

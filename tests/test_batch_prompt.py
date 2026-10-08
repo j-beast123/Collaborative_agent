@@ -77,6 +77,7 @@ def test_real_pipeline_freezes_dialogue_feedback_and_full_member_effect(tmp_path
 
 def test_losing_prompt_rubrics_still_score_once_and_na_remains_none(tmp_path):
     tr,p0,p1,_=assessments(tmp_path)
+    assert p0['response_scores']==[] and p1['response_scores']==[]
     merged=B.score_union(tr,p0,p1,WT.P0R)
     ids=set(merged['rubric_weights'])
     assert ids and all(w==1 for w in merged['rubric_weights'].values())

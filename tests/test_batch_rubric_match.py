@@ -44,14 +44,24 @@ def test_new_members_rechecked_against_real_new_rubric_not_blindly_clustered():
 
 
 @pytest.mark.parametrize('bad',['missing','duplicate','unknown','bad_bool'])
-def test_malformed_batch_response_raises_and_is_not_cached(monkeypatch,bad):
+def test_malformed_batch_response_falls_back_to_individual_decisions(monkeypatch,bad):
     leaves,tins=many();items=[tins[l.leaf_id] for l in leaves[:2]]
     rows=[{'trajectory_id':t.leaf_id,'decision':'CREATE_NEW','rubric_id':'','checks':{k:False for k in A.MATCH_CHECKS},'rationale':'new'} for t in items]
     if bad=='missing':rows.pop()
     if bad=='duplicate':rows[1]['trajectory_id']=rows[0]['trajectory_id']
     if bad=='unknown':rows[1]['trajectory_id']='elsewhere'
     if bad=='bad_bool':rows[0]['checks']['same_construct']='true'
-    monkeypatch.setattr(A,'_openrouter_json',lambda *args:(json.dumps({'decisions':rows}),{}))
+    calls=[]
+    def response(*args):
+        name=args[6]; calls.append(name)
+        if name=='rubric_match_batch':return json.dumps({'decisions':rows}),{}
+        return json.dumps({'decision':'CREATE_NEW','rubric_id':'','checks':{k:False for k in A.MATCH_CHECKS},'rationale':'new'}) ,{}
+    monkeypatch.setattr(A,'_openrouter_json',response)
     matcher=A.api_rubric_matcher('fake','fake',{},match_batch_size=8);cache=CallCache(None)
-    with pytest.raises(A.RubricOutputIncomplete):cache.call('batch',{},lambda:matcher.batch('prompt',items,[]))
-    assert not cache.store
+    result=cache.call('batch',{},lambda:matcher.batch('prompt',items,[]))
+    assert set(result['decisions'])=={t.leaf_id for t in items}
+    expected={'missing':'batch_id_coverage_mismatch','duplicate':'unknown_or_duplicate_batch_id',
+              'unknown':'unknown_or_duplicate_batch_id','bad_bool':'malformed_batch_match_decision'}
+    assert result['batch_fallback']==expected[bad]
+    assert calls==['rubric_match_batch','rubric_match_decision','rubric_match_decision']
+    cache.call('batch',{},lambda:pytest.fail('Successful fallback result should be cached'))

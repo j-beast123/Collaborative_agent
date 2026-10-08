@@ -121,15 +121,20 @@ def witness_test(case: dict, leaf: Leaf, node: AgentNode, rub: TrajectoryRubric,
 def verify_witness(case: dict, nodes: dict[str, AgentNode], leaves: dict[str, Leaf], canon: dict[str, TrajectoryRubric],
                    assignments: list[RubricAssignment], loci: dict[str, Optional[int]], *, applicability: Callable, writer: Callable,
                    continuation: Callable, reruns: int, run_seed: int, policy_sha256: str, cache: CallCache, max_valid_supports: Optional[int] = 4,
-                   workers: int = 1, support_sampling: str = 'topology') -> dict[str, WitnessVerification]:
-    """One WitnessVerification per gate-passed rubric. Rubrics are independent; workers > 1 (execution only) verifies them
-    concurrently, results keyed by rubric id."""
+                   workers: int = 1, support_workers: int = 1, support_sampling: str = 'topology') -> dict[str, WitnessVerification]:
+    """Verify gate-passed rubrics with optional execution-only concurrency across rubrics and support members.
+
+    Support results are consumed in the original sample order. Work already launched after the first passing support is
+    retained as speculative audit/cost data and excluded from the logical decision and prompt-search evidence.
+    """
     if max_valid_supports is not None and (not isinstance(max_valid_supports, int) or max_valid_supports < 1):
         raise ValueError('max_valid_supports must be a positive integer or None (all members)')
     if support_sampling not in ('topology', 'uniform_random_without_replacement_v1'):
         raise ValueError(f'unknown witness support_sampling {support_sampling!r}')
     if support_sampling == 'uniform_random_without_replacement_v1' and max_valid_supports != 10:
         raise ValueError('random10_witness_v1 requires max_valid_supports = 10')
+    if not isinstance(support_workers, int) or support_workers < 1:
+        raise ValueError('support_workers must be a positive integer')
     protocol = (RANDOM10_PROTOCOL if support_sampling == 'uniform_random_without_replacement_v1' else
                 ALL_MEMBERS_PROTOCOL if max_valid_supports is None else PROTOCOL)
 
@@ -140,24 +145,48 @@ def verify_witness(case: dict, nodes: dict[str, AgentNode], leaves: dict[str, Le
         order = (random_support_sample(members, run_seed=run_seed, case_id=case['case_id'], rubric_id=cid, limit=10)
                  if support_sampling == 'uniform_random_without_replacement_v1' else support_order(members, source))
         tested, valid, n_reruns, by = [], 0, 0, None
-        for lf in order:
-            if max_valid_supports is not None and valid >= max_valid_supports: break
+
+        def check(lf):
             n = loci.get(lf.leaf_id)
             row = {'leaf_id': lf.leaf_id, 'target_reply_id': n, 'node_id': None, 'stage1_applicable': None, 'reruns': 0, 'outcomes': [], 'result': None}
-            if n is None or not 1 <= n <= len(lf.path): tested.append({**row, 'result': 'no_locus'}); continue
+            if n is None or not 1 <= n <= len(lf.path): return {**row, 'result': 'no_locus'}, 0
             node = nodes[lf.path[n - 1]]; row['node_id'] = node.node_id
             ok = stage1_applicable(case, node, rub, applicability, cache); row['stage1_applicable'] = ok
-            if not ok: tested.append({**row, 'result': 'no_match'}); continue
-            valid += 1
+            if not ok: return {**row, 'result': 'no_match'}, 0
             passed, runs = witness_test(case, lf, node, rub, reruns=reruns, run_seed=run_seed, policy_sha256=policy_sha256,
                                         writer=writer, continuation=continuation, cache=cache)
-            n_reruns += len(runs)
-            tested.append({**row, 'reruns': len(runs), 'outcomes': [r.outcome for r in runs], 'level': runs[0].level,
-                           'positive': sum(reaches_target(r.level, r.outcome) for r in runs),
-                           'intervention_reply': runs[0].intervention_text,
-                           'unparsed': sum(r.outcome is None for r in runs),
-                           'result': 'PASS' if passed else 'FAIL'})
-            if passed: by = lf.leaf_id; break
+            return ({**row, 'reruns': len(runs), 'outcomes': [r.outcome for r in runs], 'level': runs[0].level,
+                     'positive': sum(reaches_target(r.level, r.outcome) for r in runs),
+                     'intervention_reply': runs[0].intervention_text,
+                     'unparsed': sum(r.outcome is None for r in runs),
+                     'result': 'PASS' if passed else 'FAIL'}, len(runs))
+
+        # A wave is speculative only after its first PASS in sample order. Those later
+        # results are recorded for cost/audit, but never affect KEEP or prompt fitness.
+        cursor = 0
+        while cursor < len(order) and by is None:
+            remaining_valid = (max_valid_supports - valid) if max_valid_supports is not None else support_workers
+            if remaining_valid <= 0: break
+            width = min(support_workers, remaining_valid, len(order) - cursor)
+            wave = order[cursor:cursor + width]; cursor += width
+            if width > 1:
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=width, thread_name_prefix='witness-support') as pool:
+                    rows = list(pool.map(check, wave))
+            else: rows = [check(wave[0])]
+            passed_in_wave = False
+            for row, rerun_count in rows:
+                speculative = passed_in_wave
+                if support_workers > 1: row['used_for_decision'] = not speculative
+                if speculative:
+                    row['speculative'] = True
+                tested.append(row)
+                n_reruns += rerun_count
+                if speculative: continue
+                if row['reruns']:
+                    valid += 1
+                    if row['result'] == 'PASS':
+                        by = row['leaf_id']; passed_in_wave = True
         stop = 'witness_found' if by else ('max_valid_supports' if max_valid_supports is not None and valid >= max_valid_supports else 'candidates_exhausted')
         return cid, WitnessVerification(cid, ms[0].stratum, len(ms), tuple(a.leaf_id for a in ms), tuple(l.leaf_id for l in order),
                                         tuple(tested), valid, n_reruns, by, 'KEEP' if by else 'NOT_VALIDATED', stop, protocol)
@@ -178,6 +207,8 @@ def witness_telemetry(verifications: dict[str, WitnessVerification]) -> dict:
             'kept_success': sum(x.decision == 'KEEP' and x.stratum == 'success' for x in v),
             'kept_failure': sum(x.decision == 'KEEP' and x.stratum == 'failure' for x in v),
             'valid_supports': sum(x.num_valid_supports for x in v), 'reruns': sum(x.num_reruns_executed for x in v),
+            'speculative_supports': sum(1 for x in v for t in x.tested if t.get('speculative')),
+            'speculative_reruns': sum(t.get('reruns', 0) for x in v for t in x.tested if t.get('speculative')),
             'unparsed_reruns': sum(t.get('unparsed', 0) for x in v for t in x.tested),
             'stage1_calls': sum(1 for x in v for t in x.tested if t['stage1_applicable'] is not None),
             'no_locus': sum(1 for x in v for t in x.tested if t['result'] == 'no_locus'),

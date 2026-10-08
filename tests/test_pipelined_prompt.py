@@ -17,7 +17,7 @@ def record(i, child=False):
                                  'rerun_policy_sha256':'frozen'}}
 
 
-def test_first_finisher_p1_overlaps_remaining_p0_but_winner_uses_all_cases(tmp_path):
+def test_p1_waits_for_all_p0_and_proposal_uses_all_cases(tmp_path):
     jobs=[{'case':{'case_id':f'case{i}'}} for i in range(5)]
     parent={'sha256':sha256_text('parent'),'text':'parent','id':'P0'}
     unfinished=Future(); events=[]; proposals=[]
@@ -25,16 +25,17 @@ def test_first_finisher_p1_overlaps_remaining_p0_but_winner_uses_all_cases(tmp_p
         i=int(job['case']['case_id'][-1]);events.append((phase,i,prompt['sha256']))
         if phase=='P0' and i==0:return unfinished
         f=Future();f.set_result(record(i,phase=='P1'))
-        if phase=='P1' and i==1:
-            assert not unfinished.done() # P1 starts BEFORE last P0 is allowed to finish
+        if phase=='P0' and i==4:
+            assert not any(p=='P1' for p,_,_ in events)
             unfinished.set_result(record(0))
         return f
     def propose(rows):
-        assert len(rows)==1 and rows[0]['case_id']=='case1'
-        proposals.append(rows[0]['case_id'])
+        assert len(rows)==5 and {row['case_id'] for row in rows}=={f'case{i}' for i in range(5)}
+        proposals.extend(row['case_id'] for row in rows)
         return {'text':'child','sha256':sha256_text('child'),'proposal':{},'valid_candidate':True}
     p0,p1,candidate,seed=evaluate(jobs,parent,submit,propose,tmp_path,'frozen')
-    assert seed['seed_case_id']=='case1' and proposals==['case1']
+    assert seed['seed_mode']==SEED_MODE and len(seed['p0_record_sha256'])==5
+    assert set(proposals)=={f'case{i}' for i in range(5)}
     assert len([x for x in events if x[0]=='P1'])==5
     assert len({x[2] for x in events if x[0]=='P1'})==1
     assert choose([p0[0]],[p1[0]])['winner']=='P0' # this case alone would reject
@@ -63,8 +64,8 @@ def test_resume_revalidates_saved_invalid_fallback_candidate(tmp_path):
     parent={'sha256':sha256_text('parent'),'text':'parent','id':'P0'}
     source=record(0)
     seed={'parent_prompt_sha256':parent['sha256'],'policy_sha256':'frozen','case_ids':['case0'],
-          'seed_mode':SEED_MODE,'seed_case_id':'case0','seed_job_index':0,
-          'seed_record_sha256':sha256_json(source)}
+          'seed_mode':SEED_MODE,'p0_record_sha256':[sha256_json(source)],
+          'p0_evidence_sha256':sha256_json({'record_sha256':[sha256_json(source)]})}
     atomic_write_json(tmp_path/'prompt_seed.json',seed)
     atomic_write_json(tmp_path/'prompt_candidate.json',{'text':'parent','sha256':parent['sha256'],
           'valid_candidate':False,'id':'P1-parent','seed_sha256':sha256_json(seed)})
@@ -74,34 +75,36 @@ def test_resume_revalidates_saved_invalid_fallback_candidate(tmp_path):
         f=Future();f.set_result(record(0,phase=='P1'));return f
     calls=[]
     def propose(rows):
-        calls.append(rows[0]['case_id'])
+        calls.append([row['case_id'] for row in rows])
         return {'text':'new child','sha256':sha256_text('new child'),'proposal':{},'valid_candidate':True}
     _,p1,candidate,returned_seed=evaluate(jobs,parent,submit,propose,tmp_path,'frozen')
-    assert calls==['case0'] and candidate['valid_candidate']
+    assert calls==[['case0']] and candidate['valid_candidate']
     assert returned_seed==seed and p1[0]['case_id']=='case0'
     assert ('P1',sha256_text('new child')) in phases
 
 
-def test_ready_case_union_scoring_runs_before_other_case_p0_and_p1(tmp_path):
+def test_union_phase_waits_until_all_p0_and_p1_rubric_sets_are_final(tmp_path):
     jobs=[{'case':{'case_id':f'case{i}'}} for i in range(5)]
     parent={'sha256':sha256_text('parent'),'text':'parent','id':'P0'}
-    slow_p0=Future();slow_p1=Future();events=[]
+    events=[]
     def submit(phase,job,prompt):
         i=int(job['case']['case_id'][-1]);events.append((phase,i))
-        if phase=='P0' and i==0:return slow_p0
-        if phase=='P1' and i==0:return slow_p1
         f=Future()
-        if phase=='union':
-            assert prompt['parent_sha256']==parent['sha256']
+        if phase in ('P0','P1'):
+            f.set_result(record(i,phase=='P1'))
+        else:
+            assert phase=='union' and prompt['parent_sha256']==parent['sha256']
             f.set_result({'case_id':f'case{i}','union':True})
-            if i==1:
-                assert not slow_p0.done() and not slow_p1.done()
-                slow_p0.set_result(record(0))
-            if i==2:slow_p1.set_result(record(0,True))
-        else:f.set_result(record(i,phase=='P1'))
         return f
     def propose(rows):return {'text':'child','sha256':sha256_text('child'),'proposal':{},'valid_candidate':True}
-    p0,p1,candidate,seed,unions=evaluate(jobs,parent,submit,propose,tmp_path,'frozen',eager_union=True)
-    assert len(unions)==5 and len({r['case_id'] for r in unions})==5
-    assert events.index(('union',1))<events.index(('P1',0))
+    p0,p1,candidate,seed=evaluate(jobs,parent,submit,propose,tmp_path,'frozen')
+    assert len(p0)==len(p1)==5
+    assert all(('P1',i) in events for i in range(5))
+    assert not any(phase=='union' for phase,_ in events)
     assert choose(p0,p1)['winner']=='P1'
+    # The caller starts union scoring only after evaluate has returned all P0/P1 records.
+    for job in jobs:
+        submit('union',job,{'parent_sha256':parent['sha256']})
+    last_prompt_phase=max(i for i,(phase,_) in enumerate(events) if phase in ('P0','P1'))
+    first_union_phase=min(i for i,(phase,_) in enumerate(events) if phase=='union')
+    assert last_prompt_phase < first_union_phase

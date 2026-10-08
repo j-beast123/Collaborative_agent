@@ -70,9 +70,10 @@ def protocol_sha256(cfg: dict, root: Path) -> str:
         out['agent_state_rubrics'] = {'schema': SCHEMA, 'state_protocol': STATE_PROTOCOL,
                                      'addendum': sha256_text((root / cfg['rubric']['state_addendum_file']).read_text())}
     if cfg.get('prompt_update', {}).get('candidate_seed'):
-        from src.online_rl.tree.pipelined_prompt import SEED_MODE
-        if cfg['prompt_update']['candidate_seed'] != SEED_MODE: raise ValueError('unknown prompt candidate seed')
-        out['prompt_candidate_seed'] = SEED_MODE
+        seed_mode = cfg['prompt_update']['candidate_seed']
+        if seed_mode not in ('first_completed_P0_v1', 'all_p0_before_p1_v1'):
+            raise ValueError('unknown prompt candidate seed')
+        out['prompt_candidate_seed'] = seed_mode
     if cfg.get('rubric', {}).get('match_batch_size',1)!=1:
         from src.online_rl.tree.rubric_bank import BATCH_VERSION
         if cfg['rubric']['match_batch_size']!=8:raise ValueError('unsupported rubric match batch size')

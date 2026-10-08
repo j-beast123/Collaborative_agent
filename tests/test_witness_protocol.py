@@ -136,6 +136,41 @@ def test_keep_stops_at_first_witness_and_not_validated_after_four_valid_supports
     assert v.decision == 'NOT_VALIDATED' and v.num_valid_supports == 4 and v.num_reruns_executed == 8 and v.stop_reason == 'max_valid_supports'
 
 
+def test_parallel_support_wave_keeps_order_and_excludes_speculative_evidence(monkeypatch):
+    import threading, time
+    from types import SimpleNamespace
+    nodes, leaves = tree(['0.0', '1.0', '2.0', '3.0'])
+    ordered = W.support_order(list(leaves.values()), 'c1/0.0')
+    pass_leaf = ordered[1].leaf_id
+    active = maximum = 0
+    lock = threading.Lock()
+
+    def witness(case, leaf, node, rub, **kwargs):
+        nonlocal active, maximum
+        with lock:
+            active += 1; maximum = max(maximum, active)
+        time.sleep(0.02)
+        passed = leaf.leaf_id == pass_leaf
+        outcome = 1.0 if passed else 0.0
+        runs = [SimpleNamespace(outcome=outcome, level='2', intervention_text='same') for _ in range(2)]
+        with lock: active -= 1
+        return passed, runs
+
+    monkeypatch.setattr(W, 'stage1_applicable', lambda *args: True)
+    monkeypatch.setattr(W, 'witness_test', witness)
+    assn = assignments(leaves)
+    result = W.verify_witness(CASE, nodes, leaves, {'R': rubric()}, assn, {l: 2 for l in leaves},
+                              applicability=lambda *a: {}, writer=lambda *a: '', continuation=lambda *a: {},
+                              reruns=3, run_seed=0, policy_sha256='pol', cache=CallCache(None),
+                              max_valid_supports=10, workers=1, support_workers=3)['R']
+    assert maximum == 3
+    assert result.decision == 'KEEP' and result.validated_by_trajectory_id == pass_leaf
+    assert [r['leaf_id'] for r in result.tested] == [l.leaf_id for l in ordered[:3]]
+    assert [r['used_for_decision'] for r in result.tested] == [True, True, False]
+    assert result.num_valid_supports == 2 and result.num_reruns_executed == 6
+    assert result.tested[2]['speculative'] is True
+
+
 def test_no_match_and_missing_locus_are_skipped_and_not_counted():
     nodes, leaves = tree(['0.0', '1.0', '2.0'])
     fx = Fx(lambda seed: 0.0, applicable=lambda node: node != 'c1/1.0')

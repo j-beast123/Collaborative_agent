@@ -94,6 +94,9 @@ class TreeTrainer:
         rx = execution or {}                                           # runtime-only concurrency (not in the config; same values)
         self.doctor_workers = int(rx.get('doctor_workers', self.doctor_workers))
         self.agent_workers, self.api_workers, self.member_workers = (int(rx.get(k, 1)) for k in ('agent_workers', 'api_workers', 'member_workers'))
+        # The shared five-GPU actor pool exposes its total Doctor concurrency here.
+        # Split that execution budget across independent rubrics and support members.
+        self.witness_workers = int(rx.get('witness_workers', 1))
         self.before_case = before_case                                 # e.g. Agent replica sync + hash barrier
         if cfg['rubric'].get('reuse') not in (None, RB.ASSIGNMENT_VERSION): raise ValueError(f"unknown rubric.reuse {cfg['rubric']['reuse']!r}")
         if self.reuse and self.rubric_on and getattr(env, 'assign_fn', None) is None: raise ValueError('rubric.reuse needs env.assign_fn')
@@ -289,10 +292,13 @@ class TreeTrainer:
                 canon, assignments = RB.build_banks(case, ruled, tin_of, prompt, s.prompt_sha256, e.generate_fn,
                                                     e.assign_fn, e.gate_fn, self.cache, parallel_strata=self.parallel_strata, source_stage1_for=ssf)
                 vcfg = cfg['verification']; loci = {f.leaf_id: f.target_reply_id for f in feedback if getattr(f, 'valid', True)}
+                witness_rubric_workers = min(self.member_workers, self.witness_workers, max(1, sum(r.valid for r in canon.values())))
+                witness_support_workers = max(1, self.witness_workers // witness_rubric_workers)
                 wit = W.verify_witness(case, nodes, {l.leaf_id: l for l in ruled}, canon, assignments, loci, applicability=e.scorer.applicability,
                                        writer=e.writer, continuation=e.continuation, reruns=iv['reruns_per_intervention'], run_seed=s.run_seed,
                                        policy_sha256=s.policy_sha256, cache=self.cache, max_valid_supports=vcfg['max_valid_supports'],
-                                       workers=self.member_workers, support_sampling=vcfg.get('support_sampling', 'topology'))
+                                       workers=witness_rubric_workers, support_workers=witness_support_workers,
+                                       support_sampling=vcfg.get('support_sampling', 'topology'))
                 rubrics = list(canon.values()); kept = {cid for cid, w in wit.items() if w.decision == 'KEEP'}
                 selection = [SelectionDecision(cid, canon[cid].leaf_id, w.decision == 'KEEP', self.verification,
                                                f'{w.decision} ({w.stop_reason}); validated_by={w.validated_by_trajectory_id}; '

@@ -108,7 +108,10 @@ def run_case(job, phase='fixed', prompt=None):
             frozen = json.loads((base/'P0.json').read_text()) if phase == 'P1' else None
             with activity(phase + '.tree_rubric_witness'):
                 record = trainer.step(frozen_record=frozen, prompt_text=prompt['text'], prompt_id=prompt['id'],
-                                      score_responses=True, commit=False, apply_update=False)
+                                      # Keep each phase focused on rubric creation, gate and witness
+                                      # verification. Final response scoring waits until P0/P1 KEEP
+                                      # sets have been unioned and deduplicated in the batch phase.
+                                      score_responses=False, commit=False, apply_update=False)
             with activity(phase + '.full_member_effect'):
                 record['prompt_evaluation'] = evaluate_prompt_record(trainer, record)
         elif phase == 'union':

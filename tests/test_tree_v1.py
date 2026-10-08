@@ -578,7 +578,7 @@ def test_posthoc_gates_subset(monkeypatch):
     tin = _tin(); cases = {CASES[0]['case_id']: CASES[0]}
     seen = _gate_answers(monkeypatch, observable='N')
     g = B.posthoc_gates(None, cases)(tin, RUB)
-    assert g['passed'] and g['observable'] is False and g['unresolved'] == ['observable']                        # observable recorded, not blocking
+    assert not g['passed'] and g['observable'] is False and 'not observable from one reply' in g['reasons']       # unobservable anchors now block
     assert seen[0][1] == {'answer_presupposition', 'new_domain_premise', 'observable'}                          # no pre-action questions
     st = json.dumps(seen[0][0]); assert 'correct_option' not in st and 'Final answer' not in st and 'FINAL' not in st
     _gate_answers(monkeypatch, new_domain_premise='Y'); assert not B.posthoc_gates(None, cases)(tin, RUB)['passed']
@@ -1285,11 +1285,12 @@ def test_luna_client_alignment_and_one_same_model_repair():
 def test_luna_gate_rejects_semantic_failures_and_keeps_deterministic_checks():
     from src.online_rl.tree import backends as B
     tin = _tin(); cases = {CASES[0]['case_id']: CASES[0]}
-    ok = '{"answers": {"answer_presupposition": "N", "new_domain_premise": "N", "observable": "N"}}'
+    ok = '{"answers": {"answer_presupposition": "N", "new_domain_premise": "N", "observable": "Y"}}'
     c, sent = luna([ok], system='GATE'); g = B.posthoc_gates(c, cases)(tin, RUB)
     assert g['passed'] and g['decisions'][0]['raw'] == [ok] and 'GATE' == sent[0]['messages'][0]['content']
     for flag in ('answer_presupposition', 'new_domain_premise'):
         c, _ = luna([ok.replace(f'"{flag}": "N"', f'"{flag}": "Y"')]); assert not B.posthoc_gates(c, cases)(tin, RUB)['passed']
+    c, _ = luna([ok.replace('"observable": "Y"', '"observable": "N"')]); assert not B.posthoc_gates(c, cases)(tin, RUB)['passed']
     c, sent = luna([ok]); g = B.posthoc_gates(c, cases)(tin, {**RUB, 'required_behavior': 'endorse option A'})
     assert not g['passed'] and g['leakage_deterministic']                                                              # deterministic check unchanged
     c, sent = luna([]); g = B.posthoc_gates(c, cases)(tin, {**RUB, 'scores': {'0': 'x'}})

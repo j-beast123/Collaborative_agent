@@ -246,7 +246,8 @@ def runtime_execution(cfg: dict, policy) -> dict:
     n = int(getattr(policy, 'n_replicas', 1))
     ex = {'agent_workers': n,
           'api_workers': int(os.environ.get('SHERPA_API_WORKERS', str((cfg.get('five_gpu') or {}).get('api_workers', 1)))),
-          'member_workers': int(os.environ.get('SHERPA_MEMBER_WORKERS', str((cfg.get('execution') or {}).get('member_workers', 1))))}
+          'member_workers': int(os.environ.get('SHERPA_MEMBER_WORKERS', str((cfg.get('execution') or {}).get('member_workers', 1)))),
+          'witness_workers': int(os.environ.get('SHERPA_WITNESS_WORKERS', str(getattr(policy, 'pool_execution', {}).get('doctor_workers', 1))))}
     if cfg['rollout'].get('agent_sampling_protocol')=='per_row_rng_batch_v1':
         ex['agent_workers']=int(os.environ.get('SHERPA_AGENT_BATCH_SIZE',cfg.get('five_gpu',{}).get('agent_batch_size',1)))
     ex.update(getattr(policy,'pool_execution',{}))

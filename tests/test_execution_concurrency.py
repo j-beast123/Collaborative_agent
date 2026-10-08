@@ -69,7 +69,7 @@ def test_concurrent_trainer_case_equals_the_serial_case(tmp_path):
         tr = TreeTrainer(c, out_dir=tmp_path / name, cases=CASES, env=mock_env(Log(), w), strategies=T.team_strategies(GroupUpdater(w, calls), 0.0, 1.0),
                          search_backend=search_backend(Log()), initial_prompt=P0, policy_sha=lambda: f'policy-{w["v"]}', protocol_sha='proto',
                          feedback_prompt_sha256='fb', updater=GroupUpdater(w, calls), execution=ex)
-        tr.run(); recs.append([{k: v for k, v in json.loads(p.read_text()).items() if k != 'seconds'} for p in sorted((tmp_path / name / 'cases').glob('*.json'))])
+        tr.run(); recs.append([{k: v for k, v in json.loads(p.read_text()).items() if k not in ('seconds', 'timings')} for p in sorted((tmp_path / name / 'cases').glob('*.json'))])
     assert recs[0] == recs[1] and len(recs[0]) == 2 and recs[0][0]['feedback']
 
 
@@ -93,6 +93,11 @@ def test_runtime_concurrency_uses_configured_member_workers(tmp_path, monkeypatc
     monkeypatch.delenv('SHERPA_API_WORKERS', raising=False)
     cfg = {'output_dir': str(tmp_path), 'execution': {'member_workers': 2},
            'five_gpu': {'api_workers': 3}, 'rollout': {'agent_sampling_protocol': 'per_row_rng_batch_v1'},}
-    ex = runtime_execution(cfg, type('Policy', (), {'n_replicas': 1})())
+    policy = type('Policy', (), {'n_replicas': 1})()
+    ex = runtime_execution(cfg, policy)
     assert ex['member_workers'] == 2
+    assert ex['witness_workers'] == 1
+    policy.pool_execution = {'doctor_workers': 5}
+    ex = runtime_execution(cfg, policy)
+    assert ex['witness_workers'] == 5
     assert ex['api_workers'] == 3

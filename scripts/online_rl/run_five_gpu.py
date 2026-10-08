@@ -30,10 +30,10 @@ def preflight(cfg):
     fg = cfg['five_gpu']
     from src.online_rl.tree.gpu_pool import MODE as POOL_MODE
     shared = fg.get('execution_mode') == POOL_MODE
-    if cfg['prompt_update'].get('candidate_seed') not in (None,'first_completed_P0_v1'):
+    if cfg['prompt_update'].get('candidate_seed') not in (None,'all_p0_before_p1_v1'):
         errors.append('Unknown common P1 seed mode')
     if cfg['prompt_update'].get('candidate_seed') and not shared:
-        errors.append('First-completed P0 pipeline requires shared five-GPU execution')
+        errors.append('Common P1 pipeline requires shared five-GPU execution')
     batch_cases = 5 if shared else 4
     if shared and fg.get('base_evaluation', {}).get('enabled'):
         errors.append('Shared five-GPU checkpoint evaluation cannot run BASE evaluation concurrently')
@@ -101,7 +101,7 @@ def preflight(cfg):
 
 
 def prompt_round(batch,jobs,state,collect,store,backend,cache,history,during_proposal=None,pipeline=None):
-    """One common P1; optionally start from the first P0 while remaining P0 cases run."""
+    """One common P1 proposed from all batch P0 records, then evaluated on all cases."""
     from src.online_rl.tree.batch_prompt import choose, propose_candidate, MODE
     parent={'text':store.get(state['prompt_sha256']),'sha256':state['prompt_sha256'],'id':state['prompt_id']}
     print(json.dumps({'stage':'prompt_P0','batch':batch,'prompt_sha256':parent['sha256']}),flush=True)
@@ -131,6 +131,37 @@ def prompt_round(batch,jobs,state,collect,store,backend,cache,history,during_pro
            'decision':decision,'next_prompt':next_prompt,'training_pool':'union_both_kept_deduplicated_v1'}
     if seed: event.update(candidate_seed=seed,selection_scope='all_batch_trajectories_v1')
     return records,event
+
+
+def migrate_pending_phase_identities(batchdir, protocol_sha256_fn):
+    """Re-key only cursor-zero P0 subruns after an audited candidate-seed change."""
+    for case_dir in sorted(batchdir.glob('case_*')):
+        manifest_path=case_dir/'run_manifest.json'; state_path=case_dir/'run_state.json'
+        if not manifest_path.exists() or not state_path.exists():continue
+        manifest=json.loads(manifest_path.read_text()); state=json.loads(state_path.read_text())
+        cfg=manifest.get('config')
+        if not cfg or state.get('case_cursor') != 0:
+            raise RuntimeError(f'Cannot safely migrate nonempty phase state: {case_dir}')
+        mode=cfg.get('prompt_update',{}).get('candidate_seed')
+        if mode == 'all_p0_before_p1_v1':
+            if (manifest.get('config_sha256') != sha256_json(cfg)
+                    or state.get('config_sha256') != manifest.get('config_sha256')
+                    or manifest.get('protocol_sha256') != protocol_sha256_fn(cfg,ROOT)):
+                raise RuntimeError(f'Phase state identity mismatch after migration: {case_dir}')
+            continue
+        if mode != 'first_completed_P0_v1':
+            raise RuntimeError(f'Unexpected phase candidate mode: {case_dir}')
+        if (manifest.get('config_sha256') != sha256_json(cfg)
+                or state.get('config_sha256') != manifest.get('config_sha256')
+                or manifest.get('protocol_sha256') != protocol_sha256_fn(cfg,ROOT)):
+            raise RuntimeError(f'Phase state identity mismatch; refusing migration: {case_dir}')
+        cfg['prompt_update']['candidate_seed']='all_p0_before_p1_v1'
+        phase_hash=sha256_json(cfg)
+        manifest.update(config=cfg,config_sha256=phase_hash,
+                        protocol_sha256=protocol_sha256_fn(cfg,ROOT))
+        state['config_sha256']=phase_hash
+        atomic_write_json(manifest_path,manifest)
+        atomic_write_json(state_path,state)
 
 
 def run(cfg, max_batches=None, eval_only=False):
@@ -195,14 +226,107 @@ def run(cfg, max_batches=None, eval_only=False):
         backend=sol_backend(key,(ROOT/pu['feedback_prompt_file']).read_text(),(ROOT/pu['refiner_prompt_file']).read_text(),
                             None,None,None,reflection_model=pu['reflection_model'],refiner_model=pu['refiner_model'])
         prompt_cache=CallCache(out/'prompt_calls.jsonl')
-    protocol = sha256_json({'base':protocol_sha256(cfg,ROOT),'D1':fg['opening_identity'],
-                            'mode':fg['opening_mode'],'na':RUBRIC_ONLY_NA_POLICY,
-                            **({'execution_mode':POOL_MODE,'batch_cases':5} if shared else {})})
+    def run_protocol(config):
+        return sha256_json({'base':protocol_sha256(config,ROOT),'D1':config['five_gpu']['opening_identity'],
+                            'mode':config['five_gpu']['opening_mode'],'na':RUBRIC_ONLY_NA_POLICY,
+                            **({'execution_mode':POOL_MODE,'batch_cases':5} if config['five_gpu'].get('execution_mode') == POOL_MODE else {})})
+    protocol = run_protocol(cfg)
     path = out/'run_state.json'
     if path.exists():
         state = json.loads(path.read_text())
         if state['config_sha256'] != config_sha or state['protocol_sha256'] != protocol:
-            raise RuntimeError('Run configuration/protocol changed; use a new output directory')
+            manifest_path = out/'run_manifest.json'
+            manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+            old_cfg = manifest.get('config')
+            from src.online_rl.tree.resume_transition import (is_matcher_1_to_8_transition,
+                is_candidate_seed_transition)
+            matcher_transition = bool(old_cfg) and is_matcher_1_to_8_transition(
+                old_cfg, cfg, case_cursor=state.get('case_cursor',-1),
+                batch_cursor=state.get('batch_cursor',-1), batch_cases=fg.get('batch_cases',0))
+            seed_transition = bool(old_cfg) and is_candidate_seed_transition(
+                old_cfg, cfg, case_cursor=state.get('case_cursor',-1),
+                batch_cursor=state.get('batch_cursor',-1), batch_cases=fg.get('batch_cases',0))
+            transition_kind = 'matcher1_to_8' if matcher_transition else ('candidate_seed_all_p0' if seed_transition else None)
+            if transition_kind is None:
+                raise RuntimeError('Run configuration/protocol changed; use a new output directory')
+            old_resume_cfg = copy.deepcopy(old_cfg)
+            old_resume_cfg.setdefault('five_gpu', {})['checkpoint_evaluation_enabled'] = False
+            old_protocol = run_protocol(old_cfg)
+            if (state.get('config_sha256') != sha256_json(old_resume_cfg)
+                    or state.get('protocol_sha256') != old_protocol):
+                raise RuntimeError('Saved run identity does not match the prior manifest; refusing runtime transition')
+            receipt_path = Path(state['checkpoint'])/'COMPLETE.json'
+            receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else {}
+            if (receipt.get('completed_cases') != state.get('case_cursor')
+                    or receipt.get('policy_sha256') != state.get('policy_sha256')
+                    or receipt.get('protocol_sha256') != old_protocol):
+                raise RuntimeError('Runtime transition requires the exact committed checkpoint at the batch boundary')
+            import datetime, shutil
+            stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+            archive_root = out/'transition_archive'/f'{transition_kind}_after_{state["case_cursor"]}_{stamp}'
+            archived=[]
+            next_batch = out/'batches'/f'batch_{state["batch_cursor"]+1:06d}'
+            if next_batch.exists() and transition_kind == 'matcher1_to_8':
+                archive_root.mkdir(parents=True, exist_ok=True)
+                dest=archive_root/'batches'/next_batch.name; dest.parent.mkdir(parents=True,exist_ok=True)
+                shutil.move(str(next_batch),str(dest)); archived.append(str(dest))
+            elif next_batch.exists():
+                # Keep each saved P0 tree and its API/cache history. Only discard
+                # artifacts whose semantics depend on the old P1 evidence scope.
+                for name in ('prompt_seed.json','prompt_candidate.json'):
+                    source=next_batch/name
+                    if source.exists():
+                        dest=archive_root/'batches'/next_batch.name/name
+                        dest.parent.mkdir(parents=True,exist_ok=True); shutil.move(str(source),str(dest)); archived.append(str(dest))
+                for case_dir in sorted(next_batch.glob('case_*')):
+                    for name in ('P1.json','union.json'):
+                        source=case_dir/name
+                        if source.exists():
+                            dest=archive_root/'batches'/next_batch.name/case_dir.name/name
+                            dest.parent.mkdir(parents=True,exist_ok=True); shutil.move(str(source),str(dest)); archived.append(str(dest))
+            for candidate in (out/'checkpoints').glob('*'):
+                if not candidate.is_dir() or not candidate.name.startswith(('recovery_','checkpoint_')):continue
+                complete=candidate/'COMPLETE.json'
+                proof=json.loads(complete.read_text()) if complete.exists() else {}
+                if int(proof.get('completed_cases',-1)) > state['case_cursor']:
+                    archive_root.mkdir(parents=True,exist_ok=True)
+                    dest=archive_root/'checkpoints'/candidate.name; dest.parent.mkdir(parents=True,exist_ok=True)
+                    shutil.move(str(candidate),str(dest)); archived.append(str(dest))
+            for candidate in ((out/'cases').glob('case_*.json') if transition_kind == 'matcher1_to_8'
+                              and (out/'cases').exists() else ()):
+                try:index=int(candidate.stem.split('_')[-1])
+                except ValueError:continue
+                if index >= state['case_cursor']:
+                    archive_root.mkdir(parents=True,exist_ok=True)
+                    dest=archive_root/'cases'/candidate.name; dest.parent.mkdir(parents=True,exist_ok=True)
+                    shutil.move(str(candidate),str(dest)); archived.append(str(dest))
+            pending_event=out/'prompt_events'/f'batch_{state["batch_cursor"]+1:06d}.json'
+            if pending_event.exists():
+                archive_root.mkdir(parents=True,exist_ok=True)
+                dest=archive_root/'prompt_events'/pending_event.name; dest.parent.mkdir(parents=True,exist_ok=True)
+                shutil.move(str(pending_event),str(dest)); archived.append(str(dest))
+            if archived:
+                print(json.dumps({'stage':'matcher_transition_archived_uncommitted_work','paths':archived}),flush=True)
+            manifest.setdefault('runtime_changes', []).append({
+                'transition': transition_kind,
+                'after_completed_cases': state['case_cursor'],
+                'archived_uncommitted_artifacts': archived,
+                'note': ('P1 evidence scope changed at a committed batch barrier; saved P0 rollouts were preserved and old P1/union artifacts archived.'
+                         if transition_kind == 'candidate_seed_all_p0' else
+                         'Matcher batch size changed at a committed five-case barrier; interrupted batch artifacts archived.')})
+            manifest['config'] = cfg
+            manifest['protocol_sha256'] = protocol
+            atomic_write_json(manifest_path, manifest)
+            state = {**state,'config_sha256':config_sha,'protocol_sha256':protocol}
+            atomic_write_json(path, state)
+        if cfg['prompt_update'].get('candidate_seed') == 'all_p0_before_p1_v1':
+            manifest_path=out/'run_manifest.json'
+            manifest=json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+            if any(row.get('transition') == 'candidate_seed_all_p0'
+                   for row in manifest.get('runtime_changes',[])):
+                next_batch=out/'batches'/f'batch_{state["batch_cursor"]+1:06d}'
+                if next_batch.exists():
+                    migrate_pending_phase_identities(next_batch,protocol_sha256)
         load_checkpoint(updater,state['checkpoint'])
         if adapter_sha256(policy.model) != state['policy_sha256']: raise RuntimeError('Resume adapter mismatch')
         manifest_path = out/'run_manifest.json'
@@ -349,7 +473,7 @@ def run(cfg, max_batches=None, eval_only=False):
                                         'parent_J':d['parent']['J'],'candidate_J':d['candidate']['J'],
                                         'winner_sha256':past['next_prompt']['sha256']})
                     pipeline=None
-                    if cfg['prompt_update'].get('candidate_seed')=='first_completed_P0_v1':
+                    if cfg['prompt_update'].get('candidate_seed')=='all_p0_before_p1_v1':
                         if not shared:raise RuntimeError('First-completed P0 pipeline requires the shared GPU pool')
                         def pipeline(parent,propose):
                             from src.online_rl.tree.pipelined_prompt import evaluate
@@ -367,7 +491,9 @@ def run(cfg, max_batches=None, eval_only=False):
                                     except BaseException as exc:result.set_exception(exc)
                                 submit(phase,job,prompt).add_done_callback(done)
                                 return result
-                            return evaluate(jobs,parent,submit_one,propose,batchdir,state['policy_sha256'],eager_union=True)
+                            # Finish every P0 and P1 rubric/KEEP set first. prompt_round then
+                            # dispatches one union-scoring phase after the full batch is ready.
+                            return evaluate(jobs,parent,submit_one,propose,batchdir,state['policy_sha256'],eager_union=False)
                     records,event=prompt_round(batch,jobs,state,collect,store,backend,prompt_cache,history,during_proposal,pipeline)
                     atomic_write_json(out/'prompt_events'/f'batch_{batch:06d}.json',event)
                     next_prompt=event['next_prompt']

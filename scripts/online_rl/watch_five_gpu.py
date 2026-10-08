@@ -6,6 +6,7 @@ last completed call is never represented as the operation currently executing.
 import argparse
 import collections
 import csv
+import fcntl
 import io
 import json
 import os
@@ -54,6 +55,9 @@ class WorkerCache:
         self.feedback_leaves=set();self.scored_nodes=set();self.gate_pass=0;self.gate_reject=0;self.rerun_unparsed=0
         self.one_step_reruns=0;self.one_step_final_calls=0;self.legacy_reruns=0;self.one_step_targets=set()
         self.scored_pairs=set();self.live_score_distribution=collections.Counter()
+        # Final witness rows are persisted only when P0/P1 finishes. Rebuild
+        # confirmed KEEP evidence from completed cache rows for live display.
+        self.witness_applicable=set();self.witness_outcomes=collections.defaultdict(dict)
     def update(self,now):
         for row in self.tail.read(self.path):
             kind=row.get('kind','unknown');self.counts[kind]+=1;self.last=kind
@@ -93,6 +97,11 @@ class WorkerCache:
                         except (TypeError,ValueError):continue
                     else:continue
                     self.scored_pairs.add(pair);self.live_score_distribution[label]+=1
+            elif kind=='rubric_applicability':
+                ident=row.get('identity') or {};rubric=ident.get('rubric');node=ident.get('node')
+                result=(row.get('value') or {}).get(rubric) if rubric else None
+                if rubric and node and isinstance(result,dict) and result.get('applicable') is True:
+                    self.witness_applicable.add((rubric,node))
             elif kind=='posthoc_gate':
                 passed=(row.get('value') or {}).get('passed')
                 self.gate_pass+=passed is True;self.gate_reject+=passed is False
@@ -101,6 +110,11 @@ class WorkerCache:
                 ident=row.get('identity') or {}
                 if ident.get('continuation_protocol')=='intervention_agent_once_doctor_final_once_v1':
                     self.one_step_reruns+=1
+                    rubric,node,level=ident.get('rubric'),ident.get('node'),ident.get('level')
+                    outcome=(row.get('value') or {}).get('outcome')
+                    if rubric and node and level in ('0','2'):
+                        # None is an executed miss, never evidence of a target hit.
+                        self.witness_outcomes[(rubric,node,level)][ident.get('seed') or row.get('key')]=outcome
                 else:self.legacy_reruns+=1
             elif kind=='rerun_doctor_turn':
                 owner=(row.get('identity') or {}).get('rerun') or {}
@@ -114,6 +128,15 @@ class WorkerCache:
         if len(self.history)<2:return None
         a,b=self.history[0],self.history[-1]
         return 60*(b[1]-a[1])/(b[0]-a[0]) if b[0]>a[0] else None
+    def live_witness_keep_ids(self):
+        """Rubrics with >=2 parsed target outcomes at an applicable support."""
+        kept=set()
+        for (rubric,node,level),runs in self.witness_outcomes.items():
+            if (rubric,node) not in self.witness_applicable:continue
+            target=1.0 if level=='2' else 0.0
+            if sum(value is not None and value==target for value in runs.values())>=2:
+                kept.add(rubric)
+        return kept
 
 
 def leaf_progress(agent_paths,final_paths,branching,max_turns,min_turns=1):
@@ -162,8 +185,30 @@ def file_time(path):
     except OSError:return None
 
 
+def runner_lock_active(root):
+    """The run-directory flock is authoritative across relaunches; handoff PIDs can be stale."""
+    path=Path(root)/'runner.lock'
+    if not path.exists():return False
+    try:
+        with path.open('a') as file:
+            try:fcntl.flock(file,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except BlockingIOError:return True
+            fcntl.flock(file,fcntl.LOCK_UN)
+            return False
+    except OSError:return False
+
+
 def elapsed(start,end):
     return max(0,end-start) if start is not None else None
+
+
+def wilson_interval(correct,total,z=1.959963984540054):
+    """Approximate 95% binomial interval for a partial checkpoint-eval sample."""
+    if total <= 0:return None
+    p=correct/total;z2=z*z;den=1+z2/total
+    center=(p+z2/(2*total))/den
+    margin=z*((p*(1-p)/total+z2/(4*total*total))**0.5)/den
+    return max(0.0,center-margin),min(1.0,center+margin)
 
 
 def summarize_phase(record):
@@ -204,6 +249,7 @@ def summarize_phase(record):
             'rubrics_generated':int(telemetry.get('created_new',0)),
             'rubrics_validated':int(telemetry.get('rubrics',len(witness))),
             'rubrics_keep':int(telemetry.get('keep',sum(w.get('decision')=='KEEP' for w in witness))),
+            'keep_rubric_ids':[w.get('rubric_id') for w in witness if w.get('decision')=='KEEP' and w.get('rubric_id')],
             'rubrics_not_validated':int(telemetry.get('not_validated',sum(w.get('decision')=='NOT_VALIDATED' for w in witness)))}
 
 
@@ -268,15 +314,28 @@ class Monitor:
                 self.api_latency['timed_calls']+=1
                 self.api_purposes[purpose]['calls']+=1
         state=read_json(self.root/'run_state.json',{})
+        runner_active=runner_lock_active(self.root)
         eval_jobs=[]
         for job in sorted((self.root/'evaluation').glob('checkpoint_*')):
             manifest=read_json(job/'manifest.json',{})
             summary=read_json(job/'summary.json',{})
             total=int(manifest.get('settings',{}).get('eval_cases',len(manifest.get('case_ids',[]))))
-            evaluated=int(summary.get('evaluated',len(list((job/'cases').glob('case_*.json')))))
+            # The evaluator atomically commits each case before refreshing its
+            # aggregate summary (which may only happen every 25 cases). Read
+            # those commits directly so the live estimate advances per case.
+            case_files=sorted((job/'cases').glob('case_*.json'))
+            outcomes=[read_json(path,{}) for path in case_files]
+            outcomes=[row.get('outcome') for row in outcomes if isinstance(row,dict)]
+            outcomes=[value for value in outcomes if value in (0,1,0.0,1.0) or value is None]
+            evaluated=len(outcomes)
+            correct=sum(value in (1,1.0) for value in outcomes)
+            unparsed=sum(value is None for value in outcomes)
+            accuracy=correct/evaluated if evaluated else None
+            ci=wilson_interval(int(correct),evaluated) if correct is not None else None
             eval_jobs.append({'checkpoint_cases':manifest.get('completed_cases'), 'evaluated':evaluated,
                               'total':total, 'status':summary.get('status','pending'),
-                              'accuracy':summary.get('accuracy')})
+                              'accuracy':accuracy,'correct':correct,'unparsed':unparsed,
+                              'accuracy_ci95':ci})
         pending_eval=next((e for e in eval_jobs if e['status']!='complete'),None)
         latest_eval=eval_jobs[-1] if eval_jobs else None
         manifests=sorted(self.root.glob('batches/batch_*/manifest.json'))
@@ -322,6 +381,9 @@ class Monitor:
                     if phases['union'] is None and (directory/'result.json').exists():
                         phases['union']=self.phase_summary(directory/'result.json')
                     final_scoring=phases['union']
+                    saved_keep_ids={rubric_id for phase in ('P0','P1') if phases[phase]
+                                    for rubric_id in phases[phase].get('keep_rubric_ids',[])}
+                    live_witness_keep_ids=cache.live_witness_keep_ids()-saved_keep_ids
                     pipeline={'feedback_done':len(cache.feedback_leaves),
                               'generation_calls':cache.counts['rubric_generation'],
                               'repair_calls':cache.counts['rubric_repair'],
@@ -334,6 +396,7 @@ class Monitor:
                               'legacy_reruns_preserved':cache.legacy_reruns,
                               'scoring_requests':cache.counts['rubric_score'],'scoring_unique_nodes':len(cache.scored_nodes),
                               'live_scored_pairs':len(cache.scored_pairs),
+                              'live_witness_keeps':len(live_witness_keep_ids),
                               'live_score_distribution':{k:cache.live_score_distribution.get(k,0) for k in ('0','1','2','NA')},
                               'phase_complete':{p:phases[p] is not None for p in phases},
                               'rollout_seconds':(phases['P0'] or {}).get('rollout_wall_seconds'),
@@ -389,7 +452,7 @@ class Monitor:
         pipelines=[r['pipeline'] for r in rows if r.get('pipeline')]
         summed=('feedback_done','generation_calls','repair_calls','match_calls','gate_pass','gate_reject',
                 'reruns_done','reruns_unparsed','scoring_requests','scoring_unique_nodes','final_scored_nodes',
-                'live_scored_pairs',
+                'live_scored_pairs','live_witness_keeps',
                 'one_step_reruns_done','one_step_final_calls','one_step_targets','legacy_reruns_preserved',
                 'final_nodes_total','final_valid_rewards','final_na_rewards','final_reward_sum')
         pipeline={k:sum(p[k] for p in pipelines) for k in summed}
@@ -430,6 +493,7 @@ class Monitor:
                           'trees_complete':sum(r['leaves']['tree_complete'] for r in rows if r.get('leaves')),
                           'trees_total':sum('leaves' in r for r in rows)},
                 'pipeline':pipeline,'committed_batches':state.get('batch_cursor',0),'restart':restart,
+                'runner_active':runner_active,
                 'checkpoint_evaluation':pending_eval or latest_eval,
                 'api':{'recorded_usd':self.spend,'calls':self.api_calls,'unpriced_calls':self.unpriced,
                        'timing':dict(self.api_latency),'by_purpose':{k:dict(v) for k,v in self.api_purposes.items()}},
@@ -468,6 +532,11 @@ def render(s):
     lines=[f'{s["time"]} | {s["batch"] or "no batch"} | completed {s["completed_cases"]}/{s["total_cases"]}',
            'Run: '+s['run_dir'],
            f'Elapsed run {duration(s.get("run_elapsed_seconds"))} | current batch {duration(s.get("batch_elapsed_seconds"))}']
+    handoff=s.get('handoff',{})
+    if s.get('runner_active'):
+        lines.append('RUNNER ACTIVE · run lock held')
+    elif handoff.get('stage')=='training_running':
+        lines.append('RUNNER STOPPED · run lock free; elapsed time includes downtime')
     leaves=s.get('leaves',{})
     if leaves.get('trees_total'):
         lines.append(f'묶음 말단: 완료 {leaves["completed"]} | 남은 {remaining(leaves)} | 트리 완료 {leaves["trees_complete"]}/{leaves["trees_total"]}')
@@ -484,7 +553,13 @@ def render(s):
                      f'| KEEP P0 {count(p["keep"]["P0"])} / P1 {count(p["keep"]["P1"])} | 업데이트 완료 {s.get("committed_batches",0)}회')
     evaluation=s.get('checkpoint_evaluation')
     if evaluation:
-        accuracy='' if evaluation.get('accuracy') is None else f' | accuracy {100*evaluation["accuracy"]:.1f}%'
+        if evaluation.get('accuracy') is None:accuracy=''
+        elif evaluation['status']!='complete' and evaluation.get('accuracy_ci95'):
+            lo,hi=evaluation['accuracy_ci95']
+            correct=evaluation.get('correct')
+            numerator=f'{correct}/' if correct is not None else ''
+            accuracy=f' | est {100*evaluation["accuracy"]:.1f}% ({numerator}{evaluation["evaluated"]}; Wilson 95% {100*lo:.1f}–{100*hi:.1f}%)'
+        else:accuracy=f' | accuracy {100*evaluation["accuracy"]:.1f}%'
         label='running' if evaluation['status']!='complete' else 'complete'
         lines.append(f'622-set evaluation · checkpoint {evaluation["checkpoint_cases"]} · '
                      f'{evaluation["evaluated"]}/{evaluation["total"]} · {label}{accuracy}')
@@ -583,7 +658,13 @@ def render_dashboard(s):
                      f'trees {leaves.get("trees_complete",0)}/{leaves.get("trees_total",0)}')
     evaluation=s.get('checkpoint_evaluation')
     if evaluation:
-        accuracy='' if evaluation.get('accuracy') is None else f' · accuracy {100*evaluation["accuracy"]:.1f}%'
+        if evaluation.get('accuracy') is None:accuracy=''
+        elif evaluation['status']!='complete' and evaluation.get('accuracy_ci95'):
+            lo,hi=evaluation['accuracy_ci95']
+            correct=evaluation.get('correct')
+            numerator=f'{correct}/' if correct is not None else ''
+            accuracy=f' · est {100*evaluation["accuracy"]:.1f}% ({numerator}{evaluation["evaluated"]}; 95% {100*lo:.1f}–{100*hi:.1f}%)'
+        else:accuracy=f' · accuracy {100*evaluation["accuracy"]:.1f}%'
         status='running' if evaluation['status']!='complete' else 'done'
         lines.append(f'622 eval · checkpoint {evaluation["checkpoint_cases"]} · '
                      f'{evaluation["evaluated"]}/{evaluation["total"]} · {status}{accuracy}')
@@ -602,7 +683,7 @@ def render_dashboard(s):
             return (f'{phase} {f["rubrics_keep"]}/{f["rubrics_validated"]} KEEP'
                     f' · {f["rubrics_generated"]} new')
         lines.append('Rubrics · '+' | '.join(rubric_status(phase) for phase in ('P0','P1'))+
-                     f' · gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)}')
+                     f' · live KEEP +{p.get("live_witness_keeps",0)} · gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)}')
         if p.get('rollout_seconds_cases'):
             lines.append(f'Rollout {duration(p["rollout_seconds"])} total · '
                          f'{duration(p["rollout_seconds"]/p["rollout_seconds_cases"])} avg')
@@ -685,6 +766,11 @@ def render_compact_dashboard(s):
     batch=s.get('batch') or 'no batch'
     lines=[f'{s["time"]} {batch} · {duration(s.get("run_elapsed_seconds"))} · '
            f'${api.get("recorded_usd",0):.2f} · {api.get("calls",0)} API calls']
+    handoff=s.get('handoff',{})
+    if s.get('runner_active'):
+        lines.append('RUNNER ACTIVE · run lock held')
+    elif handoff.get('stage')=='training_running':
+        lines.append('RUNNER STOPPED · run lock free · elapsed includes downtime')
     if leaves.get('trees_total'):
         done=p.get('phase_complete',{})
         lines.append(f'Cases {s.get("completed_cases",0)}/{s.get("total_cases",0)} · '
@@ -699,10 +785,24 @@ def render_compact_dashboard(s):
             return f'{phase} {f["rubrics_keep"]}/{f["rubrics_validated"]}K/{f["rubrics_generated"]}new'
         live=p.get('live_score_distribution',{})
         lines.append(f'Rubrics {compact_keep("P0")} · {compact_keep("P1")} · '
+                     f'live KEEP +{p.get("live_witness_keeps",0)} · '
                      f'gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)} · '
                      f'live scores n={p.get("live_scored_pairs",0)} '
                      f'0:{live.get("0",0)} 1:{live.get("1",0)} '
                      f'2:{live.get("2",0)} NA:{live.get("NA",0)}')
+    evaluation=s.get('checkpoint_evaluation')
+    if evaluation:
+        if evaluation.get('status')!='complete' and evaluation.get('accuracy_ci95'):
+            lo,hi=evaluation['accuracy_ci95'];correct=evaluation.get('correct')
+            detail=(f'est {100*evaluation["accuracy"]:.1f}% · Wilson95 {100*lo:.1f}–{100*hi:.1f}%'
+                    if evaluation.get('accuracy') is not None else 'estimating')
+            if correct is not None:detail+=f' · {correct} correct'
+        elif evaluation.get('accuracy') is not None:
+            detail=f'accuracy {100*evaluation["accuracy"]:.1f}%'
+        else:detail='estimating'
+        status='running' if evaluation.get('status')!='complete' else 'done'
+        lines.append(f'622 eval C{evaluation.get("checkpoint_cases")} · '
+                     f'{evaluation.get("evaluated",0)}/{evaluation.get("total",622)} · {status} · {detail}')
     for r in s.get('gpus',[]):
         util=number(r.get('util'),'%').rjust(3)
         mem=(f'{r["memory_mb"]/1024:.0f}G' if r.get('memory_mb') is not None and r.get('total_mb') else '-')
@@ -716,9 +816,10 @@ def render_compact_dashboard(s):
                 return f'{f["rubrics_keep"]}/{f["rubrics_validated"]}'
             dist=r.get('pipeline',{}).get('live_score_distribution',{})
             n=r.get('pipeline',{}).get('live_scored_pairs',0)
+            live_keep=r.get('pipeline',{}).get('live_witness_keeps',0)
             work=(f'C{r["case_index"]+1} {r.get("phase")} · '
                   f'A{r.get("agent_nodes",0)} D{r.get("doctor_calls",0)} F{r.get("finals",0)} · '
-                  f'L{leaf.get("completed",0)}/{remaining(leaf)} · '
+                  f'L{leaf.get("completed",0)}/{remaining(leaf)} · liveK+{live_keep} · '
                   f'K{case_keep("P0")}/{case_keep("P1")} · '
                   f'S{n}[0:{dist.get("0",0)} 1:{dist.get("1",0)} 2:{dist.get("2",0)} NA:{dist.get("NA",0)}]')
         else:
