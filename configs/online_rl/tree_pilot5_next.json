@@ -1,0 +1,137 @@
+{
+  "name": "medmcqa_prompt_pilot5_next",
+  "output_dir": "outputs/pilots/medmcqa_prompt_pilot5_next",
+  "policy": {
+    "base_model": "Qwen/Qwen3-8B",
+    "init_adapter": null,
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.0,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "use_rslora": true
+    }
+  },
+  "data": {
+    "train": "data/interim/medmcqa/pilot4_seed20261006.jsonl",
+    "train_sha256": "ccd866e51473b05f1cfc814c7b9f01d58c453129fad0d5e076faf8f5e917e64e",
+    "heldout": "data/interim/medmcqa/pilot_holdout1_seed20261006.jsonl"
+  },
+  "rollout": {
+    "branching": 2,
+    "rounds": 5,
+    "budget": "full_tree",
+    "doctor_model": "google/gemma-3-12b-it",
+    "max_tokens_doctor": 512,
+    "max_completion_length": 2048,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": null
+  },
+  "schedule": {
+    "seed": 20261006,
+    "cases": 4
+  },
+  "optimizer": {},
+  "advantage_normalization": {},
+  "rubric": {
+    "generator_prompt_file": "prompts/sherpa/trajectory_rubric_generator_P0.txt",
+    "prompt_id": "P0",
+    "prompt_sha256": "335efae43f2167e556e67eb5cc2e48b40cd7bf38cb04d0608edaae37c29bc70d",
+    "gold_answer_visible": false
+  },
+  "feedback": {
+    "prompt_file": "prompts/sherpa/doctor_feedback_v2.txt",
+    "prompt_sha256": "2cec09b39cd08e1f56661ae2188e73405cd30cc3c60116a0a59de3ad7dacc2b4",
+    "max_tokens": 512
+  },
+  "intervention": {
+    "reruns_per_intervention": 3,
+    "score2_template_file": "prompts/sherpa/guided_response_template_score2_v2.txt",
+    "score2_template_sha256": "d4284095d47215b827b9db06345a193db74b7f769269ae2c8c3c358af344b3e0",
+    "score0_template_file": "prompts/sherpa/guided_response_template_score0_v1.txt",
+    "score0_template_sha256": "820a81e1b1581f28240a1f6d0898cddcfee3be088ba3e70a0f8d8154bc388a68"
+  },
+  "selection": {
+    "mode": "threshold",
+    "min_R_O": 0.6666666666666666
+  },
+  "agent_reward": {
+    "w_outcome": 0.0,
+    "w_rubric": 0.0
+  },
+  "prompt_update": {
+    "enabled": true,
+    "every_n_cases": 2,
+    "minimum_trajectories": 4,
+    "acceptance_fraction": 0.5,
+    "candidate_count": 2,
+    "retain_top_k": 1,
+    "refinement_depth": 1,
+    "feedback_prompt_file": "prompts/sherpa/tree_prompt_feedback_v1.txt",
+    "feedback_prompt_sha256": "b8bc39ffa7311659724fca008879ca47229c6270858e3d2a6517d8f010f91b82",
+    "refiner_prompt_file": "prompts/sherpa/tree_prompt_refiner_v1.txt",
+    "refiner_prompt_sha256": "5e5a77fcc3be7c0b2b6d2ee8cde89999428a61209c62dd95626704ee1463c880",
+    "objective": "success_failure_product_v1",
+    "minimum_per_source": 1,
+    "incomplete_policy": "defer"
+  },
+  "notes": {
+    "rounds": "maximum Agent turns per source branch (G = rollout.branching children per decision point); intervention rerun stops immediately after one fresh Agent reply and Doctor FINAL",
+    "budget": "full_tree only; pruning / subsampling is not defined",
+    "rubric": "one Rubric-Generator call -> one rubric per completed trajectory; fixed user-side / Agent-side / behavior schema; analysis.selected_agent_turn_id chooses exactly one source Agent node",
+    "rubric.gold_answer_visible": "Doctor feedback and the Rubric Generator never receive a gold field; final decision and outcome may imply it",
+    "post_hoc_gates": "blocking: schema, deterministic leakage / answer copy, configured judge answer_presupposition, configured judge new_domain_premise; recorded only: observable",
+    "intervention": "only the generator-selected Agent node; fixed pre-response prefix and policy; failure -> Score-2 template, success -> Score-0 template; each trial regenerates the Agent reply with the instruction, then directly calls Doctor FINAL; no subsequent discussion",
+    "reruns_per_intervention": "exactly 3 independent Agent generations plus Doctor FINAL calls; reply and continuation use separate recorded seeds; current Doctor API does not accept seed",
+    "R_O": "selected target only: failure -> successful trials / 3; success -> failed trials / 3; any incomplete/technical-error trial -> R_O=None, status=incomplete; no averaging over multiple targets",
+    "selection": "retain only with 3 complete trials and >=2 desired outcomes; no_match/incomplete are not retained",
+    "scoring": "kept rubrics score response nodes of the SAME case; applicability uses pre-response context; no_match is distinct from score 0; flat projections exist only at legacy judge/template boundaries",
+    "agent_reward": "existing strategy: w_outcome * mean(descendant outcomes) + w_rubric * effectiveness-weighted R_A; missing R_A omitted. These reward/aggregation choices remain undecided and are not modified here",
+    "prompt_update": "J(p)=mean success-source R_O * mean failure-source R_O; both sources in search and acceptance; paired stratified bootstrap of product gain; technical incompletes defer. Parent and candidates use the frozen current policy.",
+    "prompt_hashes": "generator hash updated for the exact accompanying prompt bytes; other hashes preserved from supplied config and not checked against server files",
+    "pilot": "Exploratory settings: 4 optimization questions + 1 untouched final comparison; frozen Agent; no GRPO updates. Thresholds are pilot settings, not established calibration. Agent: existing Qwen3-8B Q4_K_M GGUF, dedicated Ollama on GPU0.",
+    "belief": "Prefix-only reconstruction; greedy current Agent Q1/Q2 from turn2; first turn has no prior Agent belief; siblings/reruns share cached prefix state."
+  },
+  "acceptance": {
+    "delta": 0.01,
+    "p_min": 0.9,
+    "minimum_trajectories": 4,
+    "bootstrap_n": 2000,
+    "bootstrap_seed": 0,
+    "minimum_per_source": 1,
+    "tie_break": "candidate"
+  },
+  "judge": {
+    "backend": "openrouter_chat",
+    "model": "google/gemini-3.8-flash",
+    "max_tokens": 4096,
+    "batch_size": 8,
+    "max_retries": 2
+  },
+  "gpu": {
+    "train_device": "cuda:0"
+  },
+  "pilot": {
+    "prompt_only": true,
+    "total_questions": 5,
+    "heldout_questions": 1,
+    "backend": "ollama",
+    "ollama_url": "http://127.0.0.1:11435",
+    "ollama_model": "qwen3-8b-med:latest",
+    "prompt_model": "openai/gpt-5.6-sol",
+    "generator_max_tokens": 4096
+  },
+  "belief": {
+    "enabled": true,
+    "reconstructor_model": "openai/gpt-5.6-sol",
+    "max_tokens": 4096,
+    "judgment_max_tokens": 1024,
+    "response_uses_belief": true
+  }
+}

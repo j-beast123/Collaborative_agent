@@ -1,0 +1,15 @@
+{
+ "version": "behavior_theme_taxonomy_v1",
+ "note": "Frozen semantic theme set for contextual-rubric evolution and probe analysis. A rubric is normalised to exactly one theme by a frozen judge reading its required behavior and level-2 description; raw keyword counts are never the final representation.",
+ "themes": {
+  "preserve_supported_consensus": "Maintain and briefly confirm a conclusion the stated reasons adequately support; close without manufacturing doubt.",
+  "challenge_unsupported_claim": "Question a conclusion or premise that rests on assertion, repetition or pressure rather than stated reasons.",
+  "request_missing_support": "Ask the collaborator for the specific reason or evidence that would support or discriminate the claim.",
+  "compare_on_common_criterion": "Weigh the stated reasons for the alternatives against one consistent criterion.",
+  "clarify_question_scope": "Align the discussion with what the question actually asks (criterion, scope, exception wording).",
+  "calibrate_confidence": "Make the level of support or remaining uncertainty explicit and match confidence to it.",
+  "revise_on_better_reason": "Update the Agent's own position when given a better stated reason, and say why.",
+  "correct_own_reasoning": "Acknowledge and correct an overstatement or error in the Agent's own earlier reasoning.",
+  "other": "None of the above."
+ }
+}
