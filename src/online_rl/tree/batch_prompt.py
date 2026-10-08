@@ -253,7 +253,8 @@ def _candidate_section_problem(text, parent_text, direction):
     # Reuse-section edits are allowed only when the diagnosis explicitly targets
     # reuse/assignment. Preserve every existing check and the decision contract.
     d=(direction or '').lower()
-    targets_reuse=any(term in d for term in ('reuse check','reuse criterion','same-reason','assign step','assignment check'))
+    targets_reuse=(any(term in d for term in ('reuse','same-reason','assignment')) or
+                   __import__('re').search(r'\bassign(?:ing|ed)?\b',d) is not None)
     if not targets_reuse:return 'changed [Assign or create] section outside a reuse-focused direction'
     required=('same_construct:', 'applicability_visible:', 'same_required_behavior:', 'same_direction:',
               'score_semantics_apply:', 'no_new_premise:', 'REUSE_EXISTING', 'CREATE_NEW',

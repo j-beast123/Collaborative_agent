@@ -149,6 +149,15 @@ def test_candidate_cannot_edit_reuse_section_for_unrelated_direction():
     assert 'changed [Assign or create]' in B._candidate_section_problem(candidate,parent,'Improve creation')
 
 
+def test_candidate_may_edit_reuse_section_when_direction_targets_reuse():
+    parent=('CREATE rubric instructions\n\n[Assign or create]\n- same_construct: same behavior\n'
+            '- applicability_visible: visible\n- same_required_behavior: required\n- same_direction: same direction\n'
+            '- score_semantics_apply: applies\n- no_new_premise: none\n'
+            'REUSE_EXISTING CREATE_NEW "decision" "rubric_id" "checks" "rationale"')
+    candidate=parent.replace('same behavior','same behavior directly supported by target reply')
+    assert B._candidate_section_problem(candidate,parent,'Tighten rubric creation and reuse') is None
+
+
 def test_reflection_context_is_bounded_but_effect_score_uses_every_trajectory():
     rows=[]
     for i in range(4):
