@@ -303,25 +303,6 @@ accuracy, mean Agent turns and per-problem time are saved in the config's indepe
 output directory. Re-running resumes completed cases; create a new output directory
 if you change the model, dataset, prompt or stopping rules.
 
-The source pool and raw TRAIN parquet paths are overridable with `--original` and
-`--source`. The frozen original pool SHA must match the calibration reservation. Minimum Agent turns remain 3 (maximum 5), and unassessed rubric-only
-rewards remain `None` and are excluded from GRPO. Prompt evolution is disabled in
-this entrypoint. It declares a new opening protocol, `immutable_runtime_D1_v1`:
-Doctor D1 is generated once per case into a persistent cache with a stable seed and
-no Agent-weight dependency, then reused across checkpoints. It does not resume old
-runs that used the unavailable frozen VAL50 opening tables.
-
-Rerun verification uses `parsed_target_only_v1`: a Score-2 intervention needs a
-parsed success (`1`), and a Score-0 intervention needs a parsed failure (`0`). A
-missing/unparseable FINAL (`None`) never counts as a causal flip. It remains a
-non-hit in the fixed K=3 budget; K is not reduced and no replacement rerun is added.
-This applies to witness KEEP decisions, their positive-count diagnostics and full
-member verification / prompt-search effectiveness. Raw `None` outcomes remain in
-the saved records; witness telemetry reports `unparsed_reruns`. The outcome policy
-is part of the protocol hash, so existing training runs using the old interpretation
-cannot resume silently. The four-valid-support cap is a separate protocol choice
-and remains unchanged by this bug fix.
-
 
 The opt-in config `configs/online_rl/tree_v21_five_gpu_shared5_halt4_visible_pipeline.json`
 uses `observed_context_behavior_v1`: User-side visible context and the Agent's
