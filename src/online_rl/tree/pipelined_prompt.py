@@ -23,6 +23,12 @@ def evaluate(jobs, parent, submit, propose, batchdir, policy_sha256, eager_union
     if seed and any(seed.get(k) != v for k, v in identity.items()): raise RuntimeError('Saved prompt seed differs from this batch')
     if candidate and (seed is None or candidate.get('seed_sha256') != sha256_json(seed)):
         raise RuntimeError('Saved candidate differs from its prompt seed')
+    # An earlier version could persist the unchanged P0 as an invalid P1 after
+    # a local guard rejection. Re-run refinement against the same saved P0
+    # evidence; the call cache reuses the API response while the corrected guard
+    # revalidates it. Never treat that fallback as a real P1 on resume.
+    if candidate and not candidate.get('valid_candidate', True):
+        candidate = None
     events = Queue(); p0 = {}; p1 = {}; unions = {}; submitted = set(); proposing = False
 
     def watch(kind, index, future):

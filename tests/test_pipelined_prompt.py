@@ -4,9 +4,9 @@ from threading import Thread
 
 import pytest
 
-from src.online_rl.tree.pipelined_prompt import evaluate
+from src.online_rl.tree.pipelined_prompt import evaluate, SEED_MODE
 from src.online_rl.tree.batch_prompt import choose
-from src.online_rl.integrated.records import sha256_text
+from src.online_rl.integrated.records import sha256_text, sha256_json, atomic_write_json
 
 
 def record(i, child=False):
@@ -56,6 +56,30 @@ def test_saved_seed_cannot_be_replaced_or_used_with_changed_policy(tmp_path):
     with pytest.raises(RuntimeError,match='API interrupted'):evaluate(jobs,parent,submit,fail,tmp_path,'frozen')
     assert (tmp_path/'prompt_seed.json').exists() and not (tmp_path/'prompt_candidate.json').exists()
     with pytest.raises(RuntimeError,match='differs'):evaluate(jobs,parent,submit,fail,tmp_path,'changed')
+
+
+def test_resume_revalidates_saved_invalid_fallback_candidate(tmp_path):
+    jobs=[{'case':{'case_id':'case0'}}]
+    parent={'sha256':sha256_text('parent'),'text':'parent','id':'P0'}
+    source=record(0)
+    seed={'parent_prompt_sha256':parent['sha256'],'policy_sha256':'frozen','case_ids':['case0'],
+          'seed_mode':SEED_MODE,'seed_case_id':'case0','seed_job_index':0,
+          'seed_record_sha256':sha256_json(source)}
+    atomic_write_json(tmp_path/'prompt_seed.json',seed)
+    atomic_write_json(tmp_path/'prompt_candidate.json',{'text':'parent','sha256':parent['sha256'],
+          'valid_candidate':False,'id':'P1-parent','seed_sha256':sha256_json(seed)})
+    phases=[]
+    def submit(phase,job,prompt):
+        phases.append((phase,prompt['sha256']))
+        f=Future();f.set_result(record(0,phase=='P1'));return f
+    calls=[]
+    def propose(rows):
+        calls.append(rows[0]['case_id'])
+        return {'text':'new child','sha256':sha256_text('new child'),'proposal':{},'valid_candidate':True}
+    _,p1,candidate,returned_seed=evaluate(jobs,parent,submit,propose,tmp_path,'frozen')
+    assert calls==['case0'] and candidate['valid_candidate']
+    assert returned_seed==seed and p1[0]['case_id']=='case0'
+    assert ('P1',sha256_text('new child')) in phases
 
 
 def test_ready_case_union_scoring_runs_before_other_case_p0_and_p1(tmp_path):
