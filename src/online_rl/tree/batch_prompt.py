@@ -247,7 +247,9 @@ def _candidate_section_problem(text, parent_text, direction):
     parent_suffix=parent_text.split(marker,1)[1] if marker in parent_text else None
     candidate_suffix=text.split(marker,1)[1]
     if parent_suffix is None:return 'parent prompt is missing [Assign or create] section'
-    if candidate_suffix==parent_suffix:return None
+    # Model output commonly drops the final newline. Treat trailing whitespace
+    # as formatting, not as an edit to the protected reuse contract.
+    if candidate_suffix.rstrip()==parent_suffix.rstrip():return None
     # Reuse-section edits are allowed only when the diagnosis explicitly targets
     # reuse/assignment. Preserve every existing check and the decision contract.
     d=(direction or '').lower()
