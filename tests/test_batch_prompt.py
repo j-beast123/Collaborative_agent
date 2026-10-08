@@ -122,7 +122,7 @@ def test_content_dedup_ignores_id_whitespace_and_case():
     assert B.content_key(r)==B.content_key(other)
 
 
-def test_candidate_must_preserve_match_or_create_section_verbatim(tmp_path,monkeypatch):
+def test_candidate_must_preserve_match_or_create_section_except_trailing_whitespace(tmp_path,monkeypatch):
     import types
     import src.online_rl.integrated.prompt_search as search
     from src.online_rl.integrated.prompt_search import PromptStore
@@ -135,6 +135,18 @@ def test_candidate_must_preserve_match_or_create_section_verbatim(tmp_path,monke
     out=B.propose_candidate([],parent,store,backend,CallCache(None),[],[])
     assert not out['valid_candidate'] and out['text']==parent
     assert 'changed [Assign or create]' in out['proposal']['proposals'][0]['guard_violation']
+
+
+def test_candidate_with_only_missing_final_newline_preserves_reuse_section():
+    parent='CREATE rubric instructions\n\n[Assign or create]\nKeep all six checks.\n'
+    candidate=parent.rstrip('\n')
+    assert B._candidate_section_problem(candidate,parent,'Improve the creation instruction') is None
+
+
+def test_candidate_cannot_edit_reuse_section_for_unrelated_direction():
+    parent='CREATE rubric instructions\n\n[Assign or create]\nKeep all six checks.\n'
+    candidate=parent.replace('all six','five')
+    assert 'changed [Assign or create]' in B._candidate_section_problem(candidate,parent,'Improve creation')
 
 
 def test_reflection_context_is_bounded_but_effect_score_uses_every_trajectory():
