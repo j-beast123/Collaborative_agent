@@ -45,7 +45,8 @@ def protocol_sha256(cfg: dict, root: Path) -> str:
     method = {k: v for k, v in (('verification', cfg.get('verification')),
                                 ('r_a_weighting', (cfg.get('agent_reward') or {}).get('r_a_weighting')),
                                 ('feedback_behavioral_locus', (cfg.get('feedback') or {}).get('behavioral_locus')),
-                                ('feedback_protocol', (cfg.get('feedback') or {}).get('protocol'))) if v}
+                                ('feedback_protocol', (cfg.get('feedback') or {}).get('protocol')),
+                                ('rubric_source_consistency', (cfg.get('rubric') or {}).get('source_consistency'))) if v}
     if method:                                         # training-method protocol (bounded witness verification, equal-weight R_A,
         out['method'] = method                         # feedback locus): a run under it never shares keys with the earlier protocol
     if ro.get('doctor_opening'):                       # frozen shared D1 tables (src/online_rl/doctor_openings.py)

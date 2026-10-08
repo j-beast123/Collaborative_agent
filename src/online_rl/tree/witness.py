@@ -25,6 +25,7 @@ from src.online_rl.tree.effectiveness import intervention_level, run_interventio
 from src.online_rl.tree.posthoc import case_view
 from src.online_rl.tree.records import AgentNode, Leaf, RubricAssignment, TrajectoryRubric, to_dialogue
 from src.online_rl.tree.scoring import VISIBLE
+from src.online_rl.integrated.records import sha256_json
 
 PROTOCOL = 'bounded_witness_v1'
 
@@ -63,12 +64,29 @@ def support_order(members: list[Leaf], source_leaf_id: str) -> list[Leaf]:
     return chosen
 
 
-def stage1_applicable(case: dict, node: AgentNode, rub: TrajectoryRubric, applicability: Callable, cache: CallCache) -> bool:
-    visible = [{k: rub.rubric[k] for k in VISIBLE}]
-    r = cache.call('rubric_applicability', {'node': node.node_id, 'policy': node.policy_sha256, 'rubric': rub.rubric_id,
-                                            'model': getattr(applicability, 'model', None), 'protocol': getattr(applicability, 'protocol', None)},
+def stage1_decision(case: dict, node: AgentNode, rubric: dict, applicability: Callable, cache: CallCache) -> dict:
+    """Stage-1 applicability of one rubric (dict with rubric_id) at one node; cached per (node, policy, rubric id, scorer)."""
+    visible = [{k: rubric[k] for k in VISIBLE}]
+    ident = {'node': node.node_id, 'policy': node.policy_sha256, 'rubric': rubric['rubric_id'],
+             'model': getattr(applicability, 'model', None), 'protocol': getattr(applicability, 'protocol', None)}
+    if rubric.get('source_repair'): ident['content'] = sha256_json(visible)          # v2.1 repaired condition: same id, its own Stage-1 key
+    r = cache.call('rubric_applicability', ident,
                    lambda: applicability(case_view(case), to_dialogue(node.prefix), visible))
-    return bool(r[rub.rubric_id]['applicable'])
+    return r[rubric['rubric_id']]
+
+
+def stage1_applicable(case: dict, node: AgentNode, rub: TrajectoryRubric, applicability: Callable, cache: CallCache) -> bool:
+    return bool(stage1_decision(case, node, rub.rubric, applicability, cache)['applicable'])
+
+
+def source_stage1_for(case: dict, nodes: dict, leaf: Leaf, locus: Optional[int], applicability: Callable, cache: CallCache) -> Callable:
+    """v2.1: rubric dict -> {'applicable', 'stage1', 'node_id'} at the leaf's own behavioral locus, or None without a locus."""
+    if locus is None or not 1 <= locus <= len(leaf.path): return lambda rubric: None
+    node = nodes[leaf.path[locus - 1]]
+    def check(rubric):
+        r = stage1_decision(case, node, rubric, applicability, cache)
+        return {'applicable': bool(r['applicable']), 'stage1': r.get('stage1'), 'node_id': node.node_id}
+    return check
 
 
 def witness_test(case: dict, leaf: Leaf, node: AgentNode, rub: TrajectoryRubric, *, reruns: int, run_seed: int, policy_sha256: str,

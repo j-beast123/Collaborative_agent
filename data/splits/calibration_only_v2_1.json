@@ -1,0 +1,14 @@
+{
+ "name": "calibration_only_v2_1",
+ "pool": "data/interim/medmcqa/train_random500_seed20261006.jsonl",
+ "pool_sha256": "5307963d7d05fc1adbe918ba0bffa1041effffdf35bfdea5bb295dad8a3492fe",
+ "schedule_seed": 0,
+ "positions_1_indexed": {
+  "411": "medmcqa_78a5e288-2c7d-44a0-9e9b-816dfaa7f0f7",
+  "412": "medmcqa_9422d9f9-0e8d-4aee-a4b1-93d09b399bb2",
+  "413": "medmcqa_ecb57f7e-806c-414c-af8a-a90078b796fa"
+ },
+ "fixed_before_results": true,
+ "written": "2026-10-08T14:38:11+0900",
+ "rule": "positions 411-413 calibrate rubric protocol v2.1 (source-locus consistency) only; never training. 401-410 stay calibration-only (v2)."
+}

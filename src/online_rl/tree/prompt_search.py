@@ -39,6 +39,7 @@ class ScoringDeps:
     strategies: Strategies
     cache: CallCache
     assign_fn: object = None              # MATCH-vs-NEW decision (rubric.reuse): per-case same-reason reuse as in training
+    source_consistency: bool = False      # v2.1: new rubrics pass source-self-applicability at their locus, as in training
 
 
 def score_prompt(text: str, sha: str, units: list[EvidenceUnit], cases: dict, d: ScoringDeps) -> dict[str, dict]:
@@ -63,8 +64,13 @@ def _score_prompt_reuse(text: str, sha: str, units: list[EvidenceUnit], cases: d
     for cid in sorted({u.case_id for u in units}):
         us = [u for u in units if u.case_id == cid]
         nodes = {n.node_id: n for u in us for n in u.path_nodes}; leaves = {u.leaf.leaf_id: u.leaf for u in us}
+        ssf = None
+        if d.source_consistency:                                       # same admission as training (v2.1); J itself is unchanged
+            from src.online_rl.tree.witness import source_stage1_for
+            tin_of = {u.leaf.leaf_id: u.tin for u in us}
+            ssf = lambda leaf, cid=cid: source_stage1_for(cases[cid], nodes, leaf, tin_of[leaf.leaf_id].target_reply_id, d.scorer.applicability, d.cache)
         canon, assignments = RB.build_banks(cases[cid], list(leaves.values()), {u.leaf.leaf_id: u.tin for u in us}, text, sha, d.generate_fn,
-                                            d.assign_fn, d.gate_fn, d.cache)
+                                            d.assign_fn, d.gate_fn, d.cache, source_stage1_for=ssf)
         _, member = RB.verify_members(cases[cid], nodes, leaves, canon, assignments, scorer=d.scorer, writer=d.writer, continuation=d.continuation,
                                       reruns=d.reruns, run_seed=d.run_seed, policy_sha256=d.policy_sha256, strategies=d.strategies, cache=d.cache)
         members = {}

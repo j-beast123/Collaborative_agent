@@ -65,8 +65,8 @@ def match_problem(decision: dict, bank: list[TrajectoryRubric]) -> str:
 
 
 def build_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubricInput], prompt_text: str, prompt_sha256: str,
-                generate_fn: Callable, assign_fn: Callable, gate_fn: Optional[Callable], cache: CallCache, parallel_strata: bool = False
-                ) -> tuple[dict[str, TrajectoryRubric], list[RubricAssignment]]:
+                generate_fn: Callable, assign_fn: Callable, gate_fn: Optional[Callable], cache: CallCache, parallel_strata: bool = False,
+                source_stage1_for: Optional[Callable] = None) -> tuple[dict[str, TrajectoryRubric], list[RubricAssignment]]:
     """Rubrics generated for this case (id -> rubric, gate-passed or rejected) and one assignment per decided trajectory.
     The failure and success banks are independent (each stratum reads and writes only its own bank); parallel_strata
     (execution only) builds them concurrently and merges them in the fixed stratum order, so the result is identical."""
@@ -84,7 +84,8 @@ def build_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubric
                 note = match_problem(decision, bank)
                 if not note:
                     out.append(RubricAssignment(leaf.leaf_id, case['case_id'], stratum, k, decision['rubric_id'], 'REUSED_EXISTING', decision, '', fb)); continue
-            rub = generate_rubric(create_text, prompt_sha256, tin, generate_fn, cache, gate_fn)          # the normal generation call
+            rub = generate_rubric(create_text, prompt_sha256, tin, generate_fn, cache, gate_fn,          # the normal generation call
+                                  source_stage1=source_stage1_for(leaf) if source_stage1_for else None)  # v2.1: source-self-applicability
             canon[rub.rubric_id] = rub
             if rub.valid: bank.append(rub)
             else: note = (note + '; ' if note else '') + 'generated rubric rejected: ' + ', '.join(rub.problems or _gate_reasons(rub.gate))

@@ -110,6 +110,11 @@ class TreeTrainer:
         sch = cfg['schedule']; self.calibration_only = set(sch.get('calibration_only_cursors') or [])   # e.g. pool positions 401-410
         if sch.get('positions') is not None and not set(sch['positions']) <= self.calibration_only:
             raise ValueError('schedule.positions may only replay the calibration-only positions (schedule.calibration_only_cursors)')
+        self.source_consistency = (cfg['rubric'].get('source_consistency') == 'source_locus_v1')   # v2.1
+        if cfg['rubric'].get('source_consistency') not in (None, 'source_locus_v1'): raise ValueError(f"unknown rubric.source_consistency {cfg['rubric']['source_consistency']!r}")
+        if self.source_consistency and self.rubric_on and (self.verification != W.PROTOCOL or not (cfg.get('feedback') or {}).get('behavioral_locus')
+                                                           or getattr(env.generate_fn, 'repair', None) is None):
+            raise ValueError('rubric.source_consistency needs bounded witness verification, the feedback locus and a generator with repair')
         import os; self.parallel_strata = os.environ.get('SHERPA_PARALLEL_STRATA') == '1'     # execution only: identical banks
         self.opening_spec = (cfg.get('rollout') or {}).get('doctor_opening')
         if self.opening_spec:                                          # never a silent fallback to generating D1
@@ -215,12 +220,15 @@ class TreeTrainer:
             else: feedback = [fb(l) for l in decided]
             invalid_fb = [f.leaf_id for f in feedback if not getattr(f, 'valid', True)]    # v4 leakage guard failed after its repair
             ruled = [l for l, f in zip(decided, feedback) if getattr(f, 'valid', True)]       # trajectories that get a rubric mapping
-            tins = [freeze_trajectory_input(case, l, f) for l, f in zip(decided, feedback) if getattr(f, 'valid', True)]
+            tins = [freeze_trajectory_input(case, l, f, include_locus=self.source_consistency) for l, f in zip(decided, feedback) if getattr(f, 'valid', True)]
             prompt = self.store.get(s.prompt_sha256)
             nodes = {n.node_id: n for n in tree.nodes}
             if self.reuse and self.verification == W.PROTOCOL:       # consolidation + bounded causal-witness verification (witness.py)
-                canon, assignments = RB.build_banks(case, ruled, {t.leaf_id: t for t in tins}, prompt, s.prompt_sha256, e.generate_fn,
-                                                    e.assign_fn, e.gate_fn, self.cache, parallel_strata=self.parallel_strata)
+                tin_of = {t.leaf_id: t for t in tins}
+                ssf = (lambda leaf: W.source_stage1_for(case, nodes, leaf, tin_of[leaf.leaf_id].target_reply_id, e.scorer.applicability, self.cache)
+                       ) if self.source_consistency else None             # v2.1: source-self-applicability before the quality gate
+                canon, assignments = RB.build_banks(case, ruled, tin_of, prompt, s.prompt_sha256, e.generate_fn,
+                                                    e.assign_fn, e.gate_fn, self.cache, parallel_strata=self.parallel_strata, source_stage1_for=ssf)
                 vcfg = cfg['verification']; loci = {f.leaf_id: f.target_reply_id for f in feedback if getattr(f, 'valid', True)}
                 wit = W.verify_witness(case, nodes, {l.leaf_id: l for l in ruled}, canon, assignments, loci, applicability=e.scorer.applicability,
                                        writer=e.writer, continuation=e.continuation, reruns=iv['reruns_per_intervention'], run_seed=s.run_seed,
@@ -239,7 +247,9 @@ class TreeTrainer:
                                       'feedback_invalid_by_stratum': {st: sum(1 for f in feedback if not getattr(f, 'valid', True) and f.outcome == o)
                                                                       for st, o in (('success', 1.0), ('failure', 0.0))},
                                       'feedback_by_stratum': {st: sum(1 for f in feedback if f.outcome == o) for st, o in (('success', 1.0), ('failure', 0.0))},
-                                      'feedback_leakage_first_try': sum(bool(((f.locus or {}).get('leakage') or {}).get('first')) for f in feedback)}}
+                                      'feedback_leakage_first_try': sum(bool(((f.locus or {}).get('leakage') or {}).get('first')) for f in feedback),
+                                      'source_check': dict(__import__('collections').Counter((r.source_check or {}).get('status') for r in canon.values()
+                                                                                              if r.source_check is not None))}}
             elif self.reuse:                                         # same-reason REUSE vs NEW (src/online_rl/tree/rubric_bank.py)
                 canon, assignments = RB.build_banks(case, ruled, {t.leaf_id: t for t in tins}, prompt, s.prompt_sha256, e.generate_fn,
                                                     e.assign_fn, e.gate_fn, self.cache)
@@ -343,7 +353,7 @@ class TreeTrainer:
                    for d in (read_json(self._event_path(e)) for e in range(1, event))]
         deps = ScoringDeps(pu['reruns_per_intervention'], s.run_seed, self.env.generate_fn,
                            self.env.gate_fn, self.env.scorer, self.env.writer, self.env.continuation, s.policy_sha256, self.st, self.cache,
-                           self.env.assign_fn if self.reuse else None)
+                           self.env.assign_fn if self.reuse else None, self.source_consistency)
         res = run_event(event, s.prompt_id, s.prompt_sha256, units, self.cases, self.store, self.backend, deps, self.cfg, s.run_seed, s.case_cursor, history)
         atomic_write_json(self._event_path(event), {**res, 'versions': [to_dict(v) for v in res['versions']],
                                                     'rerun_policy_sha256': s.policy_sha256, 'evidence_policy_sha256': sorted({u.policy_sha256 for u in units}),

@@ -79,6 +79,7 @@ class TrajectoryRubricInput:
     feedback: str
     sha256: str
     feedback_kind: str = 'physician_after_decision'   # how the feedback was produced (part of the sha only when not the default)
+    target_reply_id: Optional[int] = None  # v2.1: the feedback's behavioral locus, shown to the Rubric Generator (in the sha only when set)
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ class TrajectoryRubric:
     valid: bool                           # parsed and structurally complete (0/1/2 levels)
     problems: tuple[str, ...]
     gate: Optional[dict]                  # post-hoc gate result (None when no gate_fn is given)
+    source_check: Optional[dict] = None   # v2.1 source-self-applicability at the source locus (status, stage1, repair); None before v2.1
 
 
 

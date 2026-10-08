@@ -170,7 +170,22 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None):
         rubric, err = H.parse_rubric(raw)
         if err and settings.get('response_format') == 'json_schema_strict': raise RubricOutputIncomplete(f'{model}: schema output did not parse: {err}')
         return {'raw': raw, 'rubric': rubric, 'parse_error': err, 'usage': meta.get('usage')}
-    generate.model = model; generate.settings = settings
+
+    def repair(prompt_text, tin, rubric, stage1):
+        """v2.1 source-consistency repair (one call): the same trajectory input (with its behavioral locus), the rubric that was
+        No Match at that locus and the Stage-1 reason; returns a rewritten rubric under the same schema."""
+        import json
+        from src.online_rl.tree.posthoc import REPAIR_PRINCIPLE
+        shown = {k: rubric.get(k) for k in ('name', 'applicability_condition', 'required_behavior', 'scores')}
+        user = (trajectory_message(tin) + '\n\nYour previous rubric for this trajectory:\n' + json.dumps(shown, ensure_ascii=False, indent=1) +
+                f"\n\nAt the behavioral locus (Agent reply {tin.target_reply_id}) its applicability condition was judged NOT met: "
+                f"{stage1.get('missing_requirement') or 'the situation before the locus reply does not satisfy the condition'}\n\n{REPAIR_PRINCIPLE}\n"
+                'Return ONE rubric in the same JSON format, with the name, required behavior and 0/1/2 levels unchanged.')
+        raw, meta = _openrouter_json(key, model, prompt_text, user, settings, RUBRIC_JSON_SCHEMA, 'rubric', 'rubric_generator')
+        rubric2, err = H.parse_rubric(raw)
+        if err and settings.get('response_format') == 'json_schema_strict': raise RubricOutputIncomplete(f'{model}: repair output did not parse: {err}')
+        return {'raw': raw, 'rubric': rubric2, 'parse_error': err, 'usage': meta.get('usage')}
+    generate.model = model; generate.settings = settings; generate.repair = repair
     return generate
 
 
