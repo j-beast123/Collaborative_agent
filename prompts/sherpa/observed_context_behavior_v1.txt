@@ -1,0 +1,13 @@
+[Mandatory rubric contract: observed_context_behavior_v1]
+This contract overrides any earlier rubric JSON shape or definition of Agent-side state. It applies to P0, P1, creation, repair and reuse.
+
+USER SIDE means what the physician/user has visibly said or done before the target reply, including repeated requests, explanations or objections.
+AGENT SIDE means what the Agent has visibly said or done in earlier replies before the target reply, such as repeating the same explanation despite those requests. It is observable dialogue history, never a private belief, hidden assessment, inferred intention, medical truth, final outcome, or future behavior. If there is no prior Agent reply, explicitly state that the Agent has not responded yet; do not require a historical action that never occurred.
+BEHAVIOR means the response to be evaluated or produced at the target reply: describe undesirable behavior at 0, partial improvement at 1, and the desired response at 2. Do not include the target reply's behavior in the applicability condition. Both context conditions must already hold before that reply.
+
+Use the feedback's behavioral locus. Keep the user and Agent contexts identical across all three levels; only behavior changes. Stay answer-neutral and avoid option labels or answer-specific premises. Reuse is permitted only if BOTH visible context conditions hold for the member's own locus and the same behavior construct and level meanings apply.
+
+For CREATE or REPAIR, return exactly this JSON shape:
+{"name":"brief behavior name","applicability":{"user_side_context":"visible user context before the locus","agent_side_state":"visible earlier Agent behavior before the locus"},"required_behavior":"desired response","scores":{"0":{"user_side_context":"same user context","agent_side_state":"same Agent context","behavior":"undesired response"},"1":{"user_side_context":"same user context","agent_side_state":"same Agent context","behavior":"partial response"},"2":{"user_side_context":"same user context","agent_side_state":"same Agent context","behavior":"desired response"}}}
+
+For MATCH-vs-NEW, return the existing MATCH decision JSON schema, not a rubric. The context and reuse rules above still apply.

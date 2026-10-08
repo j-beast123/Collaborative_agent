@@ -8,8 +8,10 @@ def with_role(role: str, fn):
     """Run fn with the usage-ledger stage set to the pipeline role (doctor, feedback, rubric_generator, ...); thread-local, so
     concurrent Doctor / rerun threads label their own calls."""
     from src.common.usage import _stage
+    from src.common.live_gpu import activity
     old = getattr(_stage, 'value', None); _stage.value = role
-    try: return fn()
+    try:
+        with activity('role.' + role):return fn()
     finally: _stage.value = old
 
 
@@ -88,8 +90,8 @@ def api_feedback(key: str, model: str, system: str, max_tokens: int, locus: bool
     return feedback
 
 
-def api_behavior_feedback(key: str, model: str, system: str, max_tokens: int):
-    """Feedback v4 (behavior observer): the writer sees ONLY the labelled dialogue before the FINAL (no question, options,
+def api_behavior_feedback(key: str, model: str, system: str, max_tokens: int, protocol: str = 'behavior_observer_v4'):
+    """Behavior-observer feedback: the writer sees ONLY the labelled dialogue before the FINAL (no question, options,
     final decision, outcome or gold). The answer ends with 'Behavioral locus: Agent reply N'. Deterministic guards: reply
     labels, locus, and answer leakage (option labels, option texts, correctness wording; posthoc.leakage_problems). Any
     problem -> ONE repair with the same input plus a note naming the problems. Leakage still present -> invalid feedback
@@ -116,7 +118,7 @@ def api_behavior_feedback(key: str, model: str, system: str, max_tokens: int):
         valid = not leak
         status = ('ok' if len(raw) == 1 else 'repaired') if valid and locus is None else ('leakage' if not valid else locus)
         return {'text': clean, 'target_reply_id': rid if valid and locus is None else None, 'status': status, 'raw': raw, 'valid': valid,
-                'leakage': {'first': first_leak, 'final': leak}, 'kind': 'behavior_observer_v4'}
+                'leakage': {'first': first_leak, 'final': leak}, 'kind': protocol}
     feedback.model = model; feedback.transcript = 'behavior_dialogue_v1'
     return feedback
 
@@ -125,6 +127,17 @@ RUBRIC_JSON_SCHEMA = {'type': 'object', 'additionalProperties': False, 'required
                       'properties': {'name': {'type': 'string'}, 'applicability_condition': {'type': 'string'}, 'required_behavior': {'type': 'string'},
                                      'scores': {'type': 'object', 'additionalProperties': False, 'required': ['0', '1', '2'],
                                                 'properties': {k: {'type': 'string'} for k in '012'}}}}
+
+CONTEXT_PROPERTIES = {k: {'type': 'string'} for k in ('user_side_context', 'agent_side_state')}
+OBSERVED_RUBRIC_JSON_SCHEMA = {'type': 'object', 'additionalProperties': False,
+    'required': ['name', 'applicability', 'required_behavior', 'scores'],
+    'properties': {'name': {'type': 'string'}, 'required_behavior': {'type': 'string'},
+        'applicability': {'type': 'object', 'additionalProperties': False,
+                         'required': list(CONTEXT_PROPERTIES), 'properties': CONTEXT_PROPERTIES},
+        'scores': {'type': 'object', 'additionalProperties': False, 'required': list('012'), 'properties': {
+            k: {'type': 'object', 'additionalProperties': False,
+                'required': [*CONTEXT_PROPERTIES, 'behavior'],
+                'properties': {**CONTEXT_PROPERTIES, 'behavior': {'type': 'string'}}} for k in '012'}}}}
 
 
 class RubricOutputIncomplete(RuntimeError):
@@ -159,14 +172,16 @@ def _openrouter_json(key: str, model: str, system: str, user: str, settings: dic
     return raw, meta
 
 
-def api_rubric_generator(key: str, model: str, settings: dict | None = None):
+def api_rubric_generator(key: str, model: str, settings: dict | None = None, context_addendum: str | None = None):
     """CREATE: trajectory + feedback -> one rubric. With strict-schema settings a non-parsing output is an operational error."""
     from src.prompt_opt import harness as H
     from src.online_rl.tree.posthoc import trajectory_message
     settings = settings or {'max_tokens': H.GEN_MAX_TOKENS, 'temperature': H.GEN_TEMPERATURE, 'reasoning_effort': None, 'response_format': None}
+    schema = OBSERVED_RUBRIC_JSON_SCHEMA if context_addendum else RUBRIC_JSON_SCHEMA
+    def system(prompt): return prompt + '\n\n' + context_addendum if context_addendum else prompt
 
     def generate(prompt_text, tin):
-        raw, meta = _openrouter_json(key, model, prompt_text, trajectory_message(tin), settings, RUBRIC_JSON_SCHEMA, 'rubric', 'rubric_generator')
+        raw, meta = _openrouter_json(key, model, system(prompt_text), trajectory_message(tin), settings, schema, 'rubric', 'rubric_generator')
         rubric, err = H.parse_rubric(raw)
         if err and settings.get('response_format') == 'json_schema_strict': raise RubricOutputIncomplete(f'{model}: schema output did not parse: {err}')
         return {'raw': raw, 'rubric': rubric, 'parse_error': err, 'usage': meta.get('usage')}
@@ -176,16 +191,25 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None):
         No Match at that locus and the Stage-1 reason; returns a rewritten rubric under the same schema."""
         import json
         from src.online_rl.tree.posthoc import REPAIR_PRINCIPLE
-        shown = {k: rubric.get(k) for k in ('name', 'applicability_condition', 'required_behavior', 'scores')}
+        from src.online_rl.tree.agent_state import visible_rubric
+        shown = visible_rubric(rubric)
+        principle = REPAIR_PRINCIPLE
+        if context_addendum:
+            principle = ('Change only the two visible applicability contexts so they hold BEFORE the source locus reply. '
+                         'Repeat the revised contexts exactly at all three score levels. Preserve the name, required_behavior '
+                         'and each level\'s behavior text exactly. Do not infer hidden beliefs or use the target reply to establish applicability.')
         user = (trajectory_message(tin) + '\n\nYour previous rubric for this trajectory:\n' + json.dumps(shown, ensure_ascii=False, indent=1) +
                 f"\n\nAt the behavioral locus (Agent reply {tin.target_reply_id}) its applicability condition was judged NOT met: "
-                f"{stage1.get('missing_requirement') or 'the situation before the locus reply does not satisfy the condition'}\n\n{REPAIR_PRINCIPLE}\n"
-                'Return ONE rubric in the same JSON format, with the name, required behavior and 0/1/2 levels unchanged.')
-        raw, meta = _openrouter_json(key, model, prompt_text, user, settings, RUBRIC_JSON_SCHEMA, 'rubric', 'rubric_generator')
+                f"{stage1.get('missing_requirement') or 'the situation before the locus reply does not satisfy the condition'}\n\n{principle}\n"
+                'Return ONE rubric in the required JSON format.')
+        raw, meta = _openrouter_json(key, model, system(prompt_text), user, settings, schema, 'rubric', 'rubric_generator')
         rubric2, err = H.parse_rubric(raw)
         if err and settings.get('response_format') == 'json_schema_strict': raise RubricOutputIncomplete(f'{model}: repair output did not parse: {err}')
         return {'raw': raw, 'rubric': rubric2, 'parse_error': err, 'usage': meta.get('usage')}
     generate.model = model; generate.settings = settings; generate.repair = repair
+    if context_addendum:
+        from src.online_rl.integrated.records import sha256_text
+        generate.settings = {**settings, 'context_contract_sha256': sha256_text(context_addendum)}
     return generate
 
 
@@ -197,12 +221,14 @@ MATCH_JSON_SCHEMA = {'type': 'object', 'additionalProperties': False, 'required'
                                     'rationale': {'type': 'string'}}}
 
 
-def api_rubric_matcher(key: str, model: str, settings: dict):
+def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: str | None = None, match_batch_size: int = 1):
     """MATCH-vs-NEW: (prompt package, trajectory + current bank) -> {'decision', 'rubric_id', 'checks', 'rationale'} from the
     Rubric-Generator model; a decision only, never a rubric. Malformed output is an operational error (RubricOutputIncomplete)."""
     import json, re
+    if match_batch_size not in (1,8):raise ValueError('match_batch_size must be 1 or 8')
 
     def decide(package, user):
+        if context_addendum: package += '\n\n' + context_addendum
         raw, meta = _openrouter_json(key, model, package, user, settings, MATCH_JSON_SCHEMA, 'rubric_match_decision', 'rubric_matcher')
         try: d = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', raw.strip()))
         except json.JSONDecodeError as e: raise RubricOutputIncomplete(f'{model}: match decision is not JSON: {e}') from e
@@ -211,7 +237,48 @@ def api_rubric_matcher(key: str, model: str, settings: dict):
               and set(d['checks']) == set(MATCH_CHECKS) and all(isinstance(v, bool) for v in d['checks'].values()))
         if not ok: raise RubricOutputIncomplete(f'{model}: match decision does not follow the schema: {raw[:300]}')
         return {**d, 'usage': meta.get('usage')}
+    def batch(package, items, bank):
+        """One frozen bank and up to eight independent trajectory decisions; exact ID coverage required."""
+        from src.online_rl.tree.rubric_bank import bank_view
+        from src.online_rl.tree.posthoc import trajectory_message
+        if not 1 <= len(items) <= 8 or len({t.leaf_id for t in items}) != len(items):
+            raise ValueError('Batch matcher requires 1..8 unique trajectory IDs')
+        schema={'type':'object','additionalProperties':False,'required':['decisions'],
+                'properties':{'decisions':{'type':'array','items':{
+                    'type':'object','additionalProperties':False,'required':['trajectory_id',*MATCH_JSON_SCHEMA['required']],
+                    'properties':{'trajectory_id':{'type':'string'},**MATCH_JSON_SCHEMA['properties']}}}}}
+        if context_addendum:package += '\n\n'+context_addendum
+        package += ('\n\nBATCH MATCH CONTRACT: Judge each numbered trajectory independently against the SAME frozen bank. '
+                    'Return {"decisions": [...]} with exactly one entry for each supplied trajectory_id. '
+                    'Each entry has trajectory_id, decision, rubric_id, all six boolean checks, and a concise rationale '
+                    'identifying its behavioral locus and quoting the relevant visible dialogue. Never reference another '
+                    'trajectory as evidence. CREATE_NEW means no existing rubric safely matches; do not invent rubric IDs '
+                    'or create rubrics in this call. There is no gold answer. Return only the batch JSON schema.')
+        user=json.dumps({'frozen_bank':bank_view(bank),'trajectories':[
+            {'trajectory_id':t.leaf_id,'behavioral_locus':t.target_reply_id,'input':trajectory_message(t)} for t in items]},ensure_ascii=False)
+        raw,meta=_openrouter_json(key,model,package,user,settings,schema,'rubric_match_batch','rubric_matcher')
+        try:d=json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',raw.strip()))
+        except json.JSONDecodeError as e:raise RubricOutputIncomplete('Batch match output is not JSON') from e
+        rows=d.get('decisions') if isinstance(d,dict) and set(d)=={'decisions'} else None
+        expected={t.leaf_id for t in items}
+        if not isinstance(rows,list) or len(rows)!=len(expected):raise RubricOutputIncomplete('Batch match ID coverage differs')
+        out={}
+        for row in rows:
+            if not isinstance(row,dict) or set(row)!={'trajectory_id',*MATCH_JSON_SCHEMA['required']}:raise RubricOutputIncomplete('Malformed batch match row')
+            tid=row['trajectory_id']
+            if not isinstance(tid,str) or tid not in expected or tid in out:raise RubricOutputIncomplete('Missing, duplicate or unknown trajectory ID')
+            value={k:row[k] for k in MATCH_JSON_SCHEMA['required']}
+            if (value['decision'] not in ('REUSE_EXISTING','CREATE_NEW') or not isinstance(value['rubric_id'],str) or
+                not isinstance(value['rationale'],str) or not isinstance(value['checks'],dict) or set(value['checks'])!=set(MATCH_CHECKS) or
+                not all(isinstance(v,bool) for v in value['checks'].values())):raise RubricOutputIncomplete('Malformed batch match decision')
+            out[tid]=value
+        return {'decisions':out,'usage':meta.get('usage')}
     decide.model = model; decide.settings = settings
+    decide.batch=batch;batch.model=model;batch.settings=settings
+    decide.batch_size=match_batch_size
+    if context_addendum:
+        from src.online_rl.integrated.records import sha256_text
+        decide.settings = {**settings, 'context_contract_sha256': sha256_text(context_addendum)}
     return decide
 
 
@@ -284,31 +351,39 @@ STAGE2_FIELDS = {'level': {'type': 'string', 'enum': ['0', '1', '2']}, 'anchor_b
 def stage1_items(rubrics: list[dict]) -> dict:
     """Applicability items: rubric name and applicability condition only (no required behavior, no score anchors)."""
     from src.judges.rubric_scoring import applicability_questions
-    q = applicability_questions(rubrics)
-    return {r['rubric_id']: {'rubric': r['name'], 'applicability_condition': r['applicability_condition'], 'instructions': q[r['rubric_id']]['instructions']}
+    from src.online_rl.tree.agent_state import flat_rubric, state_conditioned
+    q = applicability_questions([flat_rubric(r) for r in rubrics])
+    return {r['rubric_id']: {'rubric': r['name'], 'applicability_condition': flat_rubric(r)['applicability_condition'],
+                            **({'applicability': r['applicability']} if state_conditioned(r) else {}),
+                            'instructions': q[r['rubric_id']]['instructions'] +
+                            (' Both User-side context and earlier visible Agent behavior must hold in the dialogue BEFORE the target reply. '
+                             'Agent-side state means prior observable behavior, never hidden belief. Do not use the unseen target reply or future dialogue.'
+                             if state_conditioned(r) else '')}
             for r in rubrics}
 
 
 def stage2_items(rubrics: list[dict]) -> dict:
     """Level items: rubric name, required behavior and the rubric's own score anchors (no applicability condition)."""
     from src.judges.rubric_scoring import behavior_questions
-    q = behavior_questions(rubrics)
+    from src.online_rl.tree.agent_state import flat_rubric
+    q = behavior_questions([flat_rubric(r) for r in rubrics])
     return {r['rubric_id']: {'rubric': r['name'], 'required_behavior': r['required_behavior'], 'score_anchors': {k: r['scores'][k] for k in ('0', '1', '2')},
                              'instructions': q[r['rubric_id']]['instructions'] + ' ' + STAGE2_NOTE} for r in rubrics}
 
 
-def two_stage_structured_scorer(client):
+def two_stage_structured_scorer(client, observed_context: bool = False):
     """Scorer v2 (Luna, hard labels with a one-sentence basis per decision). Stage 1 sees the case, the dialogue BEFORE the
     target reply and each rubric's name + applicability condition, and returns applicable + evidence_basis /
     missing_requirement. Stage 2 (applicable rubrics only) adds the target reply and sees name + required behavior + the
     rubric's own 0/1/2 anchors, and returns level + anchor_basis. Neither stage sees outcome, gold, later turns or rubric
     effectiveness. Malformed output: one same-model repair (client.judge), then an operational error."""
-    from src.judges.rubric_scoring import validate_visible_rubric
+    from src.online_rl.tree.agent_state import rubric_problems, state_conditioned
     from src.online_rl.integrated.records import sha256_text
 
     def score(view, prefix, rubrics, reply):
         for r in rubrics:
-            if validate_visible_rubric(r) or not r.get('required_behavior'): raise ValueError(f"invalid visible rubric {r.get('rubric_id')}")
+            if rubric_problems(r): raise ValueError(f"invalid visible rubric {r.get('rubric_id')}")
+            if state_conditioned(r) and not observed_context: raise ValueError('observed-context rubric requires the matching scorer protocol')
         latest = next((t['text'] for t in reversed(prefix) if t.get('speaker') == 'doctor'), '')
         before = {'case_context': {'question': view['question'], 'options': view['options']}, 'dialogue_before_target_reply': prefix}
         stage1_state = {**before, 'latest_physician_message': latest}      # the situation the target reply must respond to
@@ -328,7 +403,8 @@ def two_stage_structured_scorer(client):
         """Stage 1 only (the same question as score's Stage 1): {rubric_id: {'applicable': bool, 'stage1': decision}}. Used by
         training-time witness verification, which needs no level; Stage 2 is never called here."""
         for r in rubrics:
-            if validate_visible_rubric(r) or not r.get('required_behavior'): raise ValueError(f"invalid visible rubric {r.get('rubric_id')}")
+            if rubric_problems(r): raise ValueError(f"invalid visible rubric {r.get('rubric_id')}")
+            if state_conditioned(r) and not observed_context: raise ValueError('observed-context rubric requires the matching scorer protocol')
         latest = next((t['text'] for t in reversed(prefix) if t.get('speaker') == 'doctor'), '')
         state = {'case_context': {'question': view['question'], 'options': view['options']}, 'dialogue_before_target_reply': prefix,
                  'latest_physician_message': latest}
@@ -339,11 +415,15 @@ def two_stage_structured_scorer(client):
     score.protocol = sha256_text(f"{getattr(client, 'protocol_sha256', None)}|{SCORER_V2}|{STAGE2_NOTE}")
     applicability.model = score.model
     applicability.protocol = sha256_text(f"{getattr(client, 'protocol_sha256', None)}|{SCORER_V2}|stage1_only")
+    if observed_context:
+        from src.online_rl.tree.agent_state import SCHEMA
+        score.protocol = sha256_text(score.protocol + '|' + SCHEMA)
+        applicability.protocol = sha256_text(applicability.protocol + '|' + SCHEMA)
     score.applicability = applicability
     return score
 
 
-def posthoc_gates(client, cases: dict):
+def posthoc_gates(client, cases: dict, observed_context: bool = False):
     """Post-hoc rubric gate: schema, deterministic leakage / answer copy (the gold is used only inside this check), and the
     Jev answer_presupposition and new_domain_premise questions on the source discussion without the FINAL. 'observable' is
     recorded but does not block."""
@@ -352,20 +432,21 @@ def posthoc_gates(client, cases: dict):
     from src.online_rl.tree.records import to_dialogue
     from src.prompt_opt import harness as H
     from src.prompt_opt import harness_v11 as V
+    from src.online_rl.tree.agent_state import rubric_problems, flat_rubric, visible_rubric
     Q = json.loads((H.ROOT / 'prompts/prompt_opt/rubric_validator_questions_v1_2.json').read_text())['questions']
     questions = {k: Q[k] for k in POSTHOC_BLOCKING + POSTHOC_UNRESOLVED}
 
     def gate(tin, rubric) -> dict:
         case = cases[tin.case_id]; g = {'schema': None, 'leakage_deterministic': None, **{k: None for k in questions}, 'reasons': [], 'passed': False,
                                         'unresolved': list(POSTHOC_UNRESOLVED)}
-        probs = validate_visible_rubric(rubric) + ([] if isinstance(rubric.get('required_behavior'), str) and rubric['required_behavior'].strip() else ['missing required_behavior'])
+        probs = rubric_problems(rubric)
         g['schema'] = not probs
         if probs: g['reasons'].append(f'schema: {probs}'); return g
-        leak = H.deterministic_leakage(rubric, case); g['leakage_deterministic'] = leak
+        leak = H.deterministic_leakage(flat_rubric(rubric), case); g['leakage_deterministic'] = leak
         if leak: g['reasons'].append(f'deterministic leakage: {leak}')
         discussion = [d for d in to_dialogue(tin.dialogue) if d['stage'] != 'FINAL']
         state = {'case_context': {'question': tin.question, 'options': dict(tin.options)}, 'dialogue_before_target_turn': discussion,
-                 'candidate_rubric': V._visible(rubric)}
+                 'candidate_rubric': visible_rubric(rubric)}
         n0 = len(getattr(client, 'log', []))
         ans, _ = with_role('rubric_gate', lambda: _batched_jev_decisions(client, state, questions, purpose='tree_posthoc_rubric_gate', max_rubrics_per_call=None))
         g['decisions'] = getattr(client, 'log', [])[n0:]
@@ -375,6 +456,10 @@ def posthoc_gates(client, cases: dict):
         g['passed'] = g['schema'] and not leak and not any(g[k] for k in POSTHOC_BLOCKING)
         return g
     gate.model = getattr(client, 'model', None); gate.protocol = getattr(client, 'protocol_sha256', None)
+    if observed_context:
+        from src.online_rl.integrated.records import sha256_text
+        from src.online_rl.tree.agent_state import SCHEMA
+        gate.protocol = sha256_text(str(gate.protocol) + '|' + SCHEMA)
     return gate
 
 
@@ -388,10 +473,11 @@ class PolicyInterventions:
     def write(self, case, prefix, turn, rubric, level, seed):
         import json
         from src.prompt_opt import harness as H
-        if level == '2' and self.score2_template is None: return H.Env.guided(self.policy, case, prefix, turn, rubric, seed)
+        from src.online_rl.tree.agent_state import visible_rubric, flat_rubric
+        if level == '2' and self.score2_template is None: return H.Env.guided(self.policy, case, prefix, turn, flat_rubric(rubric), seed)
         if level not in ('0', '2'): raise ValueError(f'intervention level must be 0 or 2, got {level!r}')
         template = self.score0_template if level == '0' else self.score2_template      # same call shape as Env.guided
-        visible = {k: rubric[k] for k in ('name', 'applicability_condition', 'required_behavior', 'scores')}
+        visible = visible_rubric(rubric)
         return self.policy.agent(self.policy.agent_user_prompt(case, prefix, turn) + '\n\n' + template.format(rubric_json=json.dumps(visible, ensure_ascii=False)), seed)
 
     def continue_(self, case, prefix, turn, text, seed, turn_cache=None):

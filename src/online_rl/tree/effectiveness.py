@@ -17,18 +17,25 @@ def intervention_level(source_outcome: float) -> str:
     return '0' if source_outcome == 1.0 else '2'
 
 
+RERUN_OUTCOME_POLICY = 'parsed_target_only_v1'
+RERUN_CONTINUATION_PROTOCOL = 'intervention_agent_once_doctor_final_once_v1'
+
+
+def reaches_target(level: str, outcome) -> bool:
+    """Only a parsed 0/1 outcome can establish the intervention's target change."""
+    if level not in ('0', '2'): raise ValueError(f'unknown intervention level {level!r}')
+    return outcome is not None and outcome == (1.0 if level == '2' else 0.0)
+
+
 def target_rate(level: str, outcomes: list) -> float:
-    """Share of reruns reaching the target outcome (success for Score-2, failure for Score-0); an unparseable FINAL is not correct."""
-    target = 1.0 if level == '2' else 0.0
-    return sum((o or 0.0) == target for o in outcomes) / len(outcomes)
+    """Target hits / K. Unparsed FINALs remain in K but never count as evidence."""
+    return sum(reaches_target(level, o) for o in outcomes) / len(outcomes)
 
 
 def rerun_turn_cache(cache: CallCache, case: dict, rerun: dict, index: int) -> Callable:
-    """Inner cache of one rerun: every Doctor call / Agent turn of the continuation is stored when it succeeds, keyed by
-    the complete rerun identity (case, rubric, target node, level, policy, intervention reply, rerun seed and index) plus
-    the turn's own identity (model, system prompt, decoding, stage, input sha256). A resumed rerun reuses the turns
-    already observed and continues from the first missing one; the outer 'rerun' record is unchanged. A failed call
-    raises before anything is stored."""
+    """Cache the single Doctor FINAL for a rerun, keyed by the complete intervention identity plus the FINAL input.
+    A failed call raises before anything is stored. The continuation protocol is in `rerun`, so old multi-turn records
+    cannot satisfy this one-step protocol."""
     owner = {**rerun, 'case_id': case['case_id'], 'rerun_index': index}
     return lambda kind, identity, fn: cache.call(f'rerun_{kind}_turn', {'rerun': owner, 'turn': identity}, fn)
 
@@ -44,8 +51,10 @@ def run_interventions(case: dict, leaf: Leaf, node: AgentNode, rub: TrajectoryRu
     level = intervention_level(leaf.outcome); prefix = to_dialogue(node.prefix); key = node.node_id   # seeds shared by every rubric on this target
     if getattr(node, 'prefix_doctor_status', None) is not None and prefix:                  # protocol v2: status of the last Doctor message
         prefix[-1] = {**prefix[-1], 'status': node.prefix_doctor_status}
-    ident = {'rubric': rub.rubric_id, 'node': node.node_id, 'level': level, 'policy': policy_sha256}
-    text = cache.call('behavior_text', ident, lambda: writer(case, prefix, node.depth, rub.rubric, level, derive_seed(run_seed, key, 'guided', 0)))
+    behavior_ident = {'rubric': rub.rubric_id, 'node': node.node_id, 'level': level, 'policy': policy_sha256}
+    text = cache.call('behavior_text', behavior_ident,
+                      lambda: writer(case, prefix, node.depth, rub.rubric, level, derive_seed(run_seed, key, 'guided', 0)))
+    ident = {**behavior_ident, 'continuation_protocol': RERUN_CONTINUATION_PROTOCOL}
     turns = 'turn_cache' in inspect.signature(continuation).parameters
 
     def one(i):                                                     # rerun i: its own seed, cache key and per-turn cache

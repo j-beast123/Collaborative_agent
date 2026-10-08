@@ -2,7 +2,8 @@
 - multi-target s(tau): mean of the per-target verification scores.
 - R_A: s(tau)-weighted mean of the matched kept rubric scores; None if none matches.
 - credit: outcome component = mean of the node's descendant leaf outcomes; reward = w_outcome * outcome + w_rubric * R_A
-  (a missing R_A is omitted, not renormalised); same-state siblings form one GRPO group.
+  (a missing R_A is omitted when an outcome reward is active; with rubric-only reward it excludes the response);
+  same-state siblings form one GRPO group.
 - prompt unit value: the trajectory's s(tau) (prompt search aggregates it into J = S_success * S_failure)."""
 from __future__ import annotations
 from typing import Optional
@@ -10,6 +11,8 @@ from src.online_rl.integrated.episode import assert_single_prompt
 from src.online_rl.tree.decisions import Strategies
 from src.online_rl.tree.records import ResponseRubricScore, Tree
 from src.online_rl.tree.reward import descendant_outcomes
+
+RUBRIC_ONLY_NA_POLICY = 'exclude_unassessed_v1'
 
 
 def mean_target_R_O(per_node: dict[str, float]) -> float:
@@ -27,7 +30,8 @@ def node_credit(w_outcome: float, w_rubric: float):
         for n in tree.nodes:
             outs = list(desc[n.node_id].values())
             outcome = sum(outs) / len(outs) if outs else None; ra = node_r_a.get(n.node_id)
-            reward = None if outcome is None else w_outcome * outcome + (w_rubric * ra if ra is not None else 0.0)
+            unassessed_rubric_only = w_outcome == 0.0 and w_rubric > 0.0 and ra is None
+            reward = None if outcome is None or unassessed_rubric_only else w_outcome * outcome + (w_rubric * ra if ra is not None else 0.0)
             nodes[n.node_id] = {'outcome_component': outcome, 'descendant_leaves': len(outs), 'R_A': ra, 'reward': reward}
             groups.setdefault(n.parent_id or 'root', []).append(n.node_id)
         return {'nodes': nodes, 'groups': groups}

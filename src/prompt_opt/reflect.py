@@ -38,11 +38,20 @@ def copy_violations(new_prompt: str, allowed_prompts: list[str], case_texts: lis
     return sorted((ngrams(new_prompt, n) & case) - allowed)
 
 
-def structural_problems(p: str) -> list[str]:
+def structural_problems(p: str, *, require_observed_context: bool | None = None) -> list[str]:
     probs = []
-    for k in ('"name"', '"applicability_condition"', '"required_behavior"', '"scores"'):
+    for k in ('"name"', '"required_behavior"', '"scores"'):
         if k not in p: probs.append(f'missing output key {k}')
-    if len(p.split()) > 900: probs.append(f'too long ({len(p.split())} words)')
+    # Keep compatibility with older flat prompts, while tree prompt updates
+    # explicitly require the observed-context schema from their parent prompt.
+    observed = require_observed_context if require_observed_context is not None else '"user_side_context"' in p
+    if observed:
+        if '"applicability"' not in p:
+            probs.append('missing output key "applicability"')
+        for k in ('"user_side_context"', '"agent_side_state"'):
+            if k not in p: probs.append(f'missing observed-context output key {k}')
+    elif '"applicability_condition"' not in p:
+        probs.append('missing output key "applicability_condition"')
     return probs
 
 
@@ -51,9 +60,11 @@ def refine(key: str, prompt_text: str, fb: str, history: list[dict], allowed_pro
     user = ('CURRENT PROMPT:\n' + prompt_text + '\n\nDIAGNOSTIC REFLECTION:\n' + fb + '\n\nREVISION HISTORY (JSON):\n' + json.dumps(hist, ensure_ascii=False))
     attempts = []
     for attempt in range(2):
-        new = H.doctor_call(key, H.SOL, RF, user, 3000, SOL_REFLECT_TEMPERATURE).strip()
+        new = H.doctor_call(key, H.SOL, RF, user, 6000, SOL_REFLECT_TEMPERATURE).strip()
         new = re.sub(r'^```(?:\w+)?\s*|\s*```$', '', new).strip()
-        viol = copy_violations(new, allowed_prompts, case_texts); probs = structural_problems(new)
+        observed = '"user_side_context"' in prompt_text and '"agent_side_state"' in prompt_text
+        viol = copy_violations(new, allowed_prompts, case_texts)
+        probs = structural_problems(new, require_observed_context=observed)
         attempts.append({'prompt': new, 'copy_violations': viol, 'structural_problems': probs})
         if not viol and not probs: return {'prompt': new, 'attempts': attempts, 'ok': True}
         user += ('\n\nYOUR PREVIOUS DRAFT WAS REJECTED. ' + (f'It copied case-specific wording: {viol[:20]}. ' if viol else '') +

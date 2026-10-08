@@ -31,6 +31,7 @@ from src.online_rl.tree.posthoc import TRANSCRIPT_FORMAT, generate_rubric, traje
 from src.online_rl.tree.records import CanonicalSupport, Leaf, RubricAssignment, RubricEffectiveness, TrajectoryRubric, TrajectoryRubricInput
 
 ASSIGNMENT_VERSION = 'assign_or_create_v1'
+BATCH_VERSION = 'snapshot_match8_new_recheck_v1'
 MARKER = '[Assign or create]'
 CHECKS = ('same_construct', 'applicability_visible', 'same_required_behavior', 'same_direction', 'score_semantics_apply', 'no_new_premise')
 STRATA = (('failure', 0.0), ('success', 1.0))
@@ -48,7 +49,8 @@ def prompt_sections(text: str) -> tuple[str, str]:
 
 
 def bank_view(bank: list[TrajectoryRubric]) -> list[dict]:
-    return [{'rubric_id': r.rubric_id, **{k: r.rubric[k] for k in VISIBLE}} for r in bank]
+    from src.online_rl.tree.agent_state import visible_rubric
+    return [{'rubric_id': r.rubric_id, **visible_rubric(r.rubric)} for r in bank]
 
 
 def assign_message(tin: TrajectoryRubricInput, stratum: str, bank: list[TrajectoryRubric]) -> str:
@@ -66,13 +68,59 @@ def match_problem(decision: dict, bank: list[TrajectoryRubric]) -> str:
 
 def build_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubricInput], prompt_text: str, prompt_sha256: str,
                 generate_fn: Callable, assign_fn: Callable, gate_fn: Optional[Callable], cache: CallCache, parallel_strata: bool = False,
-                source_stage1_for: Optional[Callable] = None) -> tuple[dict[str, TrajectoryRubric], list[RubricAssignment]]:
+                source_stage1_for: Optional[Callable] = None, match_batch_size: Optional[int] = None) -> tuple[dict[str, TrajectoryRubric], list[RubricAssignment]]:
     """Rubrics generated for this case (id -> rubric, gate-passed or rejected) and one assignment per decided trajectory.
     The failure and success banks are independent (each stratum reads and writes only its own bank); parallel_strata
     (execution only) builds them concurrently and merges them in the fixed stratum order, so the result is identical."""
     create_text, package = prompt_sections(prompt_text)
+    if match_batch_size is None:match_batch_size=getattr(assign_fn,'batch_size',1)
+    if match_batch_size not in (1,8):raise ValueError('rubric match_batch_size must be 1 or 8')
+    if match_batch_size==8 and not callable(getattr(assign_fn,'batch',None)):raise ValueError('Batch matching requires assign_fn.batch')
+
+    def batched_stratum(stratum,o):
+        ordered=sorted((l for l in leaves if l.outcome==o),key=lambda l:l.leaf_id)
+        canon={};bank=[];assigned={};orders={l.leaf_id:k for k,l in enumerate(ordered)}
+        def save(leaf,rid,kind,decision,note=''):
+            assigned[leaf.leaf_id]=RubricAssignment(leaf.leaf_id,case['case_id'],stratum,orders[leaf.leaf_id],rid,kind,decision,note,sha256_json(tins[leaf.leaf_id].feedback))
+        def create(leaf,decision=None,note=''):
+            rub=generate_rubric(create_text,prompt_sha256,tins[leaf.leaf_id],generate_fn,cache,gate_fn,
+                               source_stage1=source_stage1_for(leaf) if source_stage1_for else None)
+            canon[rub.rubric_id]=rub
+            if rub.valid:bank.append(rub)
+            else:note += ('; ' if note else '')+'generated rubric rejected: '+', '.join(rub.problems or _gate_reasons(rub.gate))
+            save(leaf,rub.rubric_id,'CREATED_NEW' if rub.valid else 'CREATE_REJECTED',decision,note)
+            return rub.valid
+        def match(group):
+            snapshot=list(bank)
+            identity={'version':BATCH_VERSION,'case':case['case_id'],'stratum':stratum,'prompt':prompt_sha256,
+                      'tins':[[l.leaf_id,tins[l.leaf_id].sha256] for l in group],
+                      'bank':sha256_json(bank_view(snapshot)),'transcript':TRANSCRIPT_FORMAT,
+                      'model':getattr(assign_fn,'model',None),'settings':getattr(assign_fn,'settings',None)}
+            result=cache.call('rubric_match_batch',identity,lambda:assign_fn.batch(package,[tins[l.leaf_id] for l in group],snapshot))
+            decisions=result['decisions']
+            if set(decisions)!={l.leaf_id for l in group}:raise RuntimeError('Batch match returned incomplete trajectory IDs')
+            remaining=[]
+            for leaf in group:
+                decision=decisions[leaf.leaf_id];note=match_problem(decision,snapshot)
+                if not note:save(leaf,decision['rubric_id'],'REUSED_EXISTING',decision)
+                else:remaining.append((leaf,decision,note))
+            return remaining
+        # Both strata create their first rubric unconditionally. Later calls always use actual, gate-passed anchors.
+        if not ordered:return canon,[]
+        create(ordered[0]);cursor=1
+        while cursor<len(ordered):
+            group=ordered[cursor:cursor+match_batch_size];cursor+=len(group)
+            if bank:pending=match(group)
+            else:pending=[(l,None,'') for l in group]
+            while pending:
+                leaf,decision,note=pending.pop(0)
+                added=create(leaf,decision,note)
+                # NEW members are compared together against the expanded frozen bank, not assigned blindly to their leader.
+                if added and pending:pending=match([l for l,_,_ in pending])
+        return canon,[assigned[l.leaf_id] for l in ordered]
 
     def stratum_bank(stratum, o):
+        if match_batch_size==8:return batched_stratum(stratum,o)
         canon: dict[str, TrajectoryRubric] = {}; out: list[RubricAssignment] = []
         bank: list[TrajectoryRubric] = []
         for k, leaf in enumerate(sorted((l for l in leaves if l.outcome == o), key=lambda l: l.leaf_id)):

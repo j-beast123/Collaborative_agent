@@ -85,3 +85,14 @@ def test_concurrent_evaluation_equals_serial(tmp_path):
         r = MilestoneEvaluator(play, lambda c, o: float(o == 'B'), cases, 'val50', 'm', 'proto', 0)(milestone=0, checkpoint=Path('x'), out_dir=tmp_path / f'w{w}', provenance=prov)
         out.append((r['accuracy'], r['per_case']))
     assert out[0] == out[1] and [x['case_id'] for x in out[1][1]] == [c['case_id'] for c in cases]
+
+
+def test_runtime_concurrency_uses_configured_member_workers(tmp_path, monkeypatch):
+    from scripts.online_rl.run_tree import runtime_execution
+    monkeypatch.delenv('SHERPA_MEMBER_WORKERS', raising=False)
+    monkeypatch.delenv('SHERPA_API_WORKERS', raising=False)
+    cfg = {'output_dir': str(tmp_path), 'execution': {'member_workers': 2},
+           'five_gpu': {'api_workers': 3}, 'rollout': {'agent_sampling_protocol': 'per_row_rng_batch_v1'},}
+    ex = runtime_execution(cfg, type('Policy', (), {'n_replicas': 1})())
+    assert ex['member_workers'] == 2
+    assert ex['api_workers'] == 3

@@ -90,7 +90,7 @@ class Fx:
         self.cont.append(seed); o = self.outcomes(seed); return {'final_option': 'B' if o else 'A', 'outcome': o}
 
 
-def run(fx, nodes, leaves, loci, source=None, max_valid=4, rid='R', cache=None):
+def run(fx, nodes, leaves, loci, source=None, max_valid=4, rid='R', cache=None, support_sampling='topology'):
     rub = rubric(rid); A = assignments(leaves, rid, source)
     orig = W.stage1_applicable
     def stage1(case, node, r, applicability, cache):
@@ -98,7 +98,8 @@ def run(fx, nodes, leaves, loci, source=None, max_valid=4, rid='R', cache=None):
     W.stage1_applicable = stage1
     try:
         return W.verify_witness(CASE, nodes, leaves, {rid: rub}, A, loci, applicability=fx.applicability, writer=fx.writer, continuation=fx.continuation,
-                                reruns=3, run_seed=0, policy_sha256='pol', cache=cache or CallCache(None), max_valid_supports=max_valid)[rid]
+                                reruns=3, run_seed=0, policy_sha256='pol', cache=cache or CallCache(None), max_valid_supports=max_valid,
+                                support_sampling=support_sampling)[rid]
     finally: W.stage1_applicable = orig
 
 
@@ -143,6 +144,31 @@ def test_no_match_and_missing_locus_are_skipped_and_not_counted():
     assert res == {'c1/0.0': 'FAIL', 'c1/1.0': 'no_match', 'c1/2.0': 'no_locus'}
     assert v.num_valid_supports == 1 and v.decision == 'NOT_VALIDATED' and v.stop_reason == 'candidates_exhausted'
     assert len(fx.app_calls) == 2                                    # Stage-1 only for members with a locus; no level call exists here
+
+
+def test_all_same_id_members_reach_fifth_support_and_stop_at_first_witness():
+    nodes,leaves=tree(['0.0','1.0','2.0','3.0','4.0','5.0'])
+    fx=Fx(seq_outcomes([0.,0.]*4+[1.,1.]))
+    v=run(fx,nodes,leaves,{l:2 for l in leaves},max_valid=None)
+    assert v.decision=='KEEP' and v.num_valid_supports==5 and len(v.tested)==5
+    assert v.num_reruns_executed==10 and v.protocol==W.ALL_MEMBERS_PROTOCOL
+    v=run(Fx(lambda seed:None),nodes,leaves,{l:2 for l in leaves},max_valid=None)
+    assert v.decision=='NOT_VALIDATED' and v.num_valid_supports==6 and v.stop_reason=='candidates_exhausted'
+
+
+def test_random10_uses_reproducible_uniform_sample_and_caps_trajectories():
+    nodes, leaves = tree([f'{i}.0' for i in range(12)])
+    loci = {l: 2 for l in leaves}
+    sampling = 'uniform_random_without_replacement_v1'
+    fx = Fx(lambda seed: 0.0)
+    v = run(fx, nodes, leaves, loci, max_valid=10, support_sampling=sampling)
+    assert v.protocol == W.RANDOM10_PROTOCOL
+    assert v.decision == 'NOT_VALIDATED' and v.num_valid_supports == 10
+    assert len(v.candidate_order) == len(v.tested) == 10 and len(set(v.candidate_order)) == 10
+    assert v.stop_reason == 'max_valid_supports' and v.num_reruns_executed == 20
+    again = run(Fx(lambda seed: 0.0), nodes, leaves, loci, max_valid=10, support_sampling=sampling)
+    assert again.candidate_order == v.candidate_order
+    assert v.candidate_order != tuple(W.support_order(list(leaves.values()), 'c1/0.0')[i].leaf_id for i in range(10))
 
 
 def test_order_and_targets_ignore_outcomes():
@@ -238,13 +264,25 @@ def test_v4_repair_then_valid_and_persistent_leak_is_invalid(monkeypatch):
     assert not out['valid'] and out['target_reply_id'] is None and out['status'] == 'leakage' and out['text'] == 'Still option C.'   # no redaction
 
 
+def test_behavior_feedback_protocol_v5_is_recorded(monkeypatch):
+    import src.collaboration.generator as G
+    from src.online_rl.tree.backends import api_behavior_feedback
+    answer=('The physician repeated the concern; the Agent addressed it; the physician maintained their position, '
+            'and the dialogue does not show whether the concern was resolved.\nBehavioral locus: Agent reply 1')
+    monkeypatch.setattr(G, 'doctor_call', lambda *a: answer)
+    out = api_behavior_feedback('k', 'm', 'sys', 100, 'behavior_observer_v5')(PH.case_view(CASE4), DLG4, 'failure')
+    assert out['kind'] == 'behavior_observer_v5' and out['target_reply_id'] == 1
+
+
 def test_v4_feedback_kind_changes_the_generator_header_and_tin_hash_only_for_v4():
     leaf = Leaf('c4/0', 'c4', ('c4/0',), (('doctor', 'D1', 1, 'd'), ('agent', 'A1', 1, 'a'), ('doctor', 'FINAL', 0, 'Final answer: option B')),
                 'Final answer: option B', 'B', 0.0, 'max_agent_turns')
     v2 = PH.freeze_trajectory_input(CASE4, leaf, DoctorFeedback('c4/0', 0.0, 'fb', 'h'))
     v4 = PH.freeze_trajectory_input(CASE4, leaf, DoctorFeedback('c4/0', 0.0, 'fb', 'h', 1, None, True, 'behavior_observer_v4'))
+    v5 = PH.freeze_trajectory_input(CASE4, leaf, DoctorFeedback('c4/0', 0.0, 'fb', 'h', 1, None, True, 'behavior_observer_v5'))
     assert v2.sha256 != v4.sha256 and 'Physician feedback after the decision' in PH.trajectory_message(v2)
     assert 'Observer feedback' in PH.trajectory_message(v4) and 'Physician feedback after' not in PH.trajectory_message(v4)
+    assert v5.sha256 != v4.sha256 and 'visible request' in PH.trajectory_message(v5)
 
 
 def test_protocol_hash_changes_with_the_feedback_protocol(monkeypatch):
@@ -255,3 +293,82 @@ def test_protocol_hash_changes_with_the_feedback_protocol(monkeypatch):
     root = Path(__file__).resolve().parents[1]; v2 = json.loads((root / 'configs/online_rl/tree_v2_witness.json').read_text())
     other = json.loads(json.dumps(v2)); other['feedback'].pop('protocol')
     assert C.protocol_sha256(v2, root) != C.protocol_sha256(other, root) and v2['feedback']['protocol'] == 'behavior_observer_v4'
+
+
+@pytest.mark.parametrize('source,seq,reruns,passed,positive', [
+    (1.0,[None,None],2,False,0),
+    (1.0,[None,0.0,1.0],3,False,1),
+    (1.0,[None,0.0,0.0],3,True,2),
+    (1.0,[0.0,0.0],2,True,2),
+    (0.0,[None,None],2,False,0),
+    (0.0,[None,1.0,0.0],3,False,1),
+    (0.0,[None,1.0,1.0],3,True,2),
+    (0.0,[1.0,1.0],2,True,2),
+])
+def test_unparsed_final_never_counts_as_flip(source,seq,reruns,passed,positive):
+    import dataclasses
+    nodes,leaves=tree(['0.0'])
+    leaves={key:dataclasses.replace(leaf,outcome=source) for key,leaf in leaves.items()}
+    fx=Fx(seq_outcomes(seq))
+    v=run(fx,nodes,leaves,{'c1/0.0':2},max_valid=1)
+    assert (v.decision=='KEEP')==passed and v.num_reruns_executed==reruns
+    assert v.tested[0]['positive']==positive
+    assert v.tested[0]['outcomes'].count(None)==v.tested[0]['unparsed']
+    assert W.witness_telemetry({'R':v})['unparsed_reruns']==seq.count(None)
+
+
+@pytest.mark.parametrize('level,outcomes,rate',[
+    ('0',[None,0.0,1.0],1/3), ('0',[None,None,0.0],1/3),
+    ('0',[None,None,None],0), ('0',[0.0,0.0,None],2/3),
+    ('2',[None,0.0,1.0],1/3), ('2',[1.0,1.0,None],2/3),
+])
+def test_full_verification_and_prompt_objective_count_only_parsed_flips(level,outcomes,rate):
+    from src.online_rl.tree.effectiveness import target_rate
+    assert target_rate(level,outcomes)==pytest.approx(rate)
+
+
+def test_rerun_outcome_policy_changes_protocol_hash(monkeypatch):
+    from pathlib import Path
+    from src.online_rl.integrated.continuation import protocol_sha256
+    import src.online_rl.tree.effectiveness as effectiveness
+    root=Path(__file__).resolve().parents[1]
+    cfg=json.loads((root/'configs/online_rl/tree_v21_five_gpu.json').read_text())
+    current=protocol_sha256(cfg,root)
+    monkeypatch.setattr(effectiveness,'RERUN_OUTCOME_POLICY','legacy_none_as_failure')
+    assert protocol_sha256(cfg,root)!=current
+
+
+def test_rerun_continuation_protocol_is_separate_from_tree_protocol_hash(monkeypatch):
+    from pathlib import Path
+    from src.online_rl.integrated.continuation import protocol_sha256
+    import src.online_rl.tree.effectiveness as effectiveness
+    root=Path(__file__).resolve().parents[1]
+    cfg=json.loads((root/'configs/online_rl/tree_v21_five_gpu.json').read_text())
+    current=protocol_sha256(cfg,root)
+    monkeypatch.setattr(effectiveness,'RERUN_CONTINUATION_PROTOCOL','legacy_discussion_continuation')
+    assert protocol_sha256(cfg,root)==current
+
+
+def test_old_rerun_interpretation_cannot_resume(tmp_path):
+    import test_tree_v1 as F
+    from src.online_rl.tree.effectiveness import RERUN_OUTCOME_POLICY
+    trainer,_,_=F.trainer(tmp_path,F.cfg(cases=1))
+    path=tmp_path/'run_manifest.json'
+    manifest=json.loads(path.read_text())
+    assert manifest['rerun_outcome_policy']==RERUN_OUTCOME_POLICY
+    manifest.pop('rerun_outcome_policy')
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(RuntimeError,match='rerun outcome policy'):
+        trainer._resume()
+
+
+def test_outcome_only_does_not_depend_on_rerun_policy(monkeypatch):
+    from pathlib import Path
+    from src.online_rl.tree.conditions import arm_config
+    from src.online_rl.integrated.continuation import protocol_sha256
+    import src.online_rl.tree.effectiveness as effectiveness
+    root=Path(__file__).resolve().parents[1]
+    cfg=arm_config(json.loads((root/'configs/online_rl/tree_v21_five_gpu.json').read_text()),'outcome_only')
+    current=protocol_sha256(cfg,root)
+    monkeypatch.setattr(effectiveness,'RERUN_OUTCOME_POLICY','legacy_none_as_failure')
+    assert protocol_sha256(cfg,root)==current

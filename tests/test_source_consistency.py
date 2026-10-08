@@ -193,5 +193,6 @@ def test_outcome_only_path_and_hashes(tmp_path, monkeypatch):
     v2 = json.loads((root / 'configs/online_rl/tree_v2_witness.json').read_text()); v21 = json.loads((root / 'configs/online_rl/tree_v21_witness.json').read_text())
     h2 = {a: C.protocol_sha256(arm_config(v2, a), root) for a in ('outcome_only', 'rubric_only')}
     h21 = {a: C.protocol_sha256(arm_config(v21, a), root) for a in ('outcome_only', 'rubric_only')}
-    assert set(h2.values()) == {'5b77544a79d30533710abaf3cc215911420654c8b22f23ca4866a0ed0efbe444'}     # running v2 runs: unchanged
+    assert h2['outcome_only'] == '5b77544a79d30533710abaf3cc215911420654c8b22f23ca4866a0ed0efbe444'  # no rubric reruns
+    assert h2['rubric_only'] != h2['outcome_only']  # parsed-only flip policy prevents old rubric-run resumes
     assert h21['rubric_only'] != h2['rubric_only'] and v21['rubric']['source_consistency'] == 'source_locus_v1'

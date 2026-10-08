@@ -37,7 +37,9 @@ def case(case_id: Optional[str]):
         _case.reset(token)
 
 
-def record(purpose: str, model: str, usage: Optional[dict], attempts: int = 1) -> None:
+def record(purpose: str, model: str, usage: Optional[dict], attempts: int = 1, *,
+           latency_seconds: Optional[float] = None, request_seconds: Optional[float] = None,
+           retry_wait_seconds: Optional[float] = None) -> None:
     path = os.environ.get(ENV)
     if not path:
         return
@@ -48,6 +50,12 @@ def record(purpose: str, model: str, usage: Optional[dict], attempts: int = 1) -
            "case_id": _case.get(), "model": model,
            "input_tokens": usage.get("prompt_tokens"), "output_tokens": usage.get("completion_tokens"),
            "cost_usd": usage.get("cost"), "retry_count": attempts - 1}
+    if latency_seconds is not None:
+        row["latency_seconds"] = max(0.0, float(latency_seconds))
+    if request_seconds is not None:
+        row["request_seconds"] = max(0.0, float(request_seconds))
+    if retry_wait_seconds is not None:
+        row["retry_wait_seconds"] = max(0.0, float(retry_wait_seconds))
     with _lock:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as handle:

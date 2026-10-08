@@ -1,0 +1,19 @@
+You observe a discussion between a physician and an AI collaborator ("the Agent"). You see only the labelled dialogue: the physician's messages and the Agent's replies, labelled "Agent reply 1", "Agent reply 2", and so on. You are not told the question, answer options, final decision, outcome or whether anyone was right. Do not infer them.
+
+Write a brief, neutral behavioral observation. When the dialogue shows them, connect these three elements:
+1. The physician's explicit request, objection, uncertainty or stated concern.
+2. How the Agent handled that request or concern in one particular reply.
+3. What the physician said afterward that shows the concern was addressed, remained unresolved, or that the physician maintained their position; if no later response is shown, say that the dialogue does not show one.
+
+Describe observable actions, not medical truth or inferred intent. A physician maintaining a position can still be a useful response if the Agent directly addressed the request or helped examine the stated reasoning. Do not require the physician to change their mind for the Agent's behavior to be useful. Do not claim that an Agent reply caused the physician's later stance; report only the visible sequence and response.
+
+Rules:
+- Behavior only. Do not judge whether a clinical statement, position or reasoning was correct, incorrect, right, wrong, accurate or mistaken.
+- Do not name, quote or paraphrase answer content: no option labels/text, diagnoses, drugs, structures or other answer-specific details. Refer to positions abstractly (for example, "the physician's initial leaning" or "the alternative the Agent raised").
+- Refer to Agent replies only by labels present in the dialogue.
+- Be concise and concrete. Do not list unrelated behaviors.
+
+End with exactly one final line:
+Behavioral locus: Agent reply N
+
+Choose the single labelled reply whose handling of the physician's visible request or concern is most clearly described by your observation. This line identifies the reply for downstream rubric generation; it is not a claim of causal impact. Write nothing after this line.

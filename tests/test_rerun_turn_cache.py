@@ -1,6 +1,4 @@
-"""Per-turn cache inside intervention continuation reruns (effectiveness.rerun_turn_cache + harness Env.continue_from):
-a rerun that failed at Doctor turn N resumes at turn N with the earlier turns reused exactly; nothing failed is stored;
-any change of model, prompt, input, rerun or policy misses; the outer 'rerun' record is unchanged. Scripted Doctor only."""
+"""An intervention rerun is one fixed Agent reply followed by one Doctor FINAL; only the FINAL is cached."""
 import hashlib, json
 from argparse import Namespace
 from pathlib import Path
@@ -67,25 +65,17 @@ def interventions(monkeypatch, cache, doctor, policy=None, policy_sha='p0', reru
 def kinds(path): return [json.loads(l)['kind'] for l in Path(path).read_text().splitlines()]
 
 
-def test_failure_at_doctor_turn_n_resumes_at_turn_n(tmp_path, monkeypatch):
-    path = tmp_path / 'calls.jsonl'; first = Doctor(fail_at=3)
+def test_failed_final_is_retried_without_extra_agent_or_discussion_calls(tmp_path, monkeypatch):
+    path = tmp_path / 'calls.jsonl'; first = Doctor(fail_at=1)
     with pytest.raises(RetryExhausted): interventions(monkeypatch, CallCache(path), first)
-    assert len(first.inputs) == 2 and kinds(path).count('rerun_doctor_turn') == 2 and 'rerun' not in kinds(path)   # turn 3 failed: not stored
-    resumed = Doctor(); runs, pol = interventions(monkeypatch, CallCache(path), resumed)                             # new process: cache from disk
-    clean = Doctor(); clean_runs, _ = interventions(monkeypatch, CallCache(tmp_path / 'clean.jsonl'), clean)
-    assert clean.inputs[:2] == first.inputs and resumed.inputs == clean.inputs[2:]       # turns 1-2 reused, the rerun continues at turn 3
-    assert [to_dict(r) for r in runs] == [to_dict(r) for r in clean_runs]                 # same outputs as an uninterrupted run
-    rec = lambda p: {json.loads(l)['key']: json.loads(l)['value'] for l in Path(p).read_text().splitlines()}
-    assert rec(path) == rec(tmp_path / 'clean.jsonl')                                     # identical evidence, outer 'rerun' records included
+    assert first.inputs == [] and 'rerun' not in kinds(path)
+    resumed = Doctor(); runs, pol = interventions(monkeypatch, CallCache(path), resumed)
+    assert len(resumed.inputs) == 2 and pol.agent_calls == [] and all(r.final_option for r in runs)
 
 
-def test_resumed_agent_turns_are_replayed_from_the_cache(tmp_path, monkeypatch):
-    path = tmp_path / 'calls.jsonl'
-    with pytest.raises(RetryExhausted): interventions(monkeypatch, CallCache(path), Doctor(fail_at=4))
-    done = kinds(path).count('rerun_agent_turn'); assert done >= 1
-    _, pol = interventions(monkeypatch, CallCache(path), Doctor())
-    clean_pol = interventions(monkeypatch, CallCache(None), Doctor())[1]
-    assert len(pol.agent_calls) == len(clean_pol.agent_calls) - done                     # cached Agent turns are not regenerated
+def test_no_extra_agent_generation_occurs_after_intervention_reply(tmp_path, monkeypatch):
+    path = tmp_path / 'calls.jsonl'; runs, pol = interventions(monkeypatch, CallCache(path), Doctor())
+    assert len(runs) == 2 and pol.agent_calls == [] and kinds(path).count('rerun_agent_turn') == 0
 
 
 def test_failed_calls_are_never_cached(tmp_path, monkeypatch):
@@ -96,24 +86,24 @@ def test_failed_calls_are_never_cached(tmp_path, monkeypatch):
 
 def test_complete_rerun_still_uses_the_outer_cache(tmp_path, monkeypatch):
     path = tmp_path / 'calls.jsonl'; runs, _ = interventions(monkeypatch, CallCache(path), Doctor())
-    k = kinds(path); assert k.count('rerun') == 2 and k.count('rerun_doctor_turn') > 0 and k.count('rerun_agent_turn') > 0
+    k = kinds(path); assert k.count('rerun') == 2 and k.count('rerun_doctor_turn') == 2 and k.count('rerun_agent_turn') == 0
     again = Doctor(); runs2, pol = interventions(monkeypatch, CallCache(path), again)
     assert again.inputs == [] and pol.agent_calls == [] and [to_dict(r) for r in runs2] == [to_dict(r) for r in runs]
     outer = [json.loads(l) for l in path.read_text().splitlines() if json.loads(l)['kind'] == 'rerun']
-    assert set(outer[0]['identity']) == {'rubric', 'node', 'level', 'policy', 'text', 'seed'}           # outer identity unchanged
+    assert set(outer[0]['identity']) == {'rubric', 'node', 'level', 'policy', 'continuation_protocol', 'text', 'seed'}
 
 
 @pytest.mark.parametrize('change', ['model', 'system', 'policy', 'none'])
 def test_changes_invalidate_the_inner_cache(tmp_path, monkeypatch, change):
-    path = tmp_path / 'calls.jsonl'; base = Doctor(fail_at=2)
-    with pytest.raises(RetryExhausted): interventions(monkeypatch, CallCache(path), base)          # stores Doctor turn 1 only
-    kw = {'model': {'policy': Policy(doctor_model='google/gemma-3-27b-it')}, 'system': {'policy': Policy(doctor_system='another Doctor prompt')},
-          'policy': {'policy_sha': 'p1'}, 'none': {}}[change]
-    d = Doctor(fail_at=2)
-    with pytest.raises(RetryExhausted): interventions(monkeypatch, CallCache(path), d, **kw)
-    if change == 'none': assert d.inputs[0] != base.inputs[0]                             # stored turn 1 reused; the next turn is requested
-    elif change == 'system': assert d.systems[0] == 'another Doctor prompt' and len(d.inputs) == 1        # turn 1 requested again
-    else: assert d.inputs[0] == base.inputs[0]                                            # same input, other model / policy: requested again
+    path = tmp_path / 'calls.jsonl'; base = Doctor()
+    interventions(monkeypatch, CallCache(path), base)
+    kw = {'model': {'policy': Policy(doctor_model='google/gemma-3-27b-it'), 'policy_sha': 'p1'}, 'system': {'policy': Policy(doctor_system='another Doctor prompt'), 'policy_sha': 'p1'},
+          'policy': {'policy': Policy(), 'policy_sha': 'p1'}, 'none': {'policy': Policy()}}[change]
+    d = Doctor()
+    interventions(monkeypatch, CallCache(path), d, **kw)
+    if change == 'none': assert d.inputs == []                                           # exact final identity reused
+    elif change == 'system': assert d.systems[0] == 'another Doctor prompt' and len(d.inputs) == 2
+    else: assert len(d.inputs) == 2                                                      # both independent rerun indices miss
 
 
 def test_reruns_do_not_share_turns(tmp_path, monkeypatch):

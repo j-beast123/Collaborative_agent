@@ -30,15 +30,30 @@ def in_baseline(mode: str, fraction: float, run_seed: int, state_key: str) -> bo
 
 
 def protocol_sha256(cfg: dict, root: Path) -> str:
+    # Explicitly approved pre-commit transitions can change post-rollout training
+    # protocols while retaining the identical frozen dialogue-tree cache identity.
+    # The full config hash still binds the run/checkpoint to the new protocol.
+    override=cfg.get('rollout_protocol_sha256_override')
+    if override is not None:
+        if not isinstance(override,str) or len(override)!=64 or any(c not in '0123456789abcdef' for c in override):
+            raise ValueError('rollout_protocol_sha256_override must be a lowercase SHA256 hex digest')
+        return override
+    from src.online_rl.tree.effectiveness import RERUN_OUTCOME_POLICY
     ro = cfg['rollout']
     out = {'base_model': cfg['policy']['base_model'],
            'rollout': {k: ro[k] for k in ('rounds', 'doctor_model', 'max_tokens_doctor', 'max_completion_length', 'temperature', 'top_p', 'top_k')},
            'agent_prompt': sha256_text((root / ro.get('agent_system_prompt_file', 'prompts/agent.txt')).read_text()),
            'doctor_prompt': sha256_text(doctor_system := (root / ro.get('doctor_system_prompt_file', 'prompts/user_simulator.txt')).read_text())}
+    if cfg.get('rubric', {}).get('enabled', True):
+        out['rerun_outcome_policy'] = RERUN_OUTCOME_POLICY
     if ro.get('agent_protocol'):                       # Agent action protocol (src/online_rl/agent_protocol.py)
         from src.online_rl.agent_protocol import IDENTITY
         if ro['agent_protocol'] != IDENTITY['version']: raise ValueError(f"unknown rollout.agent_protocol {ro['agent_protocol']!r}")
         out['agent_protocol'] = IDENTITY
+    if ro.get('agent_sampling_protocol'):
+        from src.online_rl.agent_batch import PROTOCOL
+        if ro['agent_sampling_protocol']!=PROTOCOL:raise ValueError('Unknown Agent batch sampling protocol')
+        out['agent_sampling_protocol']=PROTOCOL
     if ro.get('doctor_backend'):                       # local Doctor protocol v2 (src/online_rl/doctor.py): backend, prompts, seeds, halting
         from src.online_rl.doctor import OllamaDoctor
         out['doctor'] = OllamaDoctor(ro['doctor_backend'], ro.get('halting'), doctor_system, ro['max_tokens_doctor']).protocol
@@ -49,6 +64,23 @@ def protocol_sha256(cfg: dict, root: Path) -> str:
                                 ('rubric_source_consistency', (cfg.get('rubric') or {}).get('source_consistency'))) if v}
     if method:                                         # training-method protocol (bounded witness verification, equal-weight R_A,
         out['method'] = method                         # feedback locus): a run under it never shares keys with the earlier protocol
+    if cfg.get('rubric', {}).get('schema'):
+        from src.online_rl.tree.agent_state import SCHEMA, STATE_PROTOCOL
+        if cfg['rubric']['schema'] != SCHEMA: raise ValueError('unknown rubric.schema')
+        out['agent_state_rubrics'] = {'schema': SCHEMA, 'state_protocol': STATE_PROTOCOL,
+                                     'addendum': sha256_text((root / cfg['rubric']['state_addendum_file']).read_text())}
+    if cfg.get('prompt_update', {}).get('candidate_seed'):
+        from src.online_rl.tree.pipelined_prompt import SEED_MODE
+        if cfg['prompt_update']['candidate_seed'] != SEED_MODE: raise ValueError('unknown prompt candidate seed')
+        out['prompt_candidate_seed'] = SEED_MODE
+    if cfg.get('rubric', {}).get('match_batch_size',1)!=1:
+        from src.online_rl.tree.rubric_bank import BATCH_VERSION
+        if cfg['rubric']['match_batch_size']!=8:raise ValueError('unsupported rubric match batch size')
+        out['rubric_batch_matching']={'version':BATCH_VERSION,'batch_size':8}
+    repeat_after=(ro.get('halting') or {}).get('repeat_agent_reply_after_turns')
+    if repeat_after is not None:
+        if isinstance(repeat_after,bool) or not isinstance(repeat_after,int) or repeat_after<1:raise ValueError('repeat_agent_reply_after_turns must be a positive integer')
+        out['agent_repeated_reply_exit']={'protocol':'normalized_exact_prior_reply_v1','after_agent_turns':repeat_after}
     if ro.get('doctor_opening'):                       # frozen shared D1 tables (src/online_rl/doctor_openings.py)
         from src.online_rl.doctor_openings import protocol_identity
         out['doctor_opening'] = protocol_identity(ro['doctor_opening'])

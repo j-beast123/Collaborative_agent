@@ -17,14 +17,15 @@ from src.online_rl.tree.decisions import Strategies
 from src.online_rl.tree import rubric_bank as RB
 from src.online_rl.tree.conditions import active_unresolved
 from src.online_rl.tree.reward import interaction_diagnostics, sibling_group_diagnostics
-from src.online_rl.tree.effectiveness import evaluate_rubric, select
+from src.online_rl.tree.effectiveness import RERUN_CONTINUATION_PROTOCOL, RERUN_OUTCOME_POLICY, evaluate_rubric, select
 from src.online_rl.tree.posthoc import doctor_feedback, freeze_trajectory_input, generate_rubric
 from src.online_rl.tree.prompt_search import EvidenceUnit, ScoringDeps, ready, run_event
-from src.online_rl.tree.records import SelectionDecision, Tree, TrajectoryRubricInput
+from src.online_rl.tree.records import DoctorFeedback, SelectionDecision, Tree, TrajectoryRubricInput
 from src.online_rl.tree.reward import agent_targets
 from src.online_rl.tree.rollout import build_tree, tree_counts
 from src.online_rl.tree.scoring import score_nodes
 from src.online_rl.tree import witness as W
+from src.online_rl.tree.team import RUBRIC_ONLY_NA_POLICY
 
 VERSION = 'sherpa_tree_v1'
 
@@ -91,28 +92,36 @@ class TreeTrainer:
         ex = cfg.get('execution') or {}                                # execution only: same values, more threads
         self.doctor_workers, self.rerun_workers = int(ex.get('doctor_workers', 1)), int(ex.get('rerun_workers', 1))
         rx = execution or {}                                           # runtime-only concurrency (not in the config; same values)
+        self.doctor_workers = int(rx.get('doctor_workers', self.doctor_workers))
         self.agent_workers, self.api_workers, self.member_workers = (int(rx.get(k, 1)) for k in ('agent_workers', 'api_workers', 'member_workers'))
         self.before_case = before_case                                 # e.g. Agent replica sync + hash barrier
         if cfg['rubric'].get('reuse') not in (None, RB.ASSIGNMENT_VERSION): raise ValueError(f"unknown rubric.reuse {cfg['rubric']['reuse']!r}")
         if self.reuse and self.rubric_on and getattr(env, 'assign_fn', None) is None: raise ValueError('rubric.reuse needs env.assign_fn')
         if not self.rubric_on and cfg['prompt_update']['enabled']: raise ValueError('prompt evolution needs the rubric pipeline (rubric.enabled)')
         self.verification = (cfg.get('verification') or {}).get('mode', 'exhaustive_members_v1')     # training-time rubric verification
-        if self.verification not in ('exhaustive_members_v1', W.PROTOCOL): raise ValueError(f'unknown verification.mode {self.verification!r}')
-        if self.verification == W.PROTOCOL and self.rubric_on:
+        if self.verification not in ('exhaustive_members_v1', *W.PROTOCOLS): raise ValueError(f'unknown verification.mode {self.verification!r}')
+        if self.verification == W.ALL_MEMBERS_PROTOCOL and cfg['verification'].get('max_valid_supports') is not None:
+            raise ValueError('all_members_witness_v1 has no max_valid_supports cap')
+        if self.verification == W.RANDOM10_PROTOCOL and (cfg['verification'].get('max_valid_supports') != 10 or
+                cfg['verification'].get('support_sampling') != 'uniform_random_without_replacement_v1'):
+            raise ValueError('random10_witness_v1 requires a uniform random sample of 10 same-ID trajectories')
+        if self.verification in W.PROTOCOLS and self.rubric_on:
             if not self.reuse: raise ValueError(f'{W.PROTOCOL} verifies consolidated rubrics: it needs rubric.reuse')
             if (cfg.get('agent_reward') or {}).get('r_a_weighting') != 'equal': raise ValueError(f'{W.PROTOCOL} needs agent_reward.r_a_weighting = equal')
             if not (cfg.get('feedback') or {}).get('behavioral_locus'): raise ValueError(f'{W.PROTOCOL} needs feedback.behavioral_locus (target_reply_id)')
             if getattr(env.scorer, 'applicability', None) is None: raise ValueError(f'{W.PROTOCOL} needs a scorer with a Stage-1 applicability call')
-        if self.verification != W.PROTOCOL and (cfg.get('agent_reward') or {}).get('r_a_weighting', 'effectiveness') != 'effectiveness':
+        if self.verification not in W.PROTOCOLS and (cfg.get('agent_reward') or {}).get('r_a_weighting', 'effectiveness') != 'effectiveness':
             raise ValueError('equal R_A weighting is defined only with bounded witness verification')
-        if (cfg.get('feedback') or {}).get('protocol') == 'behavior_observer_v4' and self.rubric_on and not self.reuse:
-            raise ValueError('feedback behavior_observer_v4 (invalid feedback excluded from rubric mapping) needs rubric.reuse')
+        if (cfg.get('feedback') or {}).get('protocol') in ('behavior_observer_v4','behavior_observer_v5') and self.rubric_on and not self.reuse:
+            raise ValueError('behavior-observer feedback (invalid feedback excluded from rubric mapping) needs rubric.reuse')
         sch = cfg['schedule']; self.calibration_only = set(sch.get('calibration_only_cursors') or [])   # e.g. pool positions 401-410
         if sch.get('positions') is not None and not set(sch['positions']) <= self.calibration_only:
             raise ValueError('schedule.positions may only replay the calibration-only positions (schedule.calibration_only_cursors)')
         self.source_consistency = (cfg['rubric'].get('source_consistency') == 'source_locus_v1')   # v2.1
+        from src.online_rl.tree.agent_state import SCHEMA
+        if cfg['rubric'].get('schema') not in (None, SCHEMA): raise ValueError('unknown rubric.schema')
         if cfg['rubric'].get('source_consistency') not in (None, 'source_locus_v1'): raise ValueError(f"unknown rubric.source_consistency {cfg['rubric']['source_consistency']!r}")
-        if self.source_consistency and self.rubric_on and (self.verification != W.PROTOCOL or not (cfg.get('feedback') or {}).get('behavioral_locus')
+        if self.source_consistency and self.rubric_on and (self.verification not in W.PROTOCOLS or not (cfg.get('feedback') or {}).get('behavioral_locus')
                                                            or getattr(env.generate_fn, 'repair', None) is None):
             raise ValueError('rubric.source_consistency needs bounded witness verification, the feedback locus and a generator with repair')
         import os; self.parallel_strata = os.environ.get('SHERPA_PARALLEL_STRATA') == '1'     # execution only: identical banks
@@ -142,6 +151,9 @@ class TreeTrainer:
         ckpt = self._save_checkpoint(0, milestone=True) if self.updater is not None else None
         pol = self.cfg.get('policy') or {}
         atomic_write_json(self.out / 'run_manifest.json', {'version': VERSION, 'config': self.cfg, 'config_sha256': self.config_sha,
+                                                           'rubric_only_na_policy': RUBRIC_ONLY_NA_POLICY if self._rubric_only_reward() else None,
+                                                           'rerun_outcome_policy': RERUN_OUTCOME_POLICY if self.rubric_on else None,
+                                                           'rerun_continuation_protocol': RERUN_CONTINUATION_PROTOCOL if self.rubric_on else None,
                                                            'protocol_sha256': self.protocol_sha, 'initial_prompt_sha256': sha, 'initial_policy_sha256': self.policy_sha(),
                                                            'lora_init_seed': (pol.get('lora') or {}).get('init_seed'), 'init_adapter': pol.get('init_adapter'),
                                                            'initial_checkpoint': ckpt, 'initial_checkpoint_sha256': dir_sha256(Path(ckpt)) if ckpt else None,
@@ -166,6 +178,14 @@ class TreeTrainer:
         s = from_dict(TreeRunState, read_json(self.state_path))
         if s.config_sha256 != self.config_sha: raise RuntimeError('config changed since the run started; refusing to resume')
         man = read_json(self.out / 'run_manifest.json') if (self.out / 'run_manifest.json').exists() else {}
+        if self._rubric_only_reward() and man.get('rubric_only_na_policy') != RUBRIC_ONLY_NA_POLICY:
+            raise RuntimeError('rubric-only NA reward policy differs from this run; use a fresh output directory')
+        if self.rubric_on and man.get('rerun_outcome_policy') != RERUN_OUTCOME_POLICY:
+            raise RuntimeError('rerun outcome policy differs from this run; use a fresh output directory')
+        if self.rubric_on and man.get('rerun_continuation_protocol') != RERUN_CONTINUATION_PROTOCOL:
+            raise RuntimeError('rerun continuation protocol differs from this run; use a fresh output directory')
+        if man.get('protocol_sha256') != self.protocol_sha:
+            raise RuntimeError('protocol changed since the run started; refusing to resume')
         if man.get('initial_checkpoint_sha256') and dir_sha256(Path(man['initial_checkpoint'])) != man['initial_checkpoint_sha256']:
             raise RuntimeError('checkpoint_000000 changed since the run started; refusing to resume')
         if s.checkpoint and self.updater is not None: self.updater.load(s.checkpoint)
@@ -180,6 +200,10 @@ class TreeTrainer:
             dest = self.out / 'recovered' / f'resume_{len(list((self.out / "recovered").glob("resume_*")))}'; dest.mkdir(parents=True)
             for p in stale: p.rename(dest / f'{p.parent.name}__{p.name}')
         return s
+
+    def _rubric_only_reward(self) -> bool:
+        ar = self.cfg.get('agent_reward') or {}
+        return ar.get('w_outcome') == 0.0 and ar.get('w_rubric', 0.0) > 0.0
 
     def total_cases(self) -> int:
         pos = self.cfg['schedule'].get('positions')
@@ -199,22 +223,57 @@ class TreeTrainer:
             if self.state.case_cursor >= self.total_cases() or (max_cases is not None and done >= max_cases): break
             self.step(); done += 1
 
-    def step(self) -> dict:
-        t_case = time.time()
+    def step(self, *, frozen_record=None, prompt_text=None, prompt_id=None, score_responses=True, commit=True,
+             apply_update=True) -> dict:
+        if commit and (prompt_text is not None or frozen_record is not None or not score_responses or not apply_update):
+            raise ValueError('Batch assessment requires commit=False; the batch coordinator owns inheritance')
+        t_case = time.time(); rollout_seconds = 0.0
         s, cfg = self.state, self.cfg; ro, iv = cfg['rollout'], cfg['intervention']
         if not self.cfg['schedule'].get('positions') and s.case_cursor in self.calibration_only:
             raise RuntimeError(f'pool position {s.case_cursor + 1} is calibration-only (data/splits/calibration_only_v1.json); a training run must not reach it')
         cid = schedule(sorted(self.cases), s.run_seed, self._position(s.case_cursor), 1)[0]; case = self.cases[cid]; e = self.env
         if self.before_case is not None: self.before_case(s.policy_sha256)
-        tree = build_tree(case, max_agent_turns=ro['rounds'], branching=ro['branching'], run_seed=s.run_seed, policy_sha256=s.policy_sha256,
+        if prompt_text is not None:
+            s = dataclasses.replace(s, prompt_sha256=self.store.put(prompt_text), prompt_id=prompt_id or s.prompt_id)
+        early_feedback = None
+        if frozen_record is not None:
+            tree = from_dict(Tree, frozen_record['tree'])
+            if tree.case_id != cid or tree.policy_sha256 != s.policy_sha256:
+                raise RuntimeError('Frozen tree case/policy differs from the current case/policy')
+        else:
+            rollout_started = time.perf_counter()
+            def rollout(on_leaf=None):
+                return build_tree(case, max_agent_turns=ro['rounds'], branching=ro['branching'], run_seed=s.run_seed, policy_sha256=s.policy_sha256,
                           protocol_sha256=self.protocol_sha, agent=e.agent, doctor=e.doctor, stop_rule=e.stop_rule, final_option=e.final_option,
                           outcome_fn=e.outcome_fn, cache=self.cache, behavior_logprobs=e.behavior_logprobs, workers=self.doctor_workers,
-                          opening=getattr(e, 'opening', None), agent_workers=self.agent_workers)
+                          opening=getattr(e, 'opening', None), agent_workers=self.agent_workers,on_leaf=on_leaf,
+                          repeat_agent_reply_after_turns=ro.get('halting',{}).get('repeat_agent_reply_after_turns'))
+            if self.rubric_on and (cfg.get('five_gpu') or {}).get('execution_mode') == 'shared_ready_tasks_v1':
+                from concurrent.futures import ThreadPoolExecutor
+                from threading import Lock
+                futures = {}; lock = Lock()
+                with ThreadPoolExecutor(max_workers=self.api_workers,thread_name_prefix='leaf-feedback') as pool:
+                    def on_leaf(leaf):
+                        if leaf.outcome is None:return
+                        with lock:
+                            if leaf.leaf_id in futures:raise RuntimeError('Duplicate completed leaf')
+                            futures[leaf.leaf_id]=pool.submit(doctor_feedback,case,leaf,e.feedback_fn,self.fb_sha,self.cache,self.fb_model)
+                    tree = rollout(on_leaf)
+                    rollout_seconds = time.perf_counter() - rollout_started
+                    early_feedback = [futures[l.leaf_id].result() for l in tree.leaves if l.outcome is not None]
+            else:
+                tree = rollout()
+                rollout_seconds = time.perf_counter() - rollout_started
         decided = [l for l in tree.leaves if l.outcome is not None]
         feedback, tins, rubrics, source_scores, effs, selection, scores, weights, bank = [], [], [], [], [], [], [], {}, None
         if self.rubric_on:                                           # Outcome-only arm: no feedback, rubric, verification or scoring
             fb = lambda l: doctor_feedback(case, l, e.feedback_fn, self.fb_sha, self.cache, self.fb_model)
-            if self.api_workers > 1:                                 # independent per trajectory; collected in leaf order
+            if frozen_record is not None:
+                feedback = [from_dict(DoctorFeedback, f) for f in frozen_record['feedback']]
+                if [f.leaf_id for f in feedback] != [l.leaf_id for l in decided]:
+                    raise RuntimeError('Frozen feedback does not match the decided tree leaves')
+            elif early_feedback is not None:feedback = early_feedback
+            elif self.api_workers > 1:                                 # independent per trajectory; collected in leaf order
                 from concurrent.futures import ThreadPoolExecutor
                 with ThreadPoolExecutor(self.api_workers) as pool: feedback = list(pool.map(fb, decided))
             else: feedback = [fb(l) for l in decided]
@@ -223,7 +282,7 @@ class TreeTrainer:
             tins = [freeze_trajectory_input(case, l, f, include_locus=self.source_consistency) for l, f in zip(decided, feedback) if getattr(f, 'valid', True)]
             prompt = self.store.get(s.prompt_sha256)
             nodes = {n.node_id: n for n in tree.nodes}
-            if self.reuse and self.verification == W.PROTOCOL:       # consolidation + bounded causal-witness verification (witness.py)
+            if self.reuse and self.verification in W.PROTOCOLS:       # consolidation + bounded causal-witness verification (witness.py)
                 tin_of = {t.leaf_id: t for t in tins}
                 ssf = (lambda leaf: W.source_stage1_for(case, nodes, leaf, tin_of[leaf.leaf_id].target_reply_id, e.scorer.applicability, self.cache)
                        ) if self.source_consistency else None             # v2.1: source-self-applicability before the quality gate
@@ -233,15 +292,16 @@ class TreeTrainer:
                 wit = W.verify_witness(case, nodes, {l.leaf_id: l for l in ruled}, canon, assignments, loci, applicability=e.scorer.applicability,
                                        writer=e.writer, continuation=e.continuation, reruns=iv['reruns_per_intervention'], run_seed=s.run_seed,
                                        policy_sha256=s.policy_sha256, cache=self.cache, max_valid_supports=vcfg['max_valid_supports'],
-                                       workers=self.member_workers)
+                                       workers=self.member_workers, support_sampling=vcfg.get('support_sampling', 'topology'))
                 rubrics = list(canon.values()); kept = {cid for cid, w in wit.items() if w.decision == 'KEEP'}
-                selection = [SelectionDecision(cid, canon[cid].leaf_id, w.decision == 'KEEP', W.PROTOCOL,
+                selection = [SelectionDecision(cid, canon[cid].leaf_id, w.decision == 'KEEP', self.verification,
                                                f'{w.decision} ({w.stop_reason}); validated_by={w.validated_by_trajectory_id}; '
                                                f'valid_supports={w.num_valid_supports}; reruns={w.num_reruns_executed}') for cid, w in wit.items()]
-                scores = score_nodes(case, list(tree.nodes), [canon[c] for c in sorted(kept)], e.scorer, self.cache, workers=self.api_workers)
+                scores = score_nodes(case, list(tree.nodes), [canon[c] for c in sorted(kept)], e.scorer, self.cache, workers=self.api_workers) if score_responses else []
                 weights = {cid: 1.0 for cid in sorted(kept)}                                  # equal weight: verification is a gate only
                 bank = {'assignments': [to_dict(a) for a in assignments], 'witness': [to_dict(w) for w in wit.values()],
                         'telemetry': {**RB.assignment_telemetry(canon, assignments), **W.witness_telemetry(wit),
+                                      'protocol': self.verification,
                                       'locus': dict(__import__('collections').Counter((f.locus or {}).get('status') for f in feedback)),
                                       'feedback_invalid': invalid_fb,
                                       'feedback_invalid_by_stratum': {st: sum(1 for f in feedback if not getattr(f, 'valid', True) and f.outcome == o)
@@ -263,7 +323,7 @@ class TreeTrainer:
                                                f'max member s = {sp.max_s} vs {cfg["selection"]["min_R_O"]} ({sp.supported_member_count}/{sp.member_count} members)')
                              for cid, sp in support.items()]
                 kept = {cid for cid, sp in support.items() if sp.retained}
-                scores = score_nodes(case, list(tree.nodes), [canon[c] for c in sorted(kept)], e.scorer, self.cache, workers=self.api_workers)
+                scores = score_nodes(case, list(tree.nodes), [canon[c] for c in sorted(kept)], e.scorer, self.cache, workers=self.api_workers) if score_responses else []
                 weights = {cid: support[cid].weight for cid in sorted(kept)}             # R_O(R) = max_j s_j, once per rubric
                 bank = {'assignments': [to_dict(a) for a in assignments], 'rubric_support': [to_dict(v) for v in support.values()],
                         'telemetry': RB.bank_telemetry(canon, assignments, support)}
@@ -276,10 +336,11 @@ class TreeTrainer:
                     source_scores += ss; effs += [eff] if eff is not None else []
                 selection = select(effs, cfg['selection'])
                 kept = {d.rubric_id for d in selection if d.retained}
-                scores = score_nodes(case, list(tree.nodes), [r for r in rubrics if r.rubric_id in kept], e.scorer, self.cache)
+                scores = score_nodes(case, list(tree.nodes), [r for r in rubrics if r.rubric_id in kept], e.scorer, self.cache) if score_responses else []
                 weights = {e.rubric_id: e.R_O for e in effs if e.rubric_id in kept}
         targets = agent_targets(tree, scores, weights, self.st)
-        update = self.st.need('agent_update')(tree, targets)
+        update = (self.st.need('agent_update')(tree, targets) if score_responses and apply_update
+                  else {'optimizer_step': False, 'assessment_only': True})
         record = {'case_cursor': s.case_cursor, 'case_id': cid, 'prompt_id': s.prompt_id, 'prompt_sha256': s.prompt_sha256,
                   'policy_sha256': s.policy_sha256, 'counts': tree_counts(tree), 'tree': to_dict(tree), 'feedback': [to_dict(f) for f in feedback],
                   'trajectory_inputs': [to_dict(t) for t in tins], 'trajectory_rubrics': [to_dict(r) for r in rubrics],
@@ -289,9 +350,12 @@ class TreeTrainer:
                   **({'rubric_bank': bank} if bank is not None else {}),
                   'group_diagnostics': sibling_group_diagnostics(tree, targets, update if isinstance(update, dict) else None),
                   'interaction_diagnostics': interaction_diagnostics(tree, targets if isinstance(targets, dict) else None),
-                  'seconds': time.time() - t_case}
-        atomic_write_json(self._case_path(s.case_cursor), record)
-        self._commit(); return record
+                  'seconds': time.time() - t_case,
+                  'timings': {'rollout_wall_seconds': rollout_seconds}}
+        if commit:
+            atomic_write_json(self._case_path(s.case_cursor), record)
+            self._commit()
+        return record
 
     def _commit(self) -> None:
         """Save the checkpoint of the finished case, write run_state, then drop rolling checkpoints it no longer points to.

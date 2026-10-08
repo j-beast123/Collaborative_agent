@@ -12,6 +12,9 @@ training tree, intervention reruns, milestone / RQ evaluation episodes and the h
   Doctor turn, and the latest Agent reply does not name a different option. Anything else continues. T_max is unchanged;
   the normal FINAL prompt then records the answer. Halting sees only the visible dialogue state and the Doctor's status:
   never gold, outcome, rubrics, rewards, other branches or the arm.
+- Optional stable_choice_no_objection_after_turns: from that Agent turn, stable valid choices with no collaborator
+  objection or contrary Agent option may also halt while open_issue / more_info remain. Absent by default, recorded
+  in the halting/protocol identity, and shared by training, reruns and evaluation.
 - Seeds: every Doctor call gets derive_seed(...) of its call identity (doctor_seed); the seed is sent to Ollama and is
   part of the cache identity. Same seed rule for every arm. Results are reproducible only for the same Ollama version,
   model digest, options and GPU execution; the call cache remains the record."""
@@ -86,18 +89,26 @@ def split_status(raw: str, options) -> tuple[str, Optional[dict], Optional[str]]
     return visible, {**st, 'current_option': opt}, None
 
 
+def minimum_agent_turns(doctor) -> int:
+    """Minimum for every early-stop path; unwrap the role-tagging Doctor adapter."""
+    return int(getattr(getattr(doctor, 'doctor', doctor), 'min_agent_turns', 1))
+
+
 def halt_reason(*, agent_turns: int, status: Optional[dict], prev_status: Optional[dict], last_agent: str, options,
-                min_agent_turns: int) -> Optional[str]:
+                min_agent_turns: int, stable_choice_no_objection_after_turns: Optional[int] = None) -> Optional[str]:
     """'doctor_halt' or None (continue). Called after a Doctor turn that follows `agent_turns` Agent replies."""
     from src.collaboration.generator import option
     if agent_turns < min_agent_turns or status is None or prev_status is None: return None
     cur = status['current_option']
     if cur == 'none' or cur not in {str(o).upper() for o in options}: return None
     if prev_status.get('current_option') != cur: return None                       # the decision must be stable
-    if any(status[k] for k in FLAGS): return None                                  # open issue / objection / could change
     said = option(last_agent or '')
     if said and said.upper() != cur: return None                                   # the Agent argues for another option
-    return 'doctor_halt'
+    if not any(status[k] for k in FLAGS): return 'doctor_halt'
+    if (stable_choice_no_objection_after_turns is not None and
+            agent_turns >= stable_choice_no_objection_after_turns and not status['collaborator_objection']):
+        return 'doctor_halt_stable_choice'
+    return None
 
 
 def doctor_seed(base_seed: int, key: str, role: str, index: int) -> int:
@@ -129,7 +140,17 @@ class OllamaDoctor:
         self.backend, self.system, self.max_tokens, self.http, self.sleep, self.timeout_s = backend, system, max_tokens, http, sleep, timeout_s
         self.halting = halting or {'enabled': False, 'min_agent_turns': 2}
         self.min_agent_turns = int(self.halting.get('min_agent_turns', 2))
+        self.stable_choice_no_objection_after_turns = self.halting.get('stable_choice_no_objection_after_turns')
+        late = self.stable_choice_no_objection_after_turns
+        if late is not None and (isinstance(late, bool) or not isinstance(late, int) or late < self.min_agent_turns):
+            raise ValueError('stable_choice_no_objection_after_turns must be an integer >= min_agent_turns')
         self.options = {**backend['options'], 'num_predict': max_tokens}
+        self.final_response = backend.get('final_response')
+        if self.final_response is not None:
+            if (self.final_response.get('mode') != 'label_only_v1' or
+                not isinstance(self.final_response.get('max_tokens'), int) or
+                isinstance(self.final_response['max_tokens'], bool) or self.final_response['max_tokens'] < 16):
+                raise ValueError('Doctor final_response needs label_only_v1 and an integer max_tokens >= 16')
         # semantic identity: no endpoint / GPU (runtime provenance only, `self.endpoints`); identical workers share one protocol
         self.identity = {'engine': 'ollama', 'api': 'ollama_native_chat', 'model': backend['model'],
                          'model_digest': backend['model_digest'], 'quantization': backend['quantization'],
@@ -138,6 +159,10 @@ class OllamaDoctor:
                          'chat_format': 'single user turn: system + blank line + user (HF Gemma-3 template)',
                          'system_sha256': sha256_text(system), 'turn_prompt_sha256': sha256_text(V2_OPENING + V2_TURN + FINAL_TURN + STATUS_INSTRUCTION),
                          'halting': self.halting}
+        if self.final_response is not None:
+            from src.collaboration.generator import FINAL_LABEL_ONLY_INSTRUCTION
+            self.identity['final_response'] = {**self.final_response,
+                'instruction_sha256':sha256_text(FINAL_LABEL_ONLY_INSTRUCTION)}
         self.model = f"ollama/{backend['model']}@{backend['model_digest'][:12]}"
         self.protocol = sha256_json(self.identity)
         env = os.environ.get('SHERPA_DOCTOR_ENDPOINTS')              # runtime pool of identical workers (comma-separated)
@@ -147,25 +172,46 @@ class OllamaDoctor:
 
     def halts(self) -> bool: return bool(self.halting.get('enabled'))
 
-    def _chat(self, user: str, seed: int) -> str:
+    def _chat(self, user: str, seed: int, max_tokens: Optional[int] = None) -> str:
+        from src.common.live_gpu import activity
         payload = {'model': self.backend['model'], 'stream': False, 'keep_alive': -1, 'options': {**self.options, 'seed': int(seed)},
                    # Gemma has no system role: the HF chat template folds the system prompt into the first user turn as
                    # system + blank line + user. Sending that single user message reproduces it (Ollama's own template would
                    # render a system message as a separate user turn).
                    'messages': [{'role': 'user', 'content': f'{self.system}\n\n{user}'}]}
+        if max_tokens is not None:
+            payload['options']['num_predict'] = max_tokens
         retry = Retry(f"Ollama {self.backend['model']}", sleep=self.sleep)
+        started = None; request_seconds = 0.0; retry_wait_seconds = 0.0
+        request_started = None
         while True:
             try:
-                endpoint = self._free.get()                              # one request per worker at a time
-                try: body = self.http(endpoint.rstrip('/') + '/api/chat', payload, self.timeout_s)
+                with activity('doctor_queue_wait'):
+                    endpoint = self._free.get()                              # one request per worker at a time
+                try:
+                    with activity('doctor_generate'):
+                        if started is None: started=time.monotonic()
+                        request_started=time.monotonic()
+                        body = self.http(endpoint.rstrip('/') + '/api/chat', payload, self.timeout_s)
+                        request_seconds += time.monotonic()-request_started
+                        request_started=None
                 finally: self._free.put(endpoint)
                 break
             except urllib.error.HTTPError as e:
+                if request_started is not None:
+                    request_seconds += time.monotonic()-request_started;request_started=None
                 text = e.read().decode('utf-8', errors='replace') if e.fp is not None else ''
-                if e.code < 500 or not retry.wait('transient', f'HTTP {e.code} {text[:300]}'):
+                if e.code < 500:
                     raise DoctorUnavailable(f"local Doctor HTTP {e.code}: {text[:300]}") from e
+                wait_started=time.monotonic();should_retry=retry.wait('transient', f'HTTP {e.code} {text[:300]}')
+                retry_wait_seconds += time.monotonic()-wait_started
+                if not should_retry: raise DoctorUnavailable(f"local Doctor HTTP {e.code}: {text[:300]}") from e
             except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
-                if not retry.wait('transient', f'{type(e).__name__}: {str(e)[:200]}'):
+                if request_started is not None:
+                    request_seconds += time.monotonic()-request_started;request_started=None
+                wait_started=time.monotonic();should_retry=retry.wait('transient', f'{type(e).__name__}: {str(e)[:200]}')
+                retry_wait_seconds += time.monotonic()-wait_started
+                if not should_retry:
                     raise DoctorUnavailable(f"local Doctor unreachable at {self.endpoints}: {e}") from e
         if body.get('error'): raise DoctorUnavailable(f"local Doctor error: {str(body['error'])[:300]}")
         n_in, n_out = body.get('prompt_eval_count') or 0, body.get('eval_count') or 0
@@ -173,7 +219,9 @@ class OllamaDoctor:
             raise DoctorUnavailable(f'Doctor context full ({n_in} + {n_out} >= num_ctx {self.options["num_ctx"]}): the reply may be truncated')
         text = ((body.get('message') or {}).get('content') or '').strip()
         if not text: raise DoctorUnavailable('local Doctor returned an empty reply')
-        usage.record('collaboration', self.model, {'prompt_tokens': n_in, 'completion_tokens': n_out, 'cost': 0.0}, retry.attempts)
+        usage.record('collaboration', self.model, {'prompt_tokens': n_in, 'completion_tokens': n_out, 'cost': 0.0}, retry.attempts,
+                     latency_seconds=time.monotonic()-(started or time.monotonic()), request_seconds=request_seconds,
+                     retry_wait_seconds=retry_wait_seconds)
         retry.succeeded(); return text
 
     def turn(self, case: dict, dialogue: list[dict], round_: int, rounds: int, seed: int) -> dict:
@@ -184,12 +232,16 @@ class OllamaDoctor:
 
     def final(self, case: dict, dialogue: list[dict], seed: int) -> str:
         from src.collaboration.generator import final_decision_prompt
+        if self.final_response is not None:
+            return self._chat(final_decision_prompt(case, dialogue, label_only=True), seed,
+                              self.final_response['max_tokens'])
         return self._chat(final_decision_prompt(case, dialogue), seed)
 
     def halt(self, *, agent_turns: int, status, prev_status, last_agent: str, options) -> Optional[str]:
         if not self.halts(): return None
         return halt_reason(agent_turns=agent_turns, status=status, prev_status=prev_status, last_agent=last_agent, options=options,
-                           min_agent_turns=self.min_agent_turns)
+                           min_agent_turns=self.min_agent_turns,
+                           stable_choice_no_objection_after_turns=self.stable_choice_no_objection_after_turns)
 
     def verify(self, require_loaded: bool = False) -> dict:
         """Every worker endpoint: server version and model digest must equal the pinned ones; with require_loaded, the model

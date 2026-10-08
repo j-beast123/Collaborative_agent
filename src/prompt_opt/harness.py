@@ -65,14 +65,12 @@ class Env:
         return self.agent(self.agent_user_prompt(case, prefix, t) + '\n\n' + GUIDED_TEMPLATE.format(rubric_json=json.dumps(visible, ensure_ascii=False)), seed)
 
     def continue_from(self, case: dict, prefix: list[dict], t: int, fixed_agent_text: str, seed: int, turn_cache=None) -> dict:
-        """Matched continuation: the Agent reply at round t is fixed; then the frozen protocol runs naturally to FINAL
-        (same Doctor prompt, stop rule and final decision as generate_trajectory).
-        turn_cache(kind, identity, fn), when given, wraps every Doctor call ('doctor') and Agent turn ('agent') so a
-        resumed continuation reuses the turns already observed instead of drawing them again; the identity binds the
-        model, the system prompt and decoding settings, the round and the sha256 of the exact input."""
+        """One intervention continuation: append the single newly generated, rubric-guided Agent reply at round t,
+        then request exactly one Doctor FINAL. No discussion Doctor or extra Agent turns are generated.
+        turn_cache(kind, identity, fn), when given, wraps the FINAL call so a resumed run reuses the exact observed answer."""
         if getattr(self, 'doctor', None) is not None:              # Doctor protocol v2 (src/online_rl/doctor.py)
             return Env._continue_v2(self, case, prefix, t, fixed_agent_text, seed, turn_cache)
-        getattr(self, 'seed_all', self.torch.manual_seed)(seed); a = self.args; dialogue = [dict(x) for x in prefix]; reason = 'max_agent_turns'
+        getattr(self, 'seed_all', self.torch.manual_seed)(seed); a = self.args; dialogue = [dict(x) for x in prefix]
         step = turn_cache or (lambda kind, identity, fn: fn())
         h = lambda x: hashlib.sha256(x.encode()).hexdigest()
         doctor_id = {'model': a.doctor_model, 'system_sha256': h(self.doctor_system), 'max_tokens': a.max_tokens_doctor, 'temperature': 0.4}
@@ -81,63 +79,26 @@ class Env:
             return step('doctor', {**doctor_id, 'stage': stage, 'input_sha256': h(user)},
                         lambda: doctor_call(self.key, a.doctor_model, self.doctor_system, user, a.max_tokens_doctor))
 
-        def agent(r: int) -> str:
-            user, s = self.agent_user_prompt(case, dialogue, r), seed * 31 + r
-            decoding = {k: getattr(a, k, None) for k in ('max_completion_length', 'generation_temperature', 'top_p', 'top_k')}
-            two_stage = getattr(self, 'precommit', False)            # same Agent action protocol as the tree (precommit_v1)
-            return step('agent', {'system_sha256': h(self.agent_system), **decoding, 'stage': f'A{r}', 'seed': s, 'input_sha256': h(user),
-                                  **({'agent_protocol': 'precommit_v1'} if two_stage else {})},
-                        (lambda: self.agent_text(case, [dict(x) for x in dialogue], r, s)) if two_stage else (lambda: self.agent(user, s)))
-        for r in range(t, a.rounds + 1):
-            if r > t:
-                dialogue.append({'speaker': 'doctor', 'stage': f'D{r}', 'round': r, 'text': doctor(f'D{r}', ST.discussion_prompt(case, dialogue, r, a.rounds))})
-            text = fixed_agent_text if r == t else agent(r)
-            dialogue.append({'speaker': 'agent', 'stage': f'A{r}', 'round': r, 'text': text})
-            why = stop_reason(r, dialogue[-2]['text'], text)
-            if why: reason = why; break
+        dialogue.append({'speaker': 'agent', 'stage': f'A{t}', 'round': t, 'text': fixed_agent_text})
         final = doctor('FINAL', final_decision_prompt(case, dialogue))
         opt = final_answer_option(final)
-        return {'final_option': opt, 'correct': ST.final_outcome(case, opt), 'termination_reason': reason, 'agent_turns': sum(x['speaker'] == 'agent' for x in dialogue),
+        return {'final_option': opt, 'correct': ST.final_outcome(case, opt), 'termination_reason': 'intervention_agent_then_final', 'agent_turns': sum(x['speaker'] == 'agent' for x in dialogue),
                 'dialogue': dialogue + [{'speaker': 'doctor', 'stage': 'FINAL', 'text': final, 'final': True}]}
 
     def _continue_v2(self, case: dict, prefix: list[dict], t: int, fixed_agent_text: str, seed: int, turn_cache=None) -> dict:
-        """continue_from under Doctor protocol v2: seeded local Doctor turns (seed from the rerun seed, case and round), the
-        hidden status cut from the visible dialogue, adaptive halting after a Doctor turn, then the usual FINAL. The status of
-        the Doctor message that ends the prefix arrives as prefix[-1]['status'] (it is never part of any visible text)."""
+        """Doctor-v2 one-step intervention: fixed guided Agent reply, followed immediately by the Doctor FINAL."""
         from src.online_rl.doctor import doctor_seed
         getattr(self, 'seed_all', self.torch.manual_seed)(seed); a = self.args; doc = self.doctor; cid = case['case_id']
-        dialogue = [{k: v for k, v in x.items() if k != 'status'} for x in prefix]; prev = (prefix[-1].get('status') if prefix else None)
-        reason = 'max_agent_turns'; statuses = []
+        dialogue = [{k: v for k, v in x.items() if k != 'status'} for x in prefix]
         step = turn_cache or (lambda kind, identity, fn: fn())
         h = lambda x: hashlib.sha256(x.encode()).hexdigest()
-
-        def agent(r: int) -> str:
-            user, s = self.agent_user_prompt(case, dialogue, r), seed * 31 + r
-            decoding = {k: getattr(a, k, None) for k in ('max_completion_length', 'generation_temperature', 'top_p', 'top_k')}
-            two_stage = getattr(self, 'precommit', False)            # same Agent action protocol as the tree (precommit_v1)
-            return step('agent', {'system_sha256': h(self.agent_system), **decoding, 'stage': f'A{r}', 'seed': s, 'input_sha256': h(user),
-                                  **({'agent_protocol': 'precommit_v1'} if two_stage else {})},
-                        (lambda: self.agent_text(case, [dict(x) for x in dialogue], r, s)) if two_stage else (lambda: self.agent(user, s)))
-        for r in range(t, a.rounds + 1):
-            if r > t:
-                ds = doctor_seed(seed, cid, 'doctor', r)
-                d = step('doctor', {'model': doc.model, 'protocol': doc.protocol, 'stage': f'D{r}', 'seed': ds,
-                                    'input_sha256': h(dialogue_text(dialogue))}, lambda r=r, ds=ds: doc.turn(case, dialogue, r, a.rounds, ds))
-                dialogue.append({'speaker': 'doctor', 'stage': f'D{r}', 'round': r, 'text': d['visible']})
-                statuses.append({'stage': f'D{r}', 'status': d['status'], 'status_error': d['status_error'], 'seed': ds})
-                why = doc.halt(agent_turns=r - 1, status=d['status'], prev_status=prev, last_agent=dialogue[-2]['text'], options=case['options'])
-                if why: reason = why; break
-                prev = d['status']
-            text = fixed_agent_text if r == t else agent(r)
-            dialogue.append({'speaker': 'agent', 'stage': f'A{r}', 'round': r, 'text': text})
-            why = stop_reason(r, dialogue[-2]['text'], text)
-            if why: reason = why; break
+        dialogue.append({'speaker': 'agent', 'stage': f'A{t}', 'round': t, 'text': fixed_agent_text})
         fs = doctor_seed(seed, cid, 'final', 0)
         final = step('doctor', {'model': doc.model, 'protocol': doc.protocol, 'stage': 'FINAL', 'seed': fs, 'input_sha256': h(dialogue_text(dialogue))},
                      lambda: doc.final(case, dialogue, fs))
         opt = final_answer_option(final)
-        return {'final_option': opt, 'correct': ST.final_outcome(case, opt), 'termination_reason': reason, 'agent_turns': sum(x['speaker'] == 'agent' for x in dialogue),
-                'dialogue': dialogue + [{'speaker': 'doctor', 'stage': 'FINAL', 'text': final, 'final': True}], 'doctor_status': statuses}
+        return {'final_option': opt, 'correct': ST.final_outcome(case, opt), 'termination_reason': 'intervention_agent_then_final', 'agent_turns': sum(x['speaker'] == 'agent' for x in dialogue),
+                'dialogue': dialogue + [{'speaker': 'doctor', 'stage': 'FINAL', 'text': final, 'final': True}], 'doctor_status': []}
 
 
 def generator_user_message(case: dict, prefix: list[dict], t: int) -> str:

@@ -6,6 +6,7 @@ from src.online_rl.integrated.metrics import hard_value, r_a
 from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.posthoc import case_view
 from src.online_rl.tree.records import AgentNode, ResponseRubricScore, TrajectoryRubric, to_dialogue
+from src.online_rl.tree.agent_state import visible_rubric
 
 VISIBLE = ('rubric_id', 'name', 'applicability_condition', 'required_behavior', 'scores')
 
@@ -16,7 +17,7 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
     all rubrics of one response go in one call. workers > 1 (execution only): the per-response calls are independent and run
     concurrently; results are collected in node order."""
     if not kept: return []
-    rubrics = [{k: c.rubric[k] for k in VISIBLE} for c in kept]; src = {c.rubric_id: c.leaf_id for c in kept}; out = []
+    rubrics = [visible_rubric(c.rubric) for c in kept]; src = {c.rubric_id: c.leaf_id for c in kept}; out = []
 
     def one(n):
         return cache.call('rubric_score', {'node': n.node_id, 'policy': n.policy_sha256, 'rubrics': sorted(src), 'model': getattr(scorer, 'model', None),

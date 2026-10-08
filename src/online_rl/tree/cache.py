@@ -31,7 +31,9 @@ class CallCache:
                 if done is None: done = self._inflight[key] = threading.Event(); break      # this thread leads
             done.wait()                                            # the leader stored a value (-> hit) or failed (-> retry)
         try:
-            value = fn()
+            from src.common.live_gpu import activity
+            with activity('cache.' + kind):
+                value = fn()
             rec = {'key': key, 'kind': kind, 'identity': identity, 'value': value}
             json.dumps(rec)                                        # results must be JSON evidence
             with self._lock:

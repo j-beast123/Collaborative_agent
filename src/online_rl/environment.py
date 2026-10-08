@@ -58,10 +58,13 @@ def generate_with_trace(model: Any, tokenizer: Any, prompt: str, max_new_tokens:
     )
     if generated.logits is None or len(generated.logits) != completion_ids.shape[1]:
         raise RuntimeError("generation did not return one raw-policy logit tensor per completion token")
-    old_policy_logprobs = [
-        float(F.log_softmax(step_logits.float(), dim=-1)[0, token_id].detach().cpu())
+    # Keep sampled-token logprobs on-device until one CPU transfer. Gathering with a
+    # tensor index avoids a device-to-host synchronization for every generated token.
+    token_logprobs = [
+        F.log_softmax(step_logits.float(), dim=-1).gather(-1, token_id.reshape(1, 1)).reshape(())
         for step_logits, token_id in zip(generated.logits, completion_ids[0])
     ]
+    old_policy_logprobs = torch.stack(token_logprobs).detach().cpu().tolist() if token_logprobs else []
     sampling_logprobs = transition_scores[0].float().detach().cpu().tolist()
     completion_text = tokenizer.decode(completion_ids[0], skip_special_tokens=True).strip()
     return {
@@ -178,7 +181,7 @@ def generate_trajectory_v2(model: Any, tokenizer: Any, case: dict, agent_system:
     """One episode under Doctor protocol v2 (src/online_rl/doctor.py): seeded local Doctor turns, the hidden status cut
     from the visible dialogue, adaptive halting after a Doctor turn, then the usual FINAL. The Agent side is unchanged.
     opening(case, seed) -> D1: the frozen shared opening (src/online_rl/doctor_openings.py), read instead of generated."""
-    from src.online_rl.doctor import doctor_seed
+    from src.online_rl.doctor import doctor_seed, minimum_agent_turns
     if seed is None: raise ValueError('protocol-v2 episodes need an episode seed (it derives every Doctor seed)')
     cid = case['case_id']; dialogue: list[dict] = []; agent_traces: list[dict] = []; statuses: list[dict] = []
     termination_reason = "max_agent_turns"; prev_status = None
@@ -211,7 +214,7 @@ def generate_trajectory_v2(model: Any, tokenizer: Any, case: dict, agent_system:
         dialogue.append({"speaker": "agent", "stage": f"A{round_index}", "text": trace["completion_text"], "round": round_index,
                          "trace_index": len(agent_traces)})
         agent_traces.append({"stage": f"A{round_index}", "dialogue_index": agent_index, "prompt_text": prompt, **trace})
-        reason = stop_reason(round_index, d['visible'], trace["completion_text"])
+        reason = stop_reason(round_index, d['visible'], trace["completion_text"]) if round_index >= minimum_agent_turns(doctor) else None
         if reason:
             termination_reason = reason; break
     final_text = doctor.final(case, dialogue, doctor_seed(seed, cid, 'final', 0))

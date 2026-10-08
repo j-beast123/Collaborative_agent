@@ -3,14 +3,23 @@ Agent replies from one identical prompt; each non-terminal reply gets one Doctor
 A branch ends on the stop rule or the turn limit, then the Doctor FINAL decides the outcome (no feedback, no rubric)."""
 from __future__ import annotations
 from typing import Callable, Optional
+import re, unicodedata
 from src.online_rl.integrated.continuation import derive_seed
 from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.records import AgentNode, Leaf, Tree, to_turns
 
 
+def repeated_agent_reply(prefix, reply):
+    """Exact normalized repetition of an earlier visible Agent reply. No model/API judgment."""
+    norm=lambda value: ' '.join(re.findall(r'\w+',unicodedata.normalize('NFKC',value).casefold()))
+    current=norm(reply)
+    return bool(current) and any(d.get('speaker')=='agent' and norm(d.get('text',''))==current for d in prefix)
+
+
 def build_tree(case: dict, *, max_agent_turns: int, branching: int, run_seed: int, policy_sha256: str, protocol_sha256: str,
                agent, doctor, stop_rule: Callable, final_option: Callable, outcome_fn: Callable, cache: CallCache,
-               behavior_logprobs: Optional[Callable] = None, workers: int = 1, opening: Optional[Callable] = None, agent_workers: int = 1) -> Tree:
+               behavior_logprobs: Optional[Callable] = None, workers: int = 1, opening: Optional[Callable] = None, agent_workers: int = 1,
+               on_leaf: Optional[Callable] = None, repeat_agent_reply_after_turns: Optional[int] = None) -> Tree:
     """agent.sample(case, prefix, turn, seed) -> trace with 'completion_text'; doctor.turn(case, dialogue, round, rounds) and
     doctor.final(case, dialogue) -> text. Ancestor replies depend on the policy, so every key carries policy_sha256."""
     if max_agent_turns < 1 or branching < 1: raise ValueError('max_agent_turns and branching must be >= 1')
@@ -18,7 +27,8 @@ def build_tree(case: dict, *, max_agent_turns: int, branching: int, run_seed: in
     if getattr(doctor, 'status_protocol', False):
         return _build_tree_v2(case, max_agent_turns=max_agent_turns, branching=branching, run_seed=run_seed, policy_sha256=policy_sha256, opening=opening,
                               protocol_sha256=protocol_sha256, agent=agent, doctor=doctor, stop_rule=stop_rule, final_option=final_option,
-                              outcome_fn=outcome_fn, cache=cache, behavior_logprobs=behavior_logprobs, workers=workers, agent_workers=agent_workers)
+                              outcome_fn=outcome_fn, cache=cache, behavior_logprobs=behavior_logprobs, workers=workers, agent_workers=agent_workers,on_leaf=on_leaf,
+                              repeat_agent_reply_after_turns=repeat_agent_reply_after_turns)
     cid = case['case_id']; ident = {'case': cid, 'policy': policy_sha256, 'protocol': protocol_sha256}
     d1 = cache.call('doctor_turn', {**ident, 'path': '', 'round': 1}, lambda: doctor.turn(case, [], 1, max_agent_turns))
     frontier = [('', None, [{'speaker': 'doctor', 'stage': 'D1', 'round': 1, 'text': d1}])]
@@ -36,7 +46,10 @@ def build_tree(case: dict, *, max_agent_turns: int, branching: int, run_seed: in
                 trace = cache.call('agent', {**ident, 'path': cpath, 'seed': seed}, sample)
                 reply = trace['completion_text']
                 dialogue = prefix + [{'speaker': 'agent', 'stage': f'A{depth}', 'round': depth, 'text': reply}]
-                why = stop_rule(depth, prefix[-1]['text'], reply) or ('max_agent_turns' if depth == max_agent_turns else None)
+                why = stop_rule(depth, prefix[-1]['text'], reply)
+                if (why is None and repeat_agent_reply_after_turns is not None and depth >= repeat_agent_reply_after_turns
+                        and repeated_agent_reply(prefix,reply)): why='agent_repeated_reply'
+                why = why or ('max_agent_turns' if depth == max_agent_turns else None)
                 nd = None
                 if why is None:
                     nd = cache.call('doctor_turn', {**ident, 'path': cpath, 'round': depth + 1}, lambda d=dialogue, r=depth + 1: doctor.turn(case, d, r, max_agent_turns))
@@ -48,6 +61,7 @@ def build_tree(case: dict, *, max_agent_turns: int, branching: int, run_seed: in
                     full = dialogue + [{'speaker': 'doctor', 'stage': 'FINAL', 'round': 0, 'text': final}]
                     path_ids = tuple(f'{cid}/{".".join(cpath.split(".")[:k])}' for k in range(1, depth + 1))
                     leaves.append(Leaf(nid, cid, path_ids, to_turns(full), final, opt, outcome_fn(case, opt), why))
+                    if on_leaf is not None:on_leaf(leaves[-1])
         frontier = nxt
     return Tree(cid, policy_sha256, max_agent_turns, branching, tuple(nodes), tuple(leaves))
 
@@ -55,7 +69,8 @@ def build_tree(case: dict, *, max_agent_turns: int, branching: int, run_seed: in
 def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed: int, policy_sha256: str, protocol_sha256: str,
                    agent, doctor, stop_rule: Callable, final_option: Callable, outcome_fn: Callable, cache: CallCache,
                    behavior_logprobs: Optional[Callable] = None, workers: int = 1, opening: Optional[Callable] = None,
-                   agent_workers: int = 1) -> Tree:
+                   agent_workers: int = 1, on_leaf: Optional[Callable] = None,
+                   repeat_agent_reply_after_turns: Optional[int] = None) -> Tree:
     """build_tree under Doctor protocol v2 (src/online_rl/doctor.py): every Doctor call is seeded from its node identity
     (doctor_seed), its hidden status is cut from the visible reply and kept on the node, and after each Doctor turn the
     shared halting rule may end the branch ('doctor_halt'; that Doctor message stays in the dialogue and FINAL follows).
@@ -67,7 +82,7 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
     agent_workers > 1 (execution only, Agent replicas): the depth's Agent actions are independent given their seeds and are
     sampled concurrently; node order, seeds, cache keys and values are those of the sequential loop."""
     from concurrent.futures import ThreadPoolExecutor
-    from src.online_rl.doctor import doctor_seed
+    from src.online_rl.doctor import doctor_seed, minimum_agent_turns
     cid = case['case_id']; ident = {'case': cid, 'policy': policy_sha256, 'protocol': protocol_sha256}
     pmap = (lambda f, xs: list(ThreadPoolExecutor(workers).map(f, xs))) if workers > 1 else (lambda f, xs: [f(x) for x in xs])
     amap = (lambda f, xs: list(ThreadPoolExecutor(agent_workers).map(f, xs))) if agent_workers > 1 else (lambda f, xs: [f(x) for x in xs])
@@ -94,7 +109,10 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
         for (cpath, nid, parent, prefix, prev_status, seed), trace in zip(specs, amap(traced, specs)):
             reply = trace['completion_text']
             dialogue = prefix + [{'speaker': 'agent', 'stage': f'A{depth}', 'round': depth, 'text': reply}]
-            why = stop_rule(depth, prefix[-1]['text'], reply) or ('max_agent_turns' if depth == max_agent_turns else None)
+            early = stop_rule(depth, prefix[-1]['text'], reply) if depth >= minimum_agent_turns(doctor) else None
+            if (early is None and repeat_agent_reply_after_turns is not None and depth >= repeat_agent_reply_after_turns
+                    and repeated_agent_reply(prefix,reply)): early='agent_repeated_reply'
+            why = early or ('max_agent_turns' if depth == max_agent_turns else None)
             entries.append({'cpath': cpath, 'nid': nid, 'parent': parent, 'prefix': prefix, 'prev_status': prev_status, 'seed': seed, 'trace': trace,
                             'reply': reply, 'dialogue': dialogue, 'why': why, 'nd': None})
 
@@ -110,7 +128,13 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
 
         def final(e):
             fs = doctor_seed(run_seed, e['nid'], 'final', 0)
-            return cache.call('final', {**ident, 'path': e['cpath'], 'seed': fs}, lambda: doctor.final(case, e['dialogue'], fs))
+            text = cache.call('final', {**ident, 'path': e['cpath'], 'seed': fs}, lambda: doctor.final(case, e['dialogue'], fs))
+            if on_leaf is not None:
+                opt=final_option(text)
+                full=e['dialogue']+[{'speaker':'doctor','stage':'FINAL','round':0,'text':text}]
+                path_ids=tuple(f'{cid}/{".".join(e["cpath"].split(".")[:k])}' for k in range(1,depth+1))
+                on_leaf(Leaf(e['nid'],cid,path_ids,to_turns(full),text,opt,outcome_fn(case,opt),e['why']))
+            return text
         done = [e for e in entries if e['why'] is not None]
         finals = dict(zip((e['nid'] for e in done), pmap(final, done)))
         nxt = []

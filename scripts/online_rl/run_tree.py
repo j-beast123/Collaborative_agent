@@ -28,8 +28,18 @@ def blockers(cfg: dict) -> list[str]:
     """Unresolved settings plus every approved prompt/template whose file differs from its pinned sha256 (as run_integrated)."""
     from src.online_rl.tree.conditions import active_unresolved
     out = active_unresolved(cfg)                                    # only settings the condition uses
+    if cfg['rubric'].get('match_batch_size',1) not in (1,8):out.append('rubric.match_batch_size must be 1 or 8')
     for sec, f, h in PROMPT_HASHES:
         if cfg[sec][h] not in ('TBD', file_sha(cfg[sec][f])): out.append(f'{sec}.{f} differs from {sec}.{h}')
+    if cfg['rubric'].get('schema'):
+        from src.online_rl.tree.agent_state import SCHEMA
+        if cfg['rubric']['schema'] != SCHEMA: out.append('Unknown rubric.schema')
+        path = cfg['rubric'].get('state_addendum_file')
+        if not path or not (ROOT / path).exists(): out.append('Missing visible-context rubric contract')
+        elif cfg['rubric'].get('state_addendum_sha256') != file_sha(path): out.append('Visible-context rubric contract hash differs')
+        if cfg['judges'].get('scorer_protocol') != 'structured_v2': out.append('Visible-context rubric requires structured_v2 scorer')
+        if not cfg['feedback'].get('behavioral_locus') or cfg['rubric'].get('source_consistency') != 'source_locus_v1':
+            out.append('Visible-context rubric requires a checked behavioral locus')
     return out
 
 
@@ -79,8 +89,8 @@ def setup_problems(cfg: dict, config_path: str) -> list[str]:
         for k in ('engine', 'endpoint', 'model', 'model_digest', 'quantization', 'ollama_version', 'source_model', 'options'):
             if not b.get(k): out.append(f'missing rollout.doctor_backend.{k}')
         if not str(ro.get('doctor_model', '')).startswith('ollama/'): out.append('rollout.doctor_model must name the local Doctor (ollama/<tag>@<digest>)')
-        if not isinstance((ro.get('halting') or {}).get('enabled'), bool) or (ro.get('halting') or {}).get('min_agent_turns') != 2:
-            out.append('rollout.halting needs enabled (true/false) and min_agent_turns = 2')
+        if not isinstance((ro.get('halting') or {}).get('enabled'), bool) or (ro.get('halting') or {}).get('min_agent_turns') not in (2, 3):
+            out.append('rollout.halting needs enabled (true/false) and min_agent_turns = 2 or 3')
     rb = cfg.get('rubric') or {}
     if rb.get('reuse'):
         from src.online_rl.tree.rubric_bank import ASSIGNMENT_VERSION, MARKER
@@ -164,7 +174,7 @@ def make_policy(cfg: dict, key: str):
     return SharedPolicy(cfg, key)
 
 
-def build(cfg: dict):
+def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
     """Bind the existing components to the TreeTrainer interfaces. Policy rounds / Doctor model come from cfg['rollout']."""
     from src.collaboration.generator import final_answer_option, stop_reason
     from src.online_rl.cases import load_cases
@@ -178,36 +188,51 @@ def build(cfg: dict):
     from src.online_rl.tree.team import team_strategies
     from src.online_rl.tree.trainer import TreeEnv, TreeTrainer
     text = lambda rel: (ROOT / rel).read_text()
+    context_addendum = text(cfg['rubric']['state_addendum_file']) if cfg['rubric'].get('schema') else None
     ro, pu, ar = cfg['rollout'], cfg['prompt_update'], cfg['agent_reward']
     jm = cfg['judges']; key = load_key()
     gate_client = judge_client(jm['gate_model'], key, text(jm['gate_prompt_file']))
     scorer_client = judge_client(jm['scorer_model'], key, text(jm['scorer_prompt_file']))
-    policy = make_policy(cfg, key)
+    policy = policy if policy is not None else make_policy(cfg, key)
     if (policy.args.rounds, policy.args.doctor_model) != (ro['rounds'], ro['doctor_model']):
         raise RuntimeError('policy/harness rounds or Doctor model differ from rollout config')
     if ro.get('doctor_backend'):                                 # protocol v2: the policy's local Doctor serves tree, reruns and evaluation
         problems = policy.doctor.verify()['problems']
         if problems: raise RuntimeError('local Doctor does not match its pinned backend: ' + '; '.join(problems))
-    updater = make_updater(policy, cfg); cases = load_cases(ROOT / cfg['data']['train'])
+    updater = None if defer_update else make_updater(policy, cfg)
+    cases = cases if cases is not None else load_cases(ROOT / cfg['data']['train'])
+    from src.online_rl.integrated.grpo import behavior_logprobs
+    def behavior(traces):
+        if updater is not None: return updater.behavior_logprobs(traces)
+        if hasattr(policy, 'pool_behavior_logprobs'):
+            return policy.pool_behavior_logprobs(traces)
+        with policy.gen_lock:
+            return behavior_logprobs(policy.model, traces, cfg['optimizer']['logprob_token_chunk_size'])
     iv = PolicyInterventions(policy, text(cfg['intervention']['score0_template_file']), text(cfg['intervention']['score2_template_file']))
     doctor = RoleDoctor(policy.doctor) if ro.get('doctor_backend') else ApiDoctor(key, ro['doctor_model'], policy.doctor_system, ro['max_tokens_doctor'])
     env = TreeEnv(agent=PolicyAgent(policy), doctor=doctor,
                   stop_rule=stop_reason, final_option=final_answer_option, outcome_fn=final_outcome,
-                  feedback_fn=(api_behavior_feedback(key, cfg['feedback']['model'], text(cfg['feedback']['prompt_file']), cfg['feedback']['max_tokens'])
-                               if cfg['feedback'].get('protocol') == 'behavior_observer_v4' else
+                  feedback_fn=(api_behavior_feedback(key, cfg['feedback']['model'], text(cfg['feedback']['prompt_file']), cfg['feedback']['max_tokens'],
+                                                     cfg['feedback'].get('protocol', 'behavior_observer_v4'))
+                               if cfg['feedback'].get('protocol') in ('behavior_observer_v4','behavior_observer_v5') else
                                api_feedback(key, cfg['feedback']['model'], text(cfg['feedback']['prompt_file']), cfg['feedback']['max_tokens'],
                                             locus=bool(cfg['feedback'].get('behavioral_locus')))),
-                  generate_fn=api_rubric_generator(key, cfg['rubric']['generator_model'], generation_settings(cfg['rubric'])),
+                  generate_fn=api_rubric_generator(key, cfg['rubric']['generator_model'], generation_settings(cfg['rubric']), context_addendum),
                   scorer=(two_stage_scorer(scorer_client) if jm['scorer_model'].startswith('typesafe/jev') else
-                          two_stage_structured_scorer(scorer_client) if jm.get('scorer_protocol') == 'structured_v2' else two_stage_hard_scorer(scorer_client)),
-                  writer=iv.write, continuation=iv.continue_, gate_fn=posthoc_gates(gate_client, {c['case_id']: c for c in cases}),
-                  behavior_logprobs=getattr(policy, 'on_primary', lambda f: f)(updater.behavior_logprobs),
-                  assign_fn=api_rubric_matcher(key, cfg['rubric']['generator_model'], generation_settings(cfg['rubric'])) if cfg['rubric'].get('reuse') else None,
+                          two_stage_structured_scorer(scorer_client, observed_context=bool(context_addendum)) if jm.get('scorer_protocol') == 'structured_v2' else two_stage_hard_scorer(scorer_client)),
+                  writer=iv.write, continuation=iv.continue_, gate_fn=posthoc_gates(gate_client, {c['case_id']: c for c in cases}, observed_context=bool(context_addendum)),
+                  behavior_logprobs=getattr(policy, 'on_primary', lambda f: f)(behavior),
+                  assign_fn=api_rubric_matcher(key, cfg['rubric']['generator_model'], generation_settings(cfg['rubric']), context_addendum,
+                                              cfg['rubric'].get('match_batch_size',1)) if cfg['rubric'].get('reuse') else None,
                   opening=opening_table(cfg, policy, 'train'))
     # the tree prompt search uses only the reflection / refinement calls of this backend
     backend = sol_backend(key, text(pu['feedback_prompt_file']), text(pu['refiner_prompt_file']), env.generate_fn, env.gate_fn, env.scorer,
                           reflection_model=pu['reflection_model'], refiner_model=pu['refiner_model'])
-    return TreeTrainer(cfg, out_dir=ROOT / cfg['output_dir'], cases=cases, env=env, strategies=team_strategies(updater, ar['w_outcome'], ar['w_rubric']),
+    strategies = team_strategies(updater, ar['w_outcome'], ar['w_rubric'])
+    if defer_update:
+        from dataclasses import replace
+        strategies = replace(strategies, agent_update=lambda tree, targets: {'optimizer_step': False, 'deferred_to_gpu4': True})
+    return TreeTrainer(cfg, out_dir=ROOT / cfg['output_dir'], cases=cases, env=env, strategies=strategies,
                        search_backend=backend, initial_prompt=text(cfg['rubric']['generator_prompt_file']), policy_sha=lambda: adapter_sha256(policy.model),
                        protocol_sha=protocol_sha256(cfg, ROOT), feedback_prompt_sha256=cfg['feedback']['prompt_sha256'], updater=updater,
                        evaluator=milestone_evaluator(cfg, policy, final_outcome), execution=runtime_execution(cfg, policy),
@@ -215,12 +240,16 @@ def build(cfg: dict):
 
 
 def runtime_execution(cfg: dict, policy) -> dict:
-    """Execution-only concurrency from the environment (never part of the config or any protocol hash), recorded per launch in
-    <output_dir>/execution_runtime.jsonl: Agent replicas (SHERPA_AGENT_REPLICAS), independent API calls (SHERPA_API_WORKERS:
-    feedback, response scoring) and member verifications (SHERPA_MEMBER_WORKERS)."""
+    """Execution-only concurrency, with environment overrides and config defaults, recorded per launch in
+    <output_dir>/execution_runtime.jsonl. These thread counts do not alter logical protocol/cache identities."""
     import socket, time
     n = int(getattr(policy, 'n_replicas', 1))
-    ex = {'agent_workers': n, 'api_workers': int(os.environ.get('SHERPA_API_WORKERS', '1')), 'member_workers': int(os.environ.get('SHERPA_MEMBER_WORKERS', '1'))}
+    ex = {'agent_workers': n,
+          'api_workers': int(os.environ.get('SHERPA_API_WORKERS', str((cfg.get('five_gpu') or {}).get('api_workers', 1)))),
+          'member_workers': int(os.environ.get('SHERPA_MEMBER_WORKERS', str((cfg.get('execution') or {}).get('member_workers', 1))))}
+    if cfg['rollout'].get('agent_sampling_protocol')=='per_row_rng_batch_v1':
+        ex['agent_workers']=int(os.environ.get('SHERPA_AGENT_BATCH_SIZE',cfg.get('five_gpu',{}).get('agent_batch_size',1)))
+    ex.update(getattr(policy,'pool_execution',{}))
     out = ROOT / cfg['output_dir']; out.mkdir(parents=True, exist_ok=True)
     rec = {'time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'host': socket.gethostname(), 'cuda_visible_devices': os.environ.get('CUDA_VISIBLE_DEVICES'),
            'agent_replicas': n, 'agent_devices': [str(d) for d in getattr(policy, 'devices', [])],

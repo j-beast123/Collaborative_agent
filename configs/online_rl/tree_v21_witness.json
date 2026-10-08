@@ -55,7 +55,7 @@
   },
   "halting": {
    "enabled": true,
-   "min_agent_turns": 2
+   "min_agent_turns": 3
   },
   "doctor_system_prompt_file": "prompts/user_simulator_v3.txt",
   "doctor_system_prompt_sha256": "cfed04f183744f07a93199d75f63c3ed948c01f3aa1307d04e4fd8692d499423",
@@ -180,7 +180,7 @@
   "post_hoc_gates": "blocking: schema, deterministic leakage / answer copy, Jev answer_presupposition, Jev new_domain_premise; recorded only: observable",
   "intervention": "targets = source-trajectory responses the rubric matches (two-stage applicability); the same policy writes the intervention reply and runs the continuations; failure -> Score-2 template, success -> Score-0 template; one reply, then K continuations",
   "reruns_per_intervention": "K = continuations per intervention target; a rerun count, not a rubric count",
-  "R_O": "s(tau) of one target: failure -> successful reruns / K, success -> failed reruns / K; unparseable FINAL = not correct; several targets -> mean",
+  "R_O": "Target flips / K: Score-2 counts parsed success (1), Score-0 counts parsed failure (0). Unparsed FINAL (None) stays in the denominator but never counts as a flip (parsed_target_only_v1).",
   "selection": "unused for training under bounded_witness_v1 (min_R_O applies only to the exhaustive protocol); prompt-search J is unchanged",
   "scoring": "kept rubrics score every response node of the tree with the two-stage scorer; No Match records are kept without a score",
   "agent_reward": "frozen 2026-10-07: outcome_only 1.0 / 0.0 (arm override), outcome + rubric arms 0.5 / 0.5; a rubric-only condition would be 0.0 / 1.0. Per node: w_outcome * mean(descendant outcomes) + w_rubric * R_A | r_a_weighting = equal: R_A = unweighted mean of level/2 over the applicable KEEP rubrics; verification is a gate only (R_O(R) is no longer a weight).",
@@ -195,7 +195,7 @@
   "luna_alignment": "strict JSON-schema output; trivial canonicalisation; at most one repair request to the same Luna model with the same input; a second invalid output is an operational error (retried on resume), never mapped or filled in",
   "rubric_reuse": "same-reason REUSE vs NEW per case and outcome stratum (src/online_rl/tree/rubric_bank.py): one MATCH-vs-NEW decision per later trajectory, a new rubric only for a new reason; every member verified on its own path; KEEP iff max_j s_j >= min_R_O; R_O(R) = max_j s_j; each kept rubric scored once",
   "rubric.generation": "Gemini 3.8 Flash reasons mandatorily; effort low + 4096 tokens + strict JSON schema fixes the Stage-A truncation (16/32 cut off at 1200)",
-  "doctor_backend": "local Ollama Doctor, protocol v2 (src/online_rl/doctor.py): hidden status, adaptive halting (min 2 Agent turns, T_max 5), seeded calls",
+  "doctor_backend": "local Ollama Doctor, protocol v2 (src/online_rl/doctor.py): hidden status, adaptive halting (min 3 Agent turns, T_max 5), seeded calls",
   "shared_training": "frozen 2026-10-07: learning_rate 1e-5, advantage_normalization mean_center (all arms)",
   "verification": "bounded_witness_v1 (src/online_rl/tree/witness.py): training-time verification asks whether a consolidated rubric has a causal witness in up to 4 diverse member contexts (topology-ordered, outcome-blind), each at that member's own feedback locus, K = 3 with 2-of-3 short-circuit; KEEP at the first witness, otherwise NOT_VALIDATED (no witness under bounded verification). Member s_j is not estimated in training. Replaces exhaustive_members_v1 (every member, every Applicable reply, R_O(R) = max_j s_j).",
   "output_root": "2026-10-07: final 100+100 runs on 165.132.141.140 (convei-rack2-140, 8x RTX A6000) from case 1; outputs/sherpa_tree_v1_d1frozen (RTX 4090, stopped after Outcome-only case 1) is an aborted diagnostic: Agent tokens are hardware-dependent, so hardware is not mixed within a run",

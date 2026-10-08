@@ -46,6 +46,33 @@ def doctor(fake=None, halting=HALT, **kw):
     return D.OllamaDoctor({**BACKEND, **kw}, halting, 'SYSTEM', 512, http=fake or FakeOllama(), sleep=lambda s: None)
 
 
+def test_short_final_keeps_complete_context_and_caps_only_final():
+    fake=FakeOllama()
+    doc=doctor(fake,final_response={'mode':'label_only_v1','max_tokens':32})
+    discussion=[{'speaker':'doctor','stage':'D1','text':'Initial view'},
+                {'speaker':'agent','stage':'A1','text':'New argument for option B'}]
+    doc.turn(CASE,discussion,2,5,123)
+    doc.final(CASE,discussion,456)
+    doc.turn(CASE,discussion,3,5,789)
+    assert [p['options']['num_predict'] for _,p in fake.chats]==[512,32,512]
+    final_user=fake.chats[1][0]
+    assert final_user==final_decision_prompt(CASE,discussion,label_only=True)
+    assert 'New argument for option B' in final_user and CASE['question'] in final_user
+    assert 'Output exactly one line' in final_user
+    assert '<answer text>' not in final_user
+    assert final_answer_option('Final answer: option B')=='B'
+    assert doc.options['num_predict']==512
+    assert doctor().protocol!=doc.protocol
+    assert doctor(final_response={'mode':'label_only_v1','max_tokens':48}).protocol!=doc.protocol
+
+
+@pytest.mark.parametrize('settings',[{'mode':'unknown','max_tokens':32},
+                                   {'mode':'label_only_v1','max_tokens':8},
+                                   {'mode':'label_only_v1','max_tokens':True}])
+def test_invalid_short_final_settings_fail_before_calls(settings):
+    with pytest.raises(ValueError,match='final_response'):doctor(final_response=settings)
+
+
 # ---------- status parsing and the halt rule ----------
 def test_status_is_cut_from_the_visible_reply_and_validated():
     vis, st, err = D.split_status('I favour B because of the course.\nSTATUS: ' + json.dumps(ST()), 'ABCD')
@@ -83,6 +110,35 @@ def test_open_issue_objection_or_uncertainty_continues(flag):
     assert halt(status={**ST(), flag: True}) is None
 
 
+@pytest.mark.parametrize('flag', ['open_issue','more_info_could_change_decision'])
+def test_late_stable_choice_relaxes_only_issue_and_more_info_from_four(flag):
+    doc=doctor(halting={**HALT,'stable_choice_no_objection_after_turns':4})
+    kw={'status':{**ST(),flag:True},'prev_status':ST(),'last_agent':'I favor option B.','options':'ABCD'}
+    assert doc.halt(agent_turns=2,**kw) is None
+    assert doc.halt(agent_turns=3,**kw) is None
+    assert doc.halt(agent_turns=4,**kw)=='doctor_halt_stable_choice'
+    assert doc.halt(agent_turns=5,**kw)=='doctor_halt_stable_choice'
+    assert doctor().halt(agent_turns=4,**kw) is None
+    assert doc.protocol!=doctor().protocol
+
+
+@pytest.mark.parametrize('change',[{'status':None},{'prev_status':None},
+                                  {'prev_status':ST(opt='C')},
+                                  {'status':ST(opt='none'),'prev_status':ST(opt='none')},
+                                  {'status':{**ST(),'collaborator_objection':True}},
+                                  {'last_agent':'I prefer option C.'}])
+def test_late_halt_keeps_validity_stability_and_objection_guards(change):
+    doc=doctor(halting={**HALT,'stable_choice_no_objection_after_turns':4})
+    kw={'status':{**ST(),'open_issue':True},'prev_status':ST(),'last_agent':'I favor option B.','options':'ABCD'}
+    assert doc.halt(agent_turns=4,**{**kw,**change}) is None
+
+
+@pytest.mark.parametrize('late',[True,1,'4',4.0])
+def test_late_halt_rejects_invalid_configuration(late):
+    with pytest.raises(ValueError,match='stable_choice_no_objection_after_turns'):
+        doctor(halting={**HALT,'stable_choice_no_objection_after_turns':late})
+
+
 # ---------- one episode / continuation / tree ----------
 class Args:
     rounds, max_completion_length, generation_temperature, top_p, top_k = 5, 50, 0.7, 0.9, 20
@@ -105,12 +161,38 @@ def test_episode_halts_after_two_agent_turns_and_finals_normally(monkeypatch):
     assert all('STATUS' not in u.split('Conversation so far:')[1].split('Respond')[0] for u, _ in f.chats)       # never fed back
 
 
+@pytest.mark.parametrize('reply', ['I agree the axillary nerve fits.', 'Final answer: option B'])
+def test_three_turn_minimum_in_evaluation_including_final_answer_bypass(monkeypatch, reply):
+    t = episode(monkeypatch, FakeOllama(), halting={'enabled': True, 'min_agent_turns': 3}, agent_text=reply)
+    assert t['num_discussion_rounds'] == 3
+    assert t['termination_reason'] == ('agent_final_answer' if 'Final answer' in reply else 'doctor_halt')
+
+
 def test_halting_off_requests_the_same_status_but_runs_to_t_max(monkeypatch):
     on, off = FakeOllama(), FakeOllama()
     a, b = episode(monkeypatch, on), episode(monkeypatch, off, halting={'enabled': False, 'min_agent_turns': 2})
     assert a['termination_reason'] == 'doctor_halt' and b['termination_reason'] == 'max_agent_turns' and b['num_discussion_rounds'] == 5
     assert [c[0] for c in on.chats[:-1]] == [c[0] for c in off.chats[:len(on.chats) - 1]]                     # identical prefix (paired)
     assert [c[1]['options']['seed'] for c in on.chats[:-1]] == [c[1]['options']['seed'] for c in off.chats[:len(on.chats) - 1]]
+
+
+def test_late_rule_applies_to_tree_evaluation_and_intervention_continuation(monkeypatch):
+    from types import SimpleNamespace
+    from src.online_rl import environment
+    from src.prompt_opt.harness import Env
+    settings={**HALT,'stable_choice_no_objection_after_turns':4}
+    fake=lambda:FakeOllama(status_for=lambda r,u,s:ST(more=True))
+    result=episode(monkeypatch,fake(),halting=settings)
+    assert result['num_discussion_rounds']==4 and result['termination_reason']=='doctor_halt_stable_choice'
+    t,_=tree(fake(),halting=settings,branching=1)
+    assert [len(l.path) for l in t.leaves]==[4]
+    assert t.leaves[0].stop_reason=='doctor_halt_stable_choice'
+    policy=SimpleNamespace(torch=SimpleNamespace(manual_seed=lambda s:None),args=Args,
+                           doctor=doctor(fake(),settings),agent_system='AGENT',ST=environment,
+                           agent_user_prompt=lambda *a:'',agent=lambda *a:'I agree the axillary nerve fits.')
+    rerun=Env._continue_v2(policy,CASE,[{'speaker':'doctor','stage':'D1','round':1,'text':'I favor option B.'}],
+                           1,'I agree the axillary nerve fits.',11)
+    assert rerun['agent_turns']==1 and rerun['termination_reason']=='intervention_agent_then_final'
 
 
 def test_unsettled_doctor_runs_to_t_max(monkeypatch):
@@ -153,6 +235,28 @@ def test_tree_halts_at_depth_two_and_keeps_status_out_of_every_dialogue():
     assert all(n.next_doctor_status['status'] == ST() and n.prefix_doctor_status == ST() for n in halted)
 
 
+@pytest.mark.parametrize('reply', ['I agree the axillary nerve fits.', 'Final answer: option B'])
+def test_training_tree_respects_three_turn_minimum_through_role_adapter(reply):
+    from src.online_rl.tree.backends import RoleDoctor
+    doc = RoleDoctor(doctor(FakeOllama(), {'enabled': True, 'min_agent_turns': 3}))
+    t, _ = tree(doc=doc, agent=Agent(lambda d, s: reply), branching=1)
+    assert [len(l.path) for l in t.leaves] == [3]
+
+
+def test_intervention_continuation_is_one_agent_reply_then_final_even_with_three_turn_minimum():
+    from types import SimpleNamespace
+    from src.prompt_opt.harness import Env
+    from src.online_rl import environment
+    reply = 'Final answer: option B'
+    policy = SimpleNamespace(torch=SimpleNamespace(manual_seed=lambda s: None), args=Args,
+                             doctor=doctor(FakeOllama(), {'enabled': True, 'min_agent_turns': 3}),
+                             agent_system='AGENT', ST=environment,
+                             agent_user_prompt=lambda *a: '', agent=lambda *a: reply)
+    result = Env._continue_v2(policy, CASE, [{'speaker': 'doctor', 'stage': 'D1', 'round': 1, 'text': 'I favor option B.'}],
+                              1, reply, 11)
+    assert result['agent_turns'] == 1 and result['termination_reason'] == 'intervention_agent_then_final'
+
+
 def test_tree_never_halts_with_an_open_issue_or_a_dissenting_agent():
     t, _ = tree(FakeOllama(status_for=lambda r, u, s: ST(more=True)), branching=1)
     assert [l.stop_reason for l in t.leaves] == ['max_agent_turns']
@@ -177,7 +281,9 @@ def test_status_never_reaches_feedback_rubric_or_judge_inputs():
 def test_openrouter_cache_cannot_satisfy_the_local_doctor(tmp_path):
     from test_tree_v1 import Log, tree_for
     cache = CallCache(tmp_path / 'calls.jsonl'); tree_for(Log(), rounds=2, branching=1)                   # a legacy tree exists
-    legacy = json.loads((ROOT / 'configs/online_rl/tree_micro_pilot_stage_a.json').read_text())
+    legacy = json.loads((ROOT / 'configs/online_rl/tree_v1.json').read_text())
+    for key in ('doctor_backend', 'halting', 'doctor_opening'):
+        legacy['rollout'].pop(key, None)
     from src.online_rl.integrated.continuation import protocol_sha256
     local = {**legacy, 'rollout': {**legacy['rollout'], 'doctor_backend': BACKEND, 'halting': HALT, 'doctor_model': 'ollama/x'}}
     assert protocol_sha256(legacy, ROOT) != protocol_sha256(local, ROOT)
@@ -212,12 +318,23 @@ def test_seed_is_part_of_each_doctor_cache_key():
     assert all('seed' in r['identity'] for r in c.store.values() if r['kind'] in ('doctor_turn', 'final'))
 
 
-def test_all_arms_share_the_doctor_protocol_and_halt_rule():
+@pytest.mark.parametrize('short_final',[False,True])
+def test_all_arms_share_the_doctor_protocol_and_halt_rule(short_final):
     from src.online_rl.tree.conditions import ARMS, arm_config
     from src.online_rl.integrated.continuation import protocol_sha256
     base = json.loads((ROOT / 'configs/online_rl/tree_v1.json').read_text())
-    base['rollout'] = {**base['rollout'], 'doctor_backend': BACKEND, 'halting': HALT}
-    assert len({protocol_sha256(arm_config(base, a), ROOT) for a in ARMS}) == 1
+    backend={**BACKEND}
+    if short_final:backend['final_response']={'mode':'label_only_v1','max_tokens':32}
+    base['rollout'] = {**base['rollout'], 'doctor_backend': backend, 'halting': HALT}
+    system=(ROOT/base['rollout'].get('doctor_system_prompt_file','prompts/user_simulator.txt')).read_text()
+    # Whole-run identity also includes arm-dependent rubric rerun semantics.
+    # The shared Doctor identity is the experimental invariant being tested.
+    assert len({D.make_doctor(arm_config(base,a)['rollout'],system).protocol for a in ARMS})==1
+    if short_final:
+        from copy import deepcopy
+        legacy=deepcopy(base);legacy['rollout']['doctor_backend'].pop('final_response')
+        for arm in ARMS:
+            assert protocol_sha256(arm_config(base,arm),ROOT)!=protocol_sha256(arm_config(legacy,arm),ROOT)
     assert {json.dumps(arm_config(base, a)['rollout'], sort_keys=True) for a in ARMS} == {json.dumps(base['rollout'], sort_keys=True)}
     assert D.OllamaDoctor.halt is D.OllamaDoctor.halt and 'arm' not in D.halt_reason.__code__.co_varnames
 

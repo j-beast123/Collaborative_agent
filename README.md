@@ -12,7 +12,7 @@ Rubric-Generator prompt evolves toward prompts whose rubrics actually change out
 case (one frozen Agent policy for the whole case)
  └─ interaction tree: Doctor opens (frozen shared D1 per case); at EVERY live Agent turn each branch samples G = 4 Agent actions; up to T_max = 5
     Agent turns (≤ 4^5 leaves); a branch also ends when the Doctor's hidden status says the discussion is settled
-    (adaptive halting, after ≥ 2 Agent turns)
+    (adaptive halting, after ≥ 3 Agent turns in the current v2.1 config)
      └─ completed trajectories → Doctor FINAL → outcome (success / failure)
          └─ Doctor feedback on the Agent's behavior (no gold answer)
              └─ per case and outcome stratum: a NEW rubric for a new behavioral reason, or REUSE of the existing rubric
@@ -38,6 +38,12 @@ prompt evolution (Evolving arm; every N cases, same stored trajectories, same fr
 - **R_A** of a reply is the R_O-weighted mean of the levels (0 / 0.5 / 1) of the kept rubrics that apply to it
   (two-stage Luna judge: applicability to the situation the reply must respond to, then the 0/1/2 level); None if none
   applies.
+
+For `rubric_only`, a reply with no applicable kept rubric has reward `None` and is excluded from GRPO advantage
+calculation and loss. An applicable rubric's genuine level-0 score remains reward 0 and participates. A sibling group
+needs at least two scored replies with nonzero reward variation to update. New runs record `exclude_unassessed_v1` in
+the manifest and refuse to resume older rubric-only runs that treated missing scores as zero. Arms with an active
+outcome reward continue to use that outcome component when R_A is missing.
 
 - **Verification protocols.** `tree_v1.json`: exhaustive member verification (every member, every Applicable reply,
   KEEP iff max_j s_j ≥ 2/3, R_O-weighted R_A). `tree_v2_witness.json` (bounded_witness_v1): each rubric is checked for a causal
@@ -164,3 +170,199 @@ The protocol is frozen for the first 100-case runs of the Outcome-only and Rubri
 halting, frozen shared Doctor opening, two-stage Agent action, same-reason rubric reuse, scorer v2). The Evolving arm's prompt-event cadence and
 acceptance parameters are still to be set. Diagnostics so far: terminal-outcome reward varies in few sibling groups
 (sparse), while kept rubrics can separate siblings whose outcome is identical; both are measured during the runs.
+
+### Five-GPU shared rollout and GPU4 update
+
+`configs/online_rl/tree_v21_five_gpu_shared5.json` runs the current v2.1
+rubric-only arm. GPU0–4 each hold one frozen HF Agent and one pinned Ollama Doctor,
+coordinate one case each, and help other cases through a shared ready-work pool.
+The five cases trigger one GPU4 GRPO update after all rollout/rerun/scoring work
+finishes. Idle evaluation is disabled. This launcher starts a new run in
+`outputs/sherpa_tree_v21_five_gpu/run500_ckpt30_min2_shared5_finalshort_20261008`.
+
+Each five-case batch uses one common generator prompt P0. Once its five P0
+assessments finish, reflection/refinement proposes exactly one common P1. P1 uses
+the saved P0 trees and feedback, with the same frozen Agent adapter and node-matched
+rerun seeds. Prompt quality is the mean intervention effect over all valid-feedback
+trajectories in each source-outcome direction, multiplied together:
+`J = mean(success→failure effects) * mean(failure→success effects)`. Invalid,
+gate-rejected and No-Match rubrics contribute zero; invalid feedback and unparsed
+source outcomes are excluded from both prompts. Full member verification computes
+these effects; all-members witness verification (all same-ID members until the first 2-of-3 witness) remains the KEEP
+gate for training. No behavior-compliance score enters J.
+Reflection receives full-batch and per-case aggregates plus at most 24 trajectory
+examples distributed across cases and outcome directions (low/high effects).
+This bounds API context; J still uses every eligible trajectory.
+
+Only a strictly higher P1 product replaces P0 for the next batch. Ties, a missing
+direction, or no valid distinct candidate preserve P0. There is no bootstrap,
+minimum delta, acceptance split, or multi-candidate search in this launcher.
+Regardless of the winner, each case is scored using the union of both prompts'
+KEEP rubrics, with equal weight after exact-content and conservative same-reason
+deduplication. The five resulting case targets produce one GPU4 update. Prompt
+choices are saved in `prompt_events/batch_*.json`; worker `P0.json`, `P1.json` and
+`union.json` preserve the comparisons. The winner is committed with the adapter
+and recovery receipt, so restarting does not double-update or lose inheritance.
+
+```bash
+cd /home/kai/Collaborative_agent
+# Validate config, prompt hashes, data hashes and train/evaluation overlap; no GPU/API calls.
+python scripts/online_rl/run_five_gpu.py --config configs/online_rl/tree_v21_five_gpu_shared5_random10_promptv7.json
+# Start five owned Doctor servers, then train. Re-running resumes.
+bash scripts/online_rl/launch_five_gpu.sh
+# Legacy four-case evaluation only (the new shared config disables evaluation).
+SHERPA_FIVE_GPU_CONFIG=configs/online_rl/tree_v21_five_gpu.json \
+  bash scripts/online_rl/launch_five_gpu.sh --eval-only
+```
+
+Set `SHERPA_PYTHON`, `SHERPA_ENV_FILE`, `SHERPA_OLLAMA_BINARY`,
+`SHERPA_OLLAMA_MODELS` or `SHERPA_FIVE_GPU_CONFIG` to override the Python environment,
+credentials file, Ollama executable/model directory or config. The launcher uses `python`
+from the activated environment by default. The Doctor tag, digest and Ollama version remain
+pinned; missing or different models fail validation. Existing servers on these ports are
+accepted only when their owned PID and GPU assignment match.
+CUDA must expose physical GPUs 0–4 in that order. The shared v7 pipeline has been
+launched on the five-A100 host; another server must pass the same data/model and
+Doctor-identity preflight before it can run.
+
+The launcher defaults to `configs/online_rl/tree_v21_five_gpu_shared5.json`.
+GPU0–4 coordinate five cases per batch and serve ready model calls from a shared
+local queue: four concurrent Agent rows and one Doctor request per GPU, using the
+measured settings. FINAL requests emit only `Final answer: option <label>` with a
+32-token cap; discussion/STATUS budgets stay unchanged. Completed GPUs continue serving other cases' ready Agent,
+Doctor, FINAL, intervention/rerun and teacher-logprob calls. Case caches, branch
+IDs, per-request seeds and sibling GRPO groups remain attached to the original
+case. All actors verify the same adapter before each phase; no case starts until
+the five actor preparations finish. One P0/P1 comparison covers the five cases.
+Only after the complete batch and all pool leases finish does GPU4 unload its
+Doctor and update the same Agent model. The other GPUs wait for the next adapter.
+
+**Idle BASE and checkpoint evaluation are disabled in this configuration.**
+No evaluation jobs are registered or drained. The old four-case configurations
+still support their separate resumable evaluation queue when explicitly selected.
+
+Permanent snapshots are saved at 30, 60, …, 480 and 500 completed problems,
+plus the initial adapter. Five-case batches give 100 update opportunities; six
+batches reach each regular snapshot boundary. A recovery checkpoint with optimizer
+and CPU/CUDA RNG states is also committed after each batch. Receipts prevent a
+replayed batch from updating twice after a crash. Previous recovery checkpoints
+are deleted after the next state commit; permanent checkpoints are kept.
+
+Saved artifacts include full cached calls in each case's `calls.jsonl`, complete
+trajectories/trees, generated/reused rubrics, applicability/KEEP evidence and
+intervention effectiveness in `P0.json` and `P1.json`, both-prompt deduplicated
+rubrics and response scores/rewards in `union.json`, and final training targets
+and batch-update diagnostics under `cases/`. `prompt_events/` records directional
+effect means, their product, the P0/P1 decision and inherited prompt; `prompts/`
+preserves prompt versions. `api_usage.jsonl` records usage/cost, `live/` records
+GPU timings and `pool_gpu*.jsonl` audits the actual serving GPU, original case,
+policy hash, seed, input hash, task ID and result status. RPC credentials are never
+written to these logs. The full shared five-GPU training still needs a hardware
+run; CPU socket/process and crash-recovery tests exercise the coordinator.
+
+The default schedule is 500 unique training cases. It keeps the original 487
+non-calibration cases in their original execution order, then appends 13 deterministic
+replacements from the MedMCQA TRAIN parquet (seed 20261008). Reserved calibration
+IDs are excluded explicitly; the new dataset and fixed order are SHA256-pinned.
+Rebuild these local data files with the CUDA environment, which includes PyArrow:
+
+```bash
+python scripts/online_rl/prepare_five_gpu_train500.py
+```
+
+### Untrained BASE reference on a separate server
+
+`tree_v21_base622.json` pins the same Qwen3-8B base, Gemma3-12B Doctor, discussion
+budgets and stopping rules as the v7 rollout (`min_agent_turns=2`, repeated-Agent
+stop after turn 4). This standalone path disables the LoRA adapter and precommit,
+does no rubric generation or training, and evaluates all 622 English CasiMedicos
+cases. It makes no OpenRouter calls. It writes resumable results to its own
+`base622_original_*` output directory.
+
+Prepare the three source files `en_train_casimedicos.jsonl`,
+`en_dev_casimedicos.jsonl` and `en_test_casimedicos.jsonl` on the evaluation server.
+Activate an environment with this repository's Python dependencies, install Ollama
+0.12.5, and make the pinned Qwen3-8B weights and `gemma3:12b-it-q8_0` Doctor model
+available locally. Then run on the separate five-GPU host (physical GPU4 is used for
+both the BASE model and its Doctor):
+
+```bash
+cd /path/to/Collaborative_agent
+python scripts/online_rl/prepare_casimedicos622.py --source /path/to/casimedicos-exp/source/data/en
+ollama pull gemma3:12b-it-q8_0
+export SHERPA_OLLAMA_BINARY="$(command -v ollama)"
+export SHERPA_OLLAMA_MODELS="$HOME/.ollama/models"
+CUDA_VISIBLE_DEVICES=4 python scripts/online_rl/start_five_gpu_doctors.py \
+  --config configs/online_rl/tree_v21_base622.json --launch --gpu 4
+CUDA_VISIBLE_DEVICES=4 python scripts/online_rl/run_base622.py \
+  --config configs/online_rl/tree_v21_base622.json --gpu 4
+```
+
+The runner checks the prepared dataset hash and requires 622 unique cases. Results,
+accuracy, mean Agent turns and per-problem time are saved in the config's independent
+output directory. Re-running resumes completed cases; create a new output directory
+if you change the model, dataset, prompt or stopping rules.
+
+The source pool and raw TRAIN parquet paths are overridable with `--original` and
+`--source`. The frozen original pool SHA must match the calibration reservation. Minimum Agent turns remain 3 (maximum 5), and unassessed rubric-only
+rewards remain `None` and are excluded from GRPO. Prompt evolution is disabled in
+this entrypoint. It declares a new opening protocol, `immutable_runtime_D1_v1`:
+Doctor D1 is generated once per case into a persistent cache with a stable seed and
+no Agent-weight dependency, then reused across checkpoints. It does not resume old
+runs that used the unavailable frozen VAL50 opening tables.
+
+Rerun verification uses `parsed_target_only_v1`: a Score-2 intervention needs a
+parsed success (`1`), and a Score-0 intervention needs a parsed failure (`0`). A
+missing/unparseable FINAL (`None`) never counts as a causal flip. It remains a
+non-hit in the fixed K=3 budget; K is not reduced and no replacement rerun is added.
+This applies to witness KEEP decisions, their positive-count diagnostics and full
+member verification / prompt-search effectiveness. Raw `None` outcomes remain in
+the saved records; witness telemetry reports `unparsed_reruns`. The outcome policy
+is part of the protocol hash, so existing training runs using the old interpretation
+cannot resume silently. The four-valid-support cap is a separate protocol choice
+and remains unchanged by this bug fix.
+
+
+The opt-in config `configs/online_rl/tree_v21_five_gpu_shared5_halt4_visible_pipeline.json`
+uses `observed_context_behavior_v1`: User-side visible context and the Agent's
+earlier visible utterances/actions are conjunctive pre-reply conditions. Hidden
+precommit assessments are excluded from rubric generation, reuse, applicability
+and scoring. Levels 0/1/2 repeat the same contexts and differ only in target
+behavior. A source-locus repair may change the contexts, preserving every behavior
+anchor and repeating the revised contexts across levels. The existing local
+precommit Agent generation remains enabled; it does not make external API calls.
+
+With `prompt_update.candidate_seed = first_completed_P0_v1`, the first case to
+finish its P0 rubric/witness/full-effect evaluation supplies feedback for one
+common P1. Other cases evaluate that fixed P1 as soon as their own P0 completes.
+The winning prompt still uses all five cases' valid directional trajectory
+effects (product of the two directional means, with the existing tie and
+missing-direction rules). Both prompts' validated rubrics enter union scoring
+before the single GPU4 update. `batches/batch_*/prompt_seed.json` and
+`prompt_candidate.json` fix the source evidence and P1 across crashes;
+`prompt_events/` records seed provenance and the full-batch comparison. This
+explicitly permits first-finisher selection and its potential easy-case bias.
+
+The same opt-in config adds the stable-choice/no-objection exit from turn 4,
+retaining existing exits from turn 2. A running original-config experiment can
+transition only after a committed five-case batch using the owned-process
+controller `scripts/diagnostics/after_batch_halt4.py`; `--dry-run` is read-only.
+Migration preserves optimizer/RNG, policy, winning prompt and prior evidence in
+a fresh run directory with `protocol_transition.json`; incomplete old-protocol
+batches are retained only in the source. The schedule stays 500 cases, five per
+update, with permanent snapshots every 30 cases and recovery every batch.
+
+Ready API work overlaps GPU work in this shared pipeline. Each completed FINAL
+queues its leaf's feedback immediately, before the rest of that case's tree
+finishes; the per-case API worker limit still applies and results retain leaf
+order. Cached feedback is reused on recovery. A case's P1 completion immediately
+queues its deduplicated P0/P1 union response scoring while other cases continue
+P0 or P1. Union scoring does not depend on the eventual prompt winner. The final
+full-batch prompt decision and Agent update wait for all required results;
+canonical-bank construction retains its fixed membership/order dependencies.
+
+The transition config also stops a branch immediately at or after Agent turn 4
+when its new visible reply exactly repeats an earlier Agent reply after Unicode
+normalization, case folding and punctuation removal. This local comparison adds
+no model/API call and skips the next Doctor discussion turn; the required FINAL
+call still runs. It is recorded as `agent_repeated_reply`.

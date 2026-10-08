@@ -211,7 +211,7 @@ def test_intervention_routing_and_k_reruns(outcome, level):
 
 
 def test_target_rate_convention():
-    assert EF.target_rate('2', [1.0, 1.0, 0.0]) == pytest.approx(2 / 3) and EF.target_rate('0', [1.0, 0.0, None]) == pytest.approx(2 / 3)
+    assert EF.target_rate('2', [1.0, 1.0, 0.0]) == pytest.approx(2 / 3) and EF.target_rate('0', [1.0, 0.0, None]) == pytest.approx(1 / 3)
     assert EF.target_rate('2', [None, None, 1.0]) == pytest.approx(1 / 3)
     with pytest.raises(ValueError): EF.intervention_level(None)
 
@@ -623,8 +623,7 @@ def test_failure_s_is_successes_over_K():
 
 def test_success_s_is_failures_over_K():
     _, _, _, e = _fixed_eval(1.0, [1.0, 0.0, 1.0, 1.0, None], 5)
-    successes = 3
-    assert e.level == '0' and e.R_O == pytest.approx(2 / 5) == pytest.approx(1 - successes / 5)              # unparseable = not a success
+    assert e.level == '0' and e.R_O == pytest.approx(1 / 5)              # only the parsed failure counts; None is not a flip
 
 
 @pytest.mark.parametrize('k', [1, 3, 7])
@@ -726,6 +725,11 @@ def test_multi_target_provenance_is_kept_per_target():
         assert [x['agent_turn'] for x in iv] == [1, 2] and all(len(x['rerun_outcomes']) == 3 and x['level'] == e.level for x in iv)
         for x in iv:
             assert x['per_node_R_O'] == pytest.approx(EF.target_rate(e.level, x['rerun_outcomes'])) == e.per_node_R_O[x['response_node_id']]
+            run=next(r for r in e.runs if r.node_id==x['response_node_id'])
+            assert x['intervention_reply']==run.intervention_text[:500]
+            expected=res[u.leaf.leaf_id]['rubric'].rubric['scores'][x['level']]
+            assert x['requested_behavior']==(expected.get('behavior') if isinstance(expected,dict) else expected)
+            assert x['reruns_executed']==len(x['rerun_outcomes'])
         assert row['R_O'] == pytest.approx(sum(x['per_node_R_O'] for x in iv) / len(iv)) and 'rerun_outcomes' not in row
 
 

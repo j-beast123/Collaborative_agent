@@ -459,8 +459,17 @@ def doctor_turn_prompt(case: dict, dialogue: list[dict], turn: int, rounds: int)
     return f"{case_text(case)}\n\nGrounding constraint: Use only the question, answer choices, dialogue, and established domain knowledge. If no patient vignette or event description is provided, do not invent one or add symptoms, injuries, tests, treatments, or events.\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nRespond naturally as the physician. This is discussion turn {turn} of {rounds}.{final_turn_instruction}"
 
 
-def final_decision_prompt(case: dict, dialogue: list[dict]) -> str:
+FINAL_LABEL_ONLY_INSTRUCTION = (
+    'This is the final decision. Select the option best supported by the complete discussion. '
+    'Output exactly one line: Final answer: option <{labels}>. '
+    'Replace the placeholder with only the selected option label. '
+    'Do not include reasoning, answer text, Markdown, a STATUS line, or any other text.')
+
+
+def final_decision_prompt(case: dict, dialogue: list[dict], *, label_only: bool = False) -> str:
     labels = "-".join(case["options"])
+    if label_only:
+        return f"{case_text(case)}\n\nConversation so far:\n{dialogue_text(dialogue)}\n\n{FINAL_LABEL_ONLY_INSTRUCTION.format(labels=labels)}"
     return f"{case_text(case)}\n\nConversation so far:\n{dialogue_text(dialogue)}\n\nThis is the final decision. State the option best supported by the complete discussion. End with exactly: Final answer: option <{labels}> - <answer text>"
 
 

@@ -28,7 +28,7 @@ def _segment(policy, name: str) -> tuple:
 
 class SharedPolicy:
     """Loads base model + LoRA once; generate() samples with the current adapter, the updater trains the same object."""
-    def __init__(self, cfg: dict, key: str):
+    def __init__(self, cfg: dict, key: str, *, device: str = 'cuda:0'):
         import torch
         from peft import LoraConfig, get_peft_model, PeftModel
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -44,7 +44,7 @@ class SharedPolicy:
         else:                                                         # legacy configs without policy.lora.init_seed: unseeded
             self.model = get_peft_model(base, LoraConfig(task_type='CAUSAL_LM', r=lc['r'], lora_alpha=lc['alpha'], lora_dropout=lc.get('dropout', 0.0),
                                                          target_modules=lc['target_modules'], use_rslora=lc.get('use_rslora', True)))
-        self.model.to(torch.device('cuda:0')); self.model.gradient_checkpointing_enable(); self.model.enable_input_require_grads()
+        self.model.to(torch.device(device)); self.model.gradient_checkpointing_enable(); self.model.enable_input_require_grads()
         ro = cfg['rollout']
         self.args = Namespace(rounds=ro['rounds'], doctor_model=ro['doctor_model'], max_tokens_doctor=ro['max_tokens_doctor'], max_completion_length=ro['max_completion_length'],
                               generation_temperature=ro['temperature'], top_p=ro['top_p'], top_k=self.ST.resolve_generation_top_k(self.model, ro.get('top_k')))
@@ -66,7 +66,9 @@ class SharedPolicy:
         import os, queue, threading
         torch = self.torch; n = int(os.environ.get('SHERPA_AGENT_REPLICAS', '1'))
         if n < 1 or (n > 1 and n > torch.cuda.device_count()): raise ValueError(f'SHERPA_AGENT_REPLICAS={n} but {torch.cuda.device_count()} visible GPUs')
-        self.n_replicas, self.models, self.devices = n, [self.model], [torch.device('cuda:0')]
+        if n > 1 and self.model.device != torch.device('cuda:0'):
+            raise ValueError('Multiple Agent replicas require the primary on cuda:0')
+        self.n_replicas, self.models, self.devices = n, [self.model], [self.model.device]
         self._rlocks = [threading.Lock() for _ in range(n)]; self._free = queue.Queue(); self._sync_lock = threading.Lock()
         self._weights_version, self._synced_version = 0, -1; self.exec_log = os.environ.get('SHERPA_EXEC_LOG'); self._log_lock = threading.Lock()
         self._procs = None; self._synced_sha = None
@@ -212,7 +214,7 @@ class SharedPolicy:
     def agent_user_prompt(self, case, prefix, t): return self._H().Env.agent_user_prompt(self, case, prefix, t)
 
     def agent(self, user, seed):
-        if self.n_replicas > 1:                                   # same call as Env.agent, on a free replica
+        if self.n_replicas > 1 or self.cfg['rollout'].get('agent_sampling_protocol') == 'per_row_rng_batch_v1':
             return self._generate(self.ST.chat_prompt(self.tok, self.agent_system, user), self.args.max_completion_length, seed)['completion_text']
         with self.gen_lock:                                       # seed + generate atomically (threaded reruns)
             self.model.eval(); return self._H().Env.agent(self, user, seed)
@@ -229,11 +231,24 @@ class SharedPolicy:
 
     def _generate(self, prompt: str, max_new_tokens: int, seed: int, segment: str = 'agent') -> dict:
         a = self.args
+        if self.cfg['rollout'].get('agent_sampling_protocol') == 'per_row_rng_batch_v1':
+            import os
+            from src.online_rl.agent_batch import Batcher
+            # Called concurrently: initialize exactly once under the existing model lock.
+            if not hasattr(self,'_batcher'):
+                with self.gen_lock:
+                    if not hasattr(self,'_batcher'):
+                        capacity=int(os.environ.get('SHERPA_AGENT_BATCH_SIZE',self.cfg.get('five_gpu',{}).get('agent_batch_size',1)))
+                        if capacity not in (1,2,4,8):raise ValueError('Agent batch size must be 1, 2, 4 or 8')
+                        self._batcher=Batcher(self,capacity)
+            return self._batcher.submit(prompt,max_new_tokens,seed)
         if self._procs is not None: return self._generate_process(prompt, max_new_tokens, seed, segment)
         if self.n_replicas == 1:
             with self.gen_lock:                                   # seed + generate atomically (threaded reruns)
                 self.model.eval(); self.torch.manual_seed(seed)
-                return self.ST.generate_with_trace(self.model, self.tok, prompt, max_new_tokens, a.generation_temperature, a.top_p, a.top_k)
+                from src.common.live_gpu import activity
+                with activity('agent_generate'):
+                    return self.ST.generate_with_trace(self.model, self.tok, prompt, max_new_tokens, a.generation_temperature, a.top_p, a.top_k)
         import time
         if self._synced_version != self._weights_version: self.sync_replicas()
         t0 = time.time(); i = self._free.get(); t1 = time.time()

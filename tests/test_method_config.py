@@ -312,6 +312,17 @@ def test_api_usage_ledger_and_cost_summary(tmp_path, monkeypatch):
     assert usage.openrouter("https://openrouter.ai/api/v1") and not usage.openrouter("https://api.openai.com/v1")
 
 
+def test_api_usage_records_request_latency_breakdown(tmp_path, monkeypatch):
+    from src.common import usage
+    ledger=tmp_path/'api.jsonl';monkeypatch.setenv(usage.ENV,str(ledger))
+    usage.record('rubric_scorer','model',{'prompt_tokens':10},attempts=2,
+                 latency_seconds=4.5,request_seconds=1.5,retry_wait_seconds=3.0)
+    row=json.loads(ledger.read_text())
+    assert row['retry_count']==1
+    assert row['latency_seconds']==4.5 and row['request_seconds']==1.5
+    assert row['retry_wait_seconds']==3.0
+
+
 def test_category_diagnostics_flag_duplicates_and_missed_reactivation():
     from src.judges.rubric_consolidation import category_diagnostics
 

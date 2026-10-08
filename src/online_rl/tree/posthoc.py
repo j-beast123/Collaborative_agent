@@ -99,6 +99,9 @@ def freeze_trajectory_input(case: dict, leaf: Leaf, feedback: DoctorFeedback, in
 
 def rubric_problems(rubric: Optional[dict]) -> list[str]:
     if not isinstance(rubric, dict): return ['no rubric object']
+    if 'applicability' in rubric:
+        from src.online_rl.tree.agent_state import rubric_problems as validate
+        return validate(rubric)
     out = [f'missing {k}' for k in RUBRIC_KEYS if not rubric.get(k)]
     scores = rubric.get('scores')
     if isinstance(scores, dict) and set(map(str, scores)) != set(LEVELS): out.append('scores must define levels 0, 1 and 2')
@@ -147,6 +150,14 @@ def _source_consistency(prompt_text, prompt_sha256, tin, generate_fn, cache, sou
     rep = cache.call('rubric_repair', {'tin': tin.sha256, 'prompt': prompt_sha256, 'rubric': sha256_json(rubric), 'model': getattr(generate_fn, 'model', None),
                                        'settings': getattr(generate_fn, 'settings', None), 'principle': sha256_json(REPAIR_PRINCIPLE)},
                      lambda: generate_fn.repair(prompt_text, tin, rubric, first.get('stage1') or {}))
+    if 'applicability' in rubric:
+        cond = (rep.get('rubric') or {}).get('applicability')
+        if not isinstance(cond, dict) or set(cond) != {'user_side_context', 'agent_side_state'} or not all(isinstance(v, str) and v.strip() for v in cond.values()):
+            return {**check, 'status': 'SOURCE_INCONSISTENT', 'original_rubric': rubric}, rubric, raw, ['source_inconsistent: repair output invalid']
+        fixed = {**rubric, 'applicability': cond, 'scores': {k: {**cond, 'behavior': v['behavior']} for k, v in rubric['scores'].items()}, 'source_repair': 1}
+        second = source_stage1(fixed); check = {**check, 'second': second, 'original_rubric': rubric}
+        if second['applicable']: return {**check, 'status': 'REPAIRED_PASS'}, fixed, rep.get('raw'), []
+        return {**check, 'status': 'SOURCE_INCONSISTENT', 'repaired_rubric': fixed}, fixed, rep.get('raw'), ['source_inconsistent: No Match at the source locus after one repair']
     cond = (rep.get('rubric') or {}).get('applicability_condition')
     if not isinstance(cond, str) or not cond.strip():
         return {**check, 'status': 'SOURCE_INCONSISTENT', 'repair_problems': ['no applicability condition'], 'original_rubric': rubric}, rubric, raw, \
@@ -191,7 +202,8 @@ def locus_section(tin: TrajectoryRubricInput) -> str:
 
 
 FEEDBACK_HEADERS = {'physician_after_decision': 'Physician feedback after the decision:',
-                    'behavior_observer_v4': 'Observer feedback on the Agent\'s collaborative behavior (written from the dialogue only, without the question, options, final decision or outcome):'}
+                    'behavior_observer_v4': 'Observer feedback on the Agent\'s collaborative behavior (written from the dialogue only, without the question, options, final decision or outcome):',
+                    'behavior_observer_v5': 'Behavioral observation linking the physician\'s visible request, the Agent\'s response, and the physician\'s later response or unresolved need (dialogue only; no question, options, final decision or outcome):'}
 
 ORDINALS = {w: i for i, w in enumerate(('first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'), 1)}
 

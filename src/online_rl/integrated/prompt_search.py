@@ -44,6 +44,7 @@ class SearchBackend:
     generate: Callable          # rubric generator, as in rubric.generate_rubric
     gate: Callable
     score: Callable
+    refine_with_evidence: Optional[Callable] = None  # same evidence view as feedback, appended after the five stable args
 
 
 def split_of(run_seed: int, state_key: str, acceptance_fraction: float) -> str:
@@ -143,7 +144,11 @@ def _propose(parent_text: str, view: list[dict], n: int, history: list[dict], ba
     for direction in reflection['directions']:
         note, attempts = None, []
         while True:
-            text = backend.refine(parent_text, reflection['diagnosis'], direction, history, note)
+            refine_with_evidence = getattr(backend, 'refine_with_evidence', None)
+            if callable(refine_with_evidence):
+                text = refine_with_evidence(parent_text, reflection['diagnosis'], direction, history, note, view)
+            else:
+                text = backend.refine(parent_text, reflection['diagnosis'], direction, history, note)
             viol = prompt_violations(text, allowed, cases); attempts.append(viol)
             if not viol or len(attempts) == 2: break
             note = 'Your previous draft was rejected: ' + '; '.join(viol[:10]) + '. Return a corrected complete prompt.'
@@ -227,9 +232,17 @@ def sol_backend(key: str, feedback_system: str, refiner_system: str, generate: C
                 f'TRAINING EVIDENCE (JSON):\n{json.dumps(view, ensure_ascii=False)}')
         return parse_reflection(with_role('prompt_reflection', lambda: H.doctor_call(key, reflection_model, feedback_system, user, 3000, 0.4)), n)
 
-    def refine(parent, diagnosis, direction, history, note):
+    def refine_request(parent, diagnosis, direction, history, note, evidence=None):
         user = (f'CURRENT PROMPT:\n{parent}\n\nDIAGNOSTIC REFLECTION:\n{diagnosis}\n\nDIRECTION TO IMPLEMENT:\n{direction}\n\n'
                 f'EARLIER PROMPT-UPDATE DECISIONS (JSON):\n{json.dumps(history, ensure_ascii=False)}' + (f'\n\n{note}' if note else ''))
-        return re.sub(r'^```(?:\w+)?\s*|\s*```$', '', with_role('prompt_refiner', lambda: H.doctor_call(key, refiner_model, refiner_system, user, 3000, 0.4)).strip()).strip()
+        if evidence is not None:
+            user += ('\n\nTRAINING EVIDENCE (the exact same JSON bundle given to the diagnostic model):\n'
+                     + json.dumps(evidence,ensure_ascii=False))
+        return re.sub(r'^```(?:\w+)?\s*|\s*```$', '', with_role('prompt_refiner', lambda: H.doctor_call(key, refiner_model, refiner_system, user, 6000, 0.4)).strip()).strip()
+    def refine(parent, diagnosis, direction, history, note):
+        return refine_request(parent,diagnosis,direction,history,note)
+    def refine_with_evidence(parent, diagnosis, direction, history, note, evidence):
+        return refine_request(parent,diagnosis,direction,history,note,evidence)
     feedback.model, refine.model = reflection_model, refiner_model
-    return SearchBackend(feedback, refine, generate, gate, score)
+    refine_with_evidence.model=refiner_model
+    return SearchBackend(feedback, refine, generate, gate, score, refine_with_evidence)

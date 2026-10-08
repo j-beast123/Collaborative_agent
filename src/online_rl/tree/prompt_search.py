@@ -167,25 +167,54 @@ def _answer_exposing(gate: dict | None) -> bool:
     return bool(gate) and not gate.get('passed') and (bool(gate.get('leakage_deterministic')) or bool(gate.get('answer_presupposition')))
 
 
-def _interventions(e) -> list[dict]:
-    """Per-target provenance already recorded in the verification: one entry per matched source response."""
+def _interventions(e, rubric=None, expected_reruns: int | None = None) -> list[dict]:
+    """Per-target provenance, including the actual replacement reply for compliance diagnosis."""
     if e is None: return []
-    return [{'response_node_id': t, 'agent_turn': next(r.turn for r in e.runs if r.node_id == t), 'level': e.level,
-             'rerun_outcomes': [r.outcome for r in e.runs if r.node_id == t], 'per_node_R_O': e.per_node_R_O[t]} for t in e.target_node_ids]
+    out=[]
+    for t in e.target_node_ids:
+        runs=[r for r in e.runs if r.node_id==t]
+        level=runs[0].level
+        score=(rubric or {}).get('scores',{}).get(level,{})
+        out.append({'response_node_id':t,'agent_turn':runs[0].turn,'level':level,
+                    'requested_behavior':score.get('behavior') if isinstance(score,dict) else score,
+                    'intervention_reply':_t(runs[0].intervention_text,500),
+                    'reruns_executed':len(runs),'expected_reruns':expected_reruns,
+                    'early_stopped_before_K':expected_reruns is not None and len(runs)<expected_reruns,
+                    'rerun_outcomes':[r.outcome for r in runs],
+                    'per_node_R_O':e.per_node_R_O[t]})
+    return out
 
 
-def reflection_view(units: list[EvidenceUnit], results: dict[str, dict]) -> list[dict]:
+def reflection_view(units: list[EvidenceUnit], results: dict[str, dict], reruns: int | None = None) -> list[dict]:
     """What the prompt reflection sees: trajectory (without the Doctor FINAL turn), outcome, Doctor feedback, its one
     rubric with structural and gate failure reasons (rubric text withheld when the gate found answer content), and the
     per-target intervention reruns behind s(tau) (field R_O)."""
+    from src.online_rl.tree.agent_state import visible_rubric
     rows = []
     for u in units:
         r = results[u.leaf.leaf_id]; c, e = r['rubric'], r['effectiveness']
-        rows.append({'trajectory': u.leaf.leaf_id, 'outcome': u.tin.outcome, 'feedback': _t(u.tin.feedback, 800),
+        gate=c.gate or {}
+        gate_evidence={k:gate.get(k) for k in ('passed','schema','leakage_deterministic','answer_presupposition',
+                                                'new_domain_premise','observable') if k in gate}
+        source=c.source_check or {}
+        source_stage1=source.get('stage1') or {}
+        source_evidence={k:source.get(k) for k in ('status','repaired') if k in source}
+        if 'applicable' in source_stage1:source_evidence['applicable']=source_stage1['applicable']
+        if source_stage1.get('applicable') is False and source_stage1.get('missing_requirement'):
+            source_evidence['missing_requirement']=_t(source_stage1['missing_requirement'],300)
+        assignment=r.get('assignment');decision=(assignment.decision or {}) if assignment is not None else {}
+        visible_for_evidence=None if _answer_exposing(c.gate) else c.rubric
+        rows.append({'trajectory': u.leaf.leaf_id, 'outcome': u.tin.outcome,'target_reply_id':u.tin.target_reply_id,
+                     'feedback': _t(u.tin.feedback, 800),
                      'dialogue': [{'speaker': d['speaker'], 'text': _t(d['text'], 400)} for d in to_dialogue(u.tin.dialogue) if d['stage'] != 'FINAL'],
-                     'rubric': None if _answer_exposing(c.gate) else {k: (c.rubric or {}).get(k) for k in ('name', 'applicability_condition', 'required_behavior', 'scores')},
+                     'rubric': None if _answer_exposing(c.gate) or c.rubric is None else visible_rubric(c.rubric),
                      'valid': c.valid, 'problems': list(c.problems) + _gate_problems(c.gate),
-                     'verification': e.status if e else 'not_verified', 'interventions': _interventions(e), 'R_O': e.R_O if e else None,
+                     'gate':gate_evidence,'source_check':source_evidence,
+                     'assignment':assignment.assignment if assignment is not None else None,
+                     'assignment_rubric_id':assignment.canonical_rubric_id if assignment is not None else None,
+                     'assignment_checks':decision.get('checks'),'assignment_rationale':_t(decision.get('rationale') or '',300),
+                     'verification': e.status if e else 'not_verified',
+                     'interventions': _interventions(e,visible_for_evidence,reruns), 'R_O': e.R_O if e else None,
                      **_lineage(r)})
     return rows
 
@@ -207,7 +236,15 @@ def cached_backend(backend: SearchBackend, cache: CallCache) -> SearchBackend:
         'refine', {'parent': sha256_json(parent), 'diagnosis': diagnosis, 'direction': direction, 'history': sha256_json(history), 'note': note,
                    'model': getattr(backend.refine, 'model', None)},
         lambda: backend.refine(parent, diagnosis, direction, history, note))
-    return SearchBackend(fb, rf, backend.generate, backend.gate, backend.score)
+    rfe=None
+    if callable(getattr(backend,'refine_with_evidence',None)):
+        rfe=lambda parent,diagnosis,direction,history,note,evidence:cache.call(
+            'refine', {'parent':sha256_json(parent),'diagnosis':diagnosis,'direction':direction,
+                       'history':sha256_json(history),'note':note,'evidence':sha256_json(evidence),
+                       'model':getattr(backend.refine_with_evidence,'model',getattr(backend.refine,'model',None))},
+            lambda:backend.refine_with_evidence(parent,diagnosis,direction,history,note,evidence))
+        rfe.model=getattr(backend.refine_with_evidence,'model',getattr(backend.refine,'model',None))
+    return SearchBackend(fb, rf, backend.generate, backend.gate, backend.score, rfe)
 
 
 def split_units(units: list[EvidenceUnit], run_seed: int, fraction: float) -> tuple[list, list]:
@@ -237,7 +274,8 @@ def run_event(event: int, parent_id: str, parent_sha: str, units: list[EvidenceU
         level = []
         for (pid, ptext, presults), n in zip(frontier, _quota(pu['candidate_count'], len(frontier))):
             if n == 0: continue
-            prop = _propose(ptext, reflection_view(search, presults), n, history, backend, allowed, case_list)
+            evidence_view = reflection_view(search, presults, reruns=deps.reruns)
+            prop = _propose(ptext, evidence_view, n, history, backend, allowed, case_list)
             reflections.append({'depth': depth, 'parent_prompt_id': pid, 'reflection': prop['reflection'], 'errors': prop['errors']})
             for p in prop['proposals']:
                 c = {'parent_prompt_id': pid, 'depth': depth, 'direction': p['direction'], 'reflection': prop['reflection'], 'violations': p['violations']}

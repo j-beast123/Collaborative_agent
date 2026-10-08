@@ -513,3 +513,21 @@ def test_frozen_shared_d1_through_the_production_wiring(wired, monkeypatch, tmp_
     assert http.chats and not any('discussion turn 1 of' in u for u, _ in http.chats)            # D1 never generated; D2+ were
     man = json.loads((Path(cfg['output_dir']) / 'run_manifest.json').read_text())
     assert man['doctor_opening']['doctor_opening_mode'] == DO.MODE and man['doctor_opening']['train_table_sha256'] == sha
+
+
+def test_deferred_worker_build_preserves_traces_without_optimizer(wired,monkeypatch):
+    import copy, threading
+    import src.online_rl.integrated.grpo as grpo
+    from src.online_rl.integrated.continuation import adapter_sha256
+    cfg=copy.deepcopy(wired.cfg)
+    cfg['schedule']['cases']=1
+    cfg['prompt_update']['enabled']=False
+    policy=FakePolicy(cfg,SECRET,wired.events)
+    policy.gen_lock=threading.RLock()
+    before=adapter_sha256(policy.model)
+    monkeypatch.setattr(grpo,'make_updater',lambda *args:pytest.fail('Rollout worker allocated optimizer'))
+    trainer=RT.build(cfg,policy=policy,cases=CASES_FOR_EVAL,defer_update=True)
+    record=trainer.step()
+    assert record['update']=={'optimizer_step':False,'deferred_to_gpu4':True}
+    assert trainer.updater is None and adapter_sha256(policy.model)==before
+    assert all(n['trace'].get('behavior_logprobs') for n in record['tree']['nodes'])

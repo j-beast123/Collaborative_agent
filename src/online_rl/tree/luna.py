@@ -52,18 +52,34 @@ class LunaDecisionClient:
         payload = {'model': self.model, 'messages': messages, 'max_tokens': self.max_tokens,
                    'response_format': {'type': 'json_schema', 'json_schema': {'name': 'decisions', 'strict': True, 'schema': schema}}}
         retry = Retry(f'OpenRouter {self.model} ({purpose})', sleep=self.sleep)        # src/common/retry.py: bounded, larger for 429
+        started = time.monotonic(); request_seconds = 0.0; retry_wait_seconds = 0.0
+        request_started = None
         while True:
             try:
+                request_started = time.monotonic()
                 body = self.post(URL, payload, self.key, self.timeout_s)
-                usage.record(purpose, body.get('model', self.model), body.get('usage'), retry.attempts); retry.succeeded()
+                request_seconds += time.monotonic() - request_started
+                request_started = None
+                usage.record(purpose, body.get('model', self.model), body.get('usage'), retry.attempts,
+                             latency_seconds=time.monotonic()-started, request_seconds=request_seconds,
+                             retry_wait_seconds=retry_wait_seconds); retry.succeeded()
                 return body['choices'][0]['message'].get('content') or ''
             except urllib.error.HTTPError as e:
+                if request_started is not None:
+                    request_seconds += time.monotonic()-request_started;request_started=None
                 text = e.read().decode('utf-8', errors='replace') if e.fp is not None else ''
                 if e.code not in RETRYABLE_STATUS: raise
-                if not retry.wait('rate_limit' if rate_limited(e.code, text) else 'transient', f'HTTP {e.code} {text[:300]}',
-                                  e.headers.get('Retry-After') if e.headers else None): raise
+                wait_started=time.monotonic()
+                should_retry=retry.wait('rate_limit' if rate_limited(e.code, text) else 'transient', f'HTTP {e.code} {text[:300]}',
+                                        e.headers.get('Retry-After') if e.headers else None)
+                retry_wait_seconds += time.monotonic()-wait_started
+                if not should_retry: raise
             except (urllib.error.URLError, TimeoutError, OSError) as e:
-                if not retry.wait('transient', f'{type(e).__name__}: {str(e)[:200]}'): raise
+                if request_started is not None:
+                    request_seconds += time.monotonic()-request_started;request_started=None
+                wait_started=time.monotonic();should_retry=retry.wait('transient', f'{type(e).__name__}: {str(e)[:200]}')
+                retry_wait_seconds += time.monotonic()-wait_started
+                if not should_retry: raise
 
     def decide(self, state: str, questions: dict[str, dict], purpose: str = 'luna') -> tuple[dict, dict]:
         allowed = {qid: [str(o) for o in q['criteria']] for qid, q in questions.items()}
@@ -135,4 +151,3 @@ def parse_objects(raw: str, ids: list[str], fields: dict[str, dict]) -> tuple[Op
             o[f] = x
         out[i] = o
     return out, None
-
