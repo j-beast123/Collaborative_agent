@@ -23,6 +23,6 @@ def record_runtime(out: Path, cfg: dict) -> dict:
     fg = cfg['five_gpu']
     rec = {'time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'host': socket.gethostname(),
            'logical_to_physical_gpu': dict(enumerate(physical_gpus())), 'torch': torch.__version__, 'cuda': torch.version.cuda,
-           'ollama_binary': os.environ.get('SHERPA_OLLAMA_BINARY', fg.get('ollama_binary')), 'doctor_urls': fg['doctor_urls']}
+           'ollama_binary': os.environ.get('SHERPA_OLLAMA_BINARY', fg.get('ollama_binary')), 'doctor_urls': fg['doctor_urls'], 'doctor_servers': fg.get('doctor_servers')}
     with (Path(out) / 'runtime_provenance.jsonl').open('a') as f: f.write(json.dumps(rec) + '\n')
     return rec

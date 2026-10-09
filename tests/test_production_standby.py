@@ -116,3 +116,32 @@ def test_r05_launcher_names_and_preflight_mode_rules():
     assert 'r05_o05_evolving|r05_o05_p0_fixed) NAME=${ARM}_300' in sh
     from scripts.online_rl import preflight_destination as P
     assert P.EXPECTED['p0_sha256'] == P0_SHA and set(P.EXPECTED['prompt_mode']) == {'evolving', 'p0_fixed'}
+SERVERS = [{'url': 'http://127.0.0.1:11535', 'gpu': '5', 'parallel': 2}, {'url': 'http://127.0.0.1:11536', 'gpu': '6', 'parallel': 2},
+           {'url': 'http://127.0.0.1:11537', 'gpu': '7', 'parallel': 1}]
+PACKED = [s['url'] for s in SERVERS for _ in range(s['parallel'])]
+
+
+def test_packed_doctor_servers_need_a_slot_per_actor():
+    from scripts.online_rl.run_five_gpu import doctor_endpoint_problems
+    assert doctor_endpoint_problems({'doctor_urls': PACKED, 'doctor_servers': SERVERS}) == []
+    assert doctor_endpoint_problems({'doctor_urls': [f'http://127.0.0.1:{p}' for p in range(5)]}) == []
+    assert doctor_endpoint_problems({'doctor_urls': PACKED})                                  # shared URL without declared slots
+    over = [SERVERS[2]['url']] * 2 + PACKED[2:]
+    assert any('more actors' in e for e in doctor_endpoint_problems({'doctor_urls': over, 'doctor_servers': SERVERS}))
+
+
+def test_server_plan_starts_each_declared_server_once():
+    from scripts.online_rl.start_five_gpu_doctors import server_plan
+    plan = server_plan({'five_gpu': {'doctor_servers': SERVERS, 'doctor_urls': PACKED}})
+    assert plan == [('5', '5', SERVERS[0]['url'], 2), ('6', '6', SERVERS[1]['url'], 2), ('7', '7', SERVERS[2]['url'], 1)]
+
+
+def test_runtime_overlay_with_packed_doctors_keeps_the_research_fingerprint(tmp_path):
+    from scripts.online_rl.run_five_gpu import preflight
+    base = f'{PROD}/r07_o03_evolving_300.json'
+    overlay = tmp_path / 'runtime.json'
+    overlay.write_text(json.dumps({'extends': base, 'five_gpu': {'doctor_urls': PACKED, 'doctor_servers': SERVERS}}))
+    a, b = cfg('r07_o03'), X.load_config(str(overlay))
+    assert X.fingerprint(a) == X.fingerprint(b) and a['output_dir'] == b['output_dir']
+    assert {k: v for k, v in a['five_gpu'].items() if k != 'doctor_urls'} == {k: v for k, v in b['five_gpu'].items() if k not in ('doctor_urls', 'doctor_servers')}
+    assert not [e for e in preflight(b) if 'Doctor' in e]

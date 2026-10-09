@@ -6,6 +6,7 @@
 #   SHERPA_OLLAMA_BINARY   Ollama 0.12.5 executable
 #   SHERPA_OLLAMA_MODELS   Ollama model store with gemma3:12b-it-q8_0 (default ~/.ollama/models)
 #   SHERPA_DOCTOR_PORTS    optional five ports, e.g. 11535,11536,11537,11538,11539
+#   SHERPA_RUNTIME_OVERLAY optional JSON file with host-specific five_gpu.doctor_urls / doctor_servers
 #   SHERPA_PYTHON, SHERPA_ENV_FILE (destination secrets; default ./.env)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -30,6 +31,18 @@ import json, sys
 cfg, out, ports = sys.argv[1], sys.argv[2], sys.argv[3].split(',')
 if len(ports) != 5 or len(set(ports)) != 5: sys.exit('SHERPA_DOCTOR_PORTS needs five distinct ports')
 json.dump({'extends': cfg, 'five_gpu': {'doctor_urls': [f'http://127.0.0.1:{p}' for p in ports]}}, open(out, 'w'), indent=2)
+EOF
+fi
+if [ -n "${SHERPA_RUNTIME_OVERLAY:-}" ]; then
+  # Host runtime overlay: only Doctor placement keys; the research fingerprint must not change.
+  BASE=$RUNCFG; RUNCFG=outputs/reward_prompt_matrix/runtime/${ARM}_evolving_300.runtime.json
+  mkdir -p "$(dirname "$RUNCFG")"
+  "$PY" - "$BASE" "$SHERPA_RUNTIME_OVERLAY" "$RUNCFG" <<'EOF'
+import json, sys
+base, overlay, out = sys.argv[1], json.load(open(sys.argv[2])), sys.argv[3]
+allowed = {'doctor_urls', 'doctor_servers'}
+if set(overlay) != {'five_gpu'} or not set(overlay['five_gpu']) <= allowed: sys.exit(f'runtime overlay may only set five_gpu.{sorted(allowed)}')
+json.dump({'extends': base, **overlay}, open(out, 'w'), indent=2)
 EOF
 fi
 "$PY" scripts/online_rl/preflight_destination.py --config "$CFG" ${RUNCFG:+--runtime-config "$RUNCFG"} \
