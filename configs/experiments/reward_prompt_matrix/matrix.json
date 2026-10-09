@@ -1,0 +1,79 @@
+{
+  "base": "configs/experiments/reward_prompt_matrix/base_batch5.json",
+  "seeds": [
+    0
+  ],
+  "anchor_reward_rubric_outcome": [
+    0.5,
+    0.5
+  ],
+  "anchor_policy": "pre-registered balanced anchor; never selected from CasiMedicos622 test results",
+  "pfinal_artifact": null,
+  "pfinal_source": "reward_sweep/r05_o05_evolving.json",
+  "families": {
+    "reward_sweep": {
+      "priority": 1,
+      "runs": [
+        {
+          "file": "r0_o1_outcome_only.json",
+          "reward_rubric_outcome": [
+            0.0,
+            1.0
+          ],
+          "prompt_mode": "p0_fixed"
+        },
+        {
+          "file": "r03_o07_evolving.json",
+          "reward_rubric_outcome": [
+            0.3,
+            0.7
+          ],
+          "prompt_mode": "evolving"
+        },
+        {
+          "file": "r05_o05_evolving.json",
+          "reward_rubric_outcome": [
+            0.5,
+            0.5
+          ],
+          "prompt_mode": "evolving"
+        },
+        {
+          "file": "r07_o03_evolving.json",
+          "reward_rubric_outcome": [
+            0.7,
+            0.3
+          ],
+          "prompt_mode": "evolving"
+        },
+        {
+          "file": "r1_o0_evolving.json",
+          "reward_rubric_outcome": [
+            1.0,
+            0.0
+          ],
+          "prompt_mode": "evolving"
+        }
+      ]
+    },
+    "prompt_ablation": {
+      "priority": 2,
+      "reward": "anchor",
+      "runs": [
+        {
+          "file": "r05_o05_p0_fixed.json",
+          "prompt_mode": "p0_fixed"
+        },
+        {
+          "file": "r05_o05_evolving.json",
+          "prompt_mode": "evolving"
+        },
+        {
+          "file": "r05_o05_pfinal_fixed.json",
+          "prompt_mode": "pfinal_fixed",
+          "priority": 3
+        }
+      ]
+    }
+  }
+}

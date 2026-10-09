@@ -1,0 +1,13 @@
+{
+  "extends": "configs/online_rl/tree_v21_five_gpu_shared5_random10_promptv7.json",
+  "five_gpu": {
+    "ollama_binary": "ollama"
+  },
+  "experiment": {
+    "feedback_model": "anthropic/claude-4.6-sonnet-20260217",
+    "seed": 0,
+    "train_order_sha256": "b527dc1a7bb237a9271f6db575ca155cb2d5f64b5a29b8a39bf2ce41b6e3f5f0",
+    "output_root": "outputs/reward_prompt_matrix",
+    "pfinal_artifact": null
+  }
+}

@@ -11,7 +11,8 @@ _CFG = _POLICY = None
 def initialize(cfg, worker, key, pool_spec=None, existing_policy=None):
     global _CFG, _POLICY
     if existing_policy is None:
-        os.environ['CUDA_VISIBLE_DEVICES'] = str(worker)
+        from src.online_rl.tree.devices import physical_gpus
+        os.environ['CUDA_VISIBLE_DEVICES'] = physical_gpus()[worker]
     os.environ['SHERPA_AGENT_REPLICAS'] = '1'
     os.environ.pop('SHERPA_DOCTOR_ENDPOINTS', None)
     os.environ['OPENROUTER_API_KEY'] = key

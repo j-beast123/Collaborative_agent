@@ -1,0 +1,250 @@
+{
+  "anchor_policy": "pre-registered balanced anchor; never selected from CasiMedicos622 test results",
+  "anchor_reward_rubric_outcome": [
+    0.5,
+    0.5
+  ],
+  "base": "configs/experiments/reward_prompt_matrix/base_batch5.json",
+  "families": {
+    "prompt_ablation": [
+      {
+        "config": "configs/experiments/reward_prompt_matrix/prompt_ablation/r05_o05_p0_fixed.json",
+        "priority": 2,
+        "prompt_mode": "p0_fixed",
+        "run_id": "r05_o05__p0fixed__sonnet46__seed0",
+        "status": "ready"
+      },
+      {
+        "config": "configs/experiments/reward_prompt_matrix/reward_sweep/r05_o05_evolving.json",
+        "priority": 2,
+        "prompt_mode": "evolving",
+        "run_id": "r05_o05__evolving__sonnet46__seed0",
+        "status": "ready"
+      },
+      {
+        "config": "configs/experiments/reward_prompt_matrix/prompt_ablation/r05_o05_pfinal_fixed.json",
+        "priority": 3,
+        "prompt_mode": "pfinal_fixed",
+        "run_id": null,
+        "status": "blocked_pfinal_missing"
+      }
+    ],
+    "reward_sweep": [
+      {
+        "config": "configs/experiments/reward_prompt_matrix/reward_sweep/r0_o1_outcome_only.json",
+        "priority": 1,
+        "prompt_mode": "p0_fixed",
+        "run_id": "r0_o1__outcomeonly__sonnet46__seed0",
+        "status": "ready"
+      },
+      {
+        "config": "configs/experiments/reward_prompt_matrix/reward_sweep/r03_o07_evolving.json",
+        "priority": 1,
+        "prompt_mode": "evolving",
+        "run_id": "r03_o07__evolving__sonnet46__seed0",
+        "status": "ready"
+      },
+      {
+        "config": "configs/experiments/reward_prompt_matrix/reward_sweep/r05_o05_evolving.json",
+        "priority": 1,
+        "prompt_mode": "evolving",
+        "run_id": "r05_o05__evolving__sonnet46__seed0",
+        "status": "ready"
+      },
+      {
+        "config": "configs/experiments/reward_prompt_matrix/reward_sweep/r07_o03_evolving.json",
+        "priority": 1,
+        "prompt_mode": "evolving",
+        "run_id": "r07_o03__evolving__sonnet46__seed0",
+        "status": "ready"
+      },
+      {
+        "config": "configs/experiments/reward_prompt_matrix/reward_sweep/r1_o0_evolving.json",
+        "priority": 1,
+        "prompt_mode": "evolving",
+        "run_id": "r1_o0__evolving__sonnet46__seed0",
+        "status": "ready"
+      }
+    ]
+  },
+  "matrix": "configs/experiments/reward_prompt_matrix/matrix.json",
+  "pfinal_artifact": null,
+  "pfinal_source_run_id": "r05_o05__evolving__sonnet46__seed0",
+  "protocol_reference": "configs/online_rl/tree_v21_five_gpu_shared5_random10_promptv7.json",
+  "run_count_by_priority": {
+    "1": 5,
+    "2": 1
+  },
+  "runs": {
+    "r03_o07__evolving__sonnet46__seed0": {
+      "arm_label": "Rubric 0.3 + Outcome 0.7 reward + evolving rubric prompt",
+      "batch_cases": 5,
+      "config": "configs/experiments/reward_prompt_matrix/reward_sweep/r03_o07_evolving.json",
+      "effective_prompt_mode": "evolving",
+      "experiment_fingerprint": "c1f8299b954dfdc7cfe8d68ab5db6a0ecd52ec4eb45429e4d8e6dc4a8bcf7b84",
+      "families": [
+        "reward_sweep"
+      ],
+      "feedback_model": "anthropic/claude-4.6-sonnet-20260217",
+      "feedback_prompt_sha256": "272f50e4daf63277eb5415a58611f07aed8713f3993c9d4cf49bb933106c64c4",
+      "output_dir": "outputs/reward_prompt_matrix/r03_o07__evolving__sonnet46__seed0",
+      "pfinal": null,
+      "priority": 1,
+      "prompt_evolution": true,
+      "prompt_evolution_applicable": true,
+      "prompt_mode": "evolving",
+      "resolved_config_sha256": "6401c18380919672148dd0d48e065195e8a6cfc297c61e59b3fbcc03c678f0b0",
+      "reward_weight_outcome": 0.7,
+      "reward_weight_rubric": 0.3,
+      "rubric_pipeline": true,
+      "rubric_prompt_sha256": "f8d6e39470d7f8a93ce8224cea9e5aa2ed2fa07ced9d982cc5e16d0e495d9bad",
+      "run_id": "r03_o07__evolving__sonnet46__seed0",
+      "schedule_cases": 500,
+      "seed": 0,
+      "train_order_sha256": "b527dc1a7bb237a9271f6db575ca155cb2d5f64b5a29b8a39bf2ce41b6e3f5f0",
+      "train_sha256": "cbe8db7d03cf2d06f3e7d754deabe4fcfb55daeae2b0f64881ec976c8e7af9cd"
+    },
+    "r05_o05__evolving__sonnet46__seed0": {
+      "arm_label": "Rubric 0.5 + Outcome 0.5 reward + evolving rubric prompt",
+      "batch_cases": 5,
+      "config": "configs/experiments/reward_prompt_matrix/reward_sweep/r05_o05_evolving.json",
+      "effective_prompt_mode": "evolving",
+      "experiment_fingerprint": "d5b1992da4ff59efc8e72cf573ff9b2c66f6e7e1f8052a7ab0db69a4fc576ab2",
+      "families": [
+        "prompt_ablation",
+        "reward_sweep"
+      ],
+      "feedback_model": "anthropic/claude-4.6-sonnet-20260217",
+      "feedback_prompt_sha256": "272f50e4daf63277eb5415a58611f07aed8713f3993c9d4cf49bb933106c64c4",
+      "output_dir": "outputs/reward_prompt_matrix/r05_o05__evolving__sonnet46__seed0",
+      "pfinal": null,
+      "priority": 1,
+      "prompt_evolution": true,
+      "prompt_evolution_applicable": true,
+      "prompt_mode": "evolving",
+      "resolved_config_sha256": "5e87be72f25c4de2d207e4ca7c70e44dc91e4f24076a50175f39084ecf1e92ce",
+      "reward_weight_outcome": 0.5,
+      "reward_weight_rubric": 0.5,
+      "rubric_pipeline": true,
+      "rubric_prompt_sha256": "f8d6e39470d7f8a93ce8224cea9e5aa2ed2fa07ced9d982cc5e16d0e495d9bad",
+      "run_id": "r05_o05__evolving__sonnet46__seed0",
+      "schedule_cases": 500,
+      "seed": 0,
+      "train_order_sha256": "b527dc1a7bb237a9271f6db575ca155cb2d5f64b5a29b8a39bf2ce41b6e3f5f0",
+      "train_sha256": "cbe8db7d03cf2d06f3e7d754deabe4fcfb55daeae2b0f64881ec976c8e7af9cd"
+    },
+    "r05_o05__p0fixed__sonnet46__seed0": {
+      "arm_label": "Rubric 0.5 + Outcome 0.5 reward + fixed P0 rubric prompt",
+      "batch_cases": 5,
+      "config": "configs/experiments/reward_prompt_matrix/prompt_ablation/r05_o05_p0_fixed.json",
+      "effective_prompt_mode": "p0_fixed",
+      "experiment_fingerprint": "27ead3a922128472341d0d07497a8c93a65ff790b54475b7bb6db235044540a0",
+      "families": [
+        "prompt_ablation"
+      ],
+      "feedback_model": "anthropic/claude-4.6-sonnet-20260217",
+      "feedback_prompt_sha256": "272f50e4daf63277eb5415a58611f07aed8713f3993c9d4cf49bb933106c64c4",
+      "output_dir": "outputs/reward_prompt_matrix/r05_o05__p0fixed__sonnet46__seed0",
+      "pfinal": null,
+      "priority": 2,
+      "prompt_evolution": false,
+      "prompt_evolution_applicable": true,
+      "prompt_mode": "p0_fixed",
+      "resolved_config_sha256": "eb6b05f56585697f0a9e17e3abe63cd92df243c7cfd417418fd795cdf6b8f416",
+      "reward_weight_outcome": 0.5,
+      "reward_weight_rubric": 0.5,
+      "rubric_pipeline": true,
+      "rubric_prompt_sha256": "f8d6e39470d7f8a93ce8224cea9e5aa2ed2fa07ced9d982cc5e16d0e495d9bad",
+      "run_id": "r05_o05__p0fixed__sonnet46__seed0",
+      "schedule_cases": 500,
+      "seed": 0,
+      "train_order_sha256": "b527dc1a7bb237a9271f6db575ca155cb2d5f64b5a29b8a39bf2ce41b6e3f5f0",
+      "train_sha256": "cbe8db7d03cf2d06f3e7d754deabe4fcfb55daeae2b0f64881ec976c8e7af9cd"
+    },
+    "r07_o03__evolving__sonnet46__seed0": {
+      "arm_label": "Rubric 0.7 + Outcome 0.3 reward + evolving rubric prompt",
+      "batch_cases": 5,
+      "config": "configs/experiments/reward_prompt_matrix/reward_sweep/r07_o03_evolving.json",
+      "effective_prompt_mode": "evolving",
+      "experiment_fingerprint": "7516b25d49572817f6b5acce35341c6dd16e18a00ccc4d82ff57ef71d168dffc",
+      "families": [
+        "reward_sweep"
+      ],
+      "feedback_model": "anthropic/claude-4.6-sonnet-20260217",
+      "feedback_prompt_sha256": "272f50e4daf63277eb5415a58611f07aed8713f3993c9d4cf49bb933106c64c4",
+      "output_dir": "outputs/reward_prompt_matrix/r07_o03__evolving__sonnet46__seed0",
+      "pfinal": null,
+      "priority": 1,
+      "prompt_evolution": true,
+      "prompt_evolution_applicable": true,
+      "prompt_mode": "evolving",
+      "resolved_config_sha256": "1583096afbc92a04ef774cb7e9e2ab1954766d6ac08fdf0ce76991dc8246402f",
+      "reward_weight_outcome": 0.3,
+      "reward_weight_rubric": 0.7,
+      "rubric_pipeline": true,
+      "rubric_prompt_sha256": "f8d6e39470d7f8a93ce8224cea9e5aa2ed2fa07ced9d982cc5e16d0e495d9bad",
+      "run_id": "r07_o03__evolving__sonnet46__seed0",
+      "schedule_cases": 500,
+      "seed": 0,
+      "train_order_sha256": "b527dc1a7bb237a9271f6db575ca155cb2d5f64b5a29b8a39bf2ce41b6e3f5f0",
+      "train_sha256": "cbe8db7d03cf2d06f3e7d754deabe4fcfb55daeae2b0f64881ec976c8e7af9cd"
+    },
+    "r0_o1__outcomeonly__sonnet46__seed0": {
+      "arm_label": "Outcome-only",
+      "batch_cases": 5,
+      "config": "configs/experiments/reward_prompt_matrix/reward_sweep/r0_o1_outcome_only.json",
+      "effective_prompt_mode": "N/A_OUTCOME_ONLY",
+      "experiment_fingerprint": "30f7c5dcae9d427c67ff2ac4ffa299ef02850f6d7cbf7c4bd4141bc697a915c8",
+      "families": [
+        "reward_sweep"
+      ],
+      "feedback_model": "anthropic/claude-4.6-sonnet-20260217",
+      "feedback_prompt_sha256": "272f50e4daf63277eb5415a58611f07aed8713f3993c9d4cf49bb933106c64c4",
+      "output_dir": "outputs/reward_prompt_matrix/r0_o1__outcomeonly__sonnet46__seed0",
+      "pfinal": null,
+      "priority": 1,
+      "prompt_evolution": false,
+      "prompt_evolution_applicable": false,
+      "prompt_mode": "p0_fixed",
+      "resolved_config_sha256": "419e24ef07f48d19d3624650c9d6ab82973663333a977397ed6e66c46e4a8cd7",
+      "reward_weight_outcome": 1.0,
+      "reward_weight_rubric": 0.0,
+      "rubric_pipeline": false,
+      "rubric_prompt_sha256": "f8d6e39470d7f8a93ce8224cea9e5aa2ed2fa07ced9d982cc5e16d0e495d9bad",
+      "run_id": "r0_o1__outcomeonly__sonnet46__seed0",
+      "schedule_cases": 500,
+      "seed": 0,
+      "train_order_sha256": "b527dc1a7bb237a9271f6db575ca155cb2d5f64b5a29b8a39bf2ce41b6e3f5f0",
+      "train_sha256": "cbe8db7d03cf2d06f3e7d754deabe4fcfb55daeae2b0f64881ec976c8e7af9cd"
+    },
+    "r1_o0__evolving__sonnet46__seed0": {
+      "arm_label": "Rubric-reward-only + evolving rubric prompt",
+      "batch_cases": 5,
+      "config": "configs/experiments/reward_prompt_matrix/reward_sweep/r1_o0_evolving.json",
+      "effective_prompt_mode": "evolving",
+      "experiment_fingerprint": "e1a86e9df62d13203111c53f036f53a0c77526e8a25e6e49746428f1d5623687",
+      "families": [
+        "reward_sweep"
+      ],
+      "feedback_model": "anthropic/claude-4.6-sonnet-20260217",
+      "feedback_prompt_sha256": "272f50e4daf63277eb5415a58611f07aed8713f3993c9d4cf49bb933106c64c4",
+      "output_dir": "outputs/reward_prompt_matrix/r1_o0__evolving__sonnet46__seed0",
+      "pfinal": null,
+      "priority": 1,
+      "prompt_evolution": true,
+      "prompt_evolution_applicable": true,
+      "prompt_mode": "evolving",
+      "resolved_config_sha256": "0c969212a68159ac662fcf3fa93a52d3d08d0a016420147cdd591baa6e799aa1",
+      "reward_weight_outcome": 0.0,
+      "reward_weight_rubric": 1.0,
+      "rubric_pipeline": true,
+      "rubric_prompt_sha256": "f8d6e39470d7f8a93ce8224cea9e5aa2ed2fa07ced9d982cc5e16d0e495d9bad",
+      "run_id": "r1_o0__evolving__sonnet46__seed0",
+      "schedule_cases": 500,
+      "seed": 0,
+      "train_order_sha256": "b527dc1a7bb237a9271f6db575ca155cb2d5f64b5a29b8a39bf2ce41b6e3f5f0",
+      "train_sha256": "cbe8db7d03cf2d06f3e7d754deabe4fcfb55daeae2b0f64881ec976c8e7af9cd"
+    }
+  },
+  "schema": "sherpa_experiment_manifest_v2"
+}

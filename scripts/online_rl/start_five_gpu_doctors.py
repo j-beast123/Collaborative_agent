@@ -1,7 +1,9 @@
 """Start five dedicated GPU-pinned Ollama Doctor servers; no experiment runs."""
-import argparse,json,os,shutil,subprocess,time,urllib.request
+import argparse,json,os,shutil,subprocess,sys,time,urllib.request
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
+sys.path.insert(0,str(ROOT))
+from src.online_rl.tree.devices import physical_gpus
 
 
 def start(cfg, *, require_model=True, selected_gpus=None):
@@ -15,8 +17,10 @@ def start(cfg, *, require_model=True, selected_gpus=None):
     requested=set(gpu_ids if selected_gpus is None else selected_gpus)
     unknown=requested-set(gpu_ids)
     if unknown:raise ValueError(f'Doctor GPU IDs not configured: {sorted(unknown)}')
+    physical=physical_gpus()
     for gpu,url in zip(gpu_ids,cfg['five_gpu']['doctor_urls']):
         if gpu not in requested:continue
+        device=physical[gpu]  # logical Doctor GPU -> physical
         parallelism=int(os.environ.get('SHERPA_DOCTOR_CONCURRENCY',cfg['five_gpu'].get('doctor_concurrency',cfg['five_gpu']['lanes_per_gpu']))) if gpu in (0,1,2,3) else 1
         if parallelism not in (1,2,4,8):raise ValueError('Doctor concurrency must be 1, 2, 4 or 8')
         # A live foreign server is never adopted merely because its port matches.
@@ -24,7 +28,7 @@ def start(cfg, *, require_model=True, selected_gpus=None):
         if pidfile.exists():
             try:
                 pid=int(pidfile.read_text());env=(Path('/proc')/str(pid)/'environ').read_bytes().split(b'\0')
-                if f'CUDA_VISIBLE_DEVICES={gpu}'.encode() in env and f'OLLAMA_HOST={url.removeprefix("http://")}'.encode() in env:
+                if f'CUDA_VISIBLE_DEVICES={device}'.encode() in env and f'OLLAMA_HOST={url.removeprefix("http://")}'.encode() in env:
                     if f'OLLAMA_NUM_PARALLEL={parallelism}'.encode() in env and str((Path('/proc')/str(pid)/'exe').resolve())==binary:
                         with urllib.request.urlopen(url+'/api/tags',timeout=3):pass
                         continue
@@ -38,7 +42,7 @@ def start(cfg, *, require_model=True, selected_gpus=None):
         except OSError:pass
         else:raise RuntimeError(f'Unowned server at {url}; select a free endpoint')
         models_dir=os.environ.get('SHERPA_OLLAMA_MODELS',cfg['five_gpu'].get('ollama_models_dir',str(Path.home()/'.ollama/models')))
-        env={**os.environ,'CUDA_VISIBLE_DEVICES':str(gpu),'OLLAMA_HOST':url.removeprefix('http://'),
+        env={**os.environ,'CUDA_VISIBLE_DEVICES':device,'OLLAMA_HOST':url.removeprefix('http://'),
              'OLLAMA_MODELS':models_dir,'OLLAMA_MAX_LOADED_MODELS':'1',
              'OLLAMA_NUM_PARALLEL':str(parallelism),'OLLAMA_KEEP_ALIVE':'30m'}
         with (out/f'gpu{gpu}.log').open('a') as log:
@@ -57,7 +61,9 @@ def start(cfg, *, require_model=True, selected_gpus=None):
         print(f'GPU{gpu} Doctor server ready: {url}',flush=True)
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--config',default='configs/online_rl/tree_v21_five_gpu_shared5.json');p.add_argument('--launch',action='store_true');p.add_argument('--gpu',type=int,action='append',help='Start only these configured physical GPU Doctor servers; repeat to select several')
-    a=p.parse_args();cfg=json.loads((ROOT/a.config).read_text())
+    p=argparse.ArgumentParser();p.add_argument('--config',default='configs/online_rl/tree_v21_five_gpu_shared5.json');p.add_argument('--launch',action='store_true');p.add_argument('--gpu',type=int,action='append',help='Start only these logical Doctor GPUs (physical ids from CUDA_VISIBLE_DEVICES); repeat to select several')
+    a=p.parse_args()
+    from src.online_rl.tree.experiment import load_config
+    cfg=load_config(a.config)
     if a.launch:start(cfg,selected_gpus=a.gpu)
-    else:print(json.dumps({'doctor_gpus':a.gpu or cfg['five_gpu'].get('doctor_gpu_ids',list(range(len(cfg['five_gpu']['doctor_urls'])))),'endpoints':cfg['five_gpu']['doctor_urls'],'launch':False},indent=2))
+    else:print(json.dumps({'doctor_gpus':a.gpu or cfg['five_gpu'].get('doctor_gpu_ids',list(range(len(cfg['five_gpu']['doctor_urls'])))),'physical_gpus':physical_gpus(),'endpoints':cfg['five_gpu']['doctor_urls'],'launch':False},indent=2))
