@@ -1,0 +1,8 @@
+{
+  "status": "decided",
+  "api_workers": 6,
+  "parallel_strata": true,
+  "checkpoint_evaluation": "async",
+  "async_eval": {"gpus": "5,6,7", "doctor_ports": "11545,11546,11547"},
+  "decision": "R03_O07 10-case smoke (api_workers 6 + SHERPA_PARALLEL_STRATA=1) vs baseline: wall per API call -28%, per trajectory -35%, same-workload replay about -25%; semantics, errors and resume PASS. Identical for every production arm."
+}
