@@ -247,3 +247,23 @@ def test_disagreement_order_keeps_dev_positions_and_all_cases():
     assert all(flags[c]['disagree'] for c in a[:k]) and not any(flags[c]['disagree'] for c in a[k:400])
     assert all(flags[c]['blind_option'] != flags[c]['doctor_option'] for c in a[:k])
     assert not {'gold', 'correct_option', 'outcome'} & set(man['flags'][0])          # label-free
+
+
+def test_final120_arms_differ_only_in_reward_weights():
+    """FINAL 120-case matrix: fresh theta0, same 120 disagreement-first cases, order, seeds and recipe; only the weights differ."""
+    cfgs = {n: flat(arm(f'final120/{n}')) for n in ARMS}; ref = cfgs['r05_o05']
+    for n, c in cfgs.items():
+        diff = {k for k in set(ref) | set(c) if ref.get(k) != c.get(k)} - NAMING - {'notes'}
+        assert diff <= {'agent_reward.w_rubric', 'agent_reward.w_outcome'}, (n, diff)
+        assert (c['agent_reward.w_rubric'], c['agent_reward.w_outcome']) == ARMS[n] and c['rubric.enabled'] is True
+        assert c['schedule.cases'] == 120 and c['optimizer.learning_rate'] == 3e-05 and c['rollout.rounds'] == 2 and c['rollout.branching'] == 4
+        assert (c['rollout.temperature'], c['rollout.top_p'], c['rollout.top_k']) == (0.7, 0.9, None)      # top_k: Qwen3 generation config (20)
+        assert c['prompt_update.enabled'] is False and c['policy.init_adapter'] is None and c['output_dir'].startswith('outputs/fixed_t2_final120/')
+    assert len({X.fingerprint(arm(f'final120/{n}')) for n in ARMS}) == 3
+    # the OURS arm is the 60-case disagreement OURS arm extended to 120 cases (same recipe, order and seeds)
+    dis = flat(arm('dis/o05_r05'))
+    research = {k for k in set(ref) | set(dis) if ref.get(k) != dis.get(k)} - NAMING
+    assert {k for k in research if k.split('.')[0] not in ('notes',) and not k.startswith('experiment.')} == {'schedule.cases'}
+    from scripts.online_rl.preflight_destination import protocol_family
+    fam = protocol_family(arm('final120/r05_o05')['experiment']['variant'])
+    assert (fam['cases'], fam['rounds'], fam['root']) == (120, 2, 'outputs/fixed_t2_final120/')

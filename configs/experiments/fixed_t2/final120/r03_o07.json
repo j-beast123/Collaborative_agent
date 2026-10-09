@@ -1,0 +1,21 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "notes": "FINAL 120-case reward-weight matrix (2026-10-10): Outcome 0.7 / R_A 0.3. Fresh theta0 and optimizer; the first 120 cases of the disagreement-first order (label-free: theta0 blind private option != Doctor rounds-2 opening option; scripts/dev_opt/make_disagreement_order.py); learning rate 3e-5 (held-out DEV LR gate); FIXED_T2 protocol (rounds 2, G 4, P0 fixed, scorer request cache, temperature 0.7, top_p 0.9, top_k from the Qwen3 generation config = 20). Production Stage-A and visible prompts; PromptOpt, SFT, structured roles and ANSWER_LAST are off. The three arms differ only in reward weights. Checkpoints every 30 cases; selection on repeated held-out MedMCQA DEV evaluation only.",
+  "schedule": {
+    "cases": 120
+  },
+  "optimizer": {
+    "learning_rate": 3e-05
+  },
+  "five_gpu": {
+    "train_order_file": "data/interim/medmcqa/five_gpu_train500/train500_order_disagreement_first_v1.json",
+    "train_order_sha256": "41769cc2bfcfe1c7ddff91bc19ab5e90e7fb2e0b82f32ff2242682499b86f63f"
+  },
+  "experiment": {
+    "reward_weight_rubric": 0.3,
+    "reward_weight_outcome": 0.7,
+    "output_root": "outputs/fixed_t2_final120",
+    "variant": "t2f120",
+    "train_order_sha256": "41769cc2bfcfe1c7ddff91bc19ab5e90e7fb2e0b82f32ff2242682499b86f63f"
+  }
+}
