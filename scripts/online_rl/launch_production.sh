@@ -16,9 +16,9 @@ cd "$(dirname "$0")/../.."
 ARM="${1:?usage: launch_production.sh <arm> [--dry-run] (see header)}"; DRY="${2:-}"
 PROD=configs/experiments/reward_prompt_matrix/production
 case "$ARM" in r03_o07|r07_o03) NAME=${ARM}_evolving_300;; r05_o05_evolving|r05_o05_p0_fixed) NAME=${ARM}_300;;
-  dev_base|dev_diversity|dev_optimizer|dev_both|t2_r03_o07|t2_r05_o05|t2_r07_o03|t2dev_lr1e5|t2dev_lr3e5|t2smoke|t2rw_o10_r00|t2rw_o09_r01|t2rw_o07_r03|t2rw_o05_r05|t2dis_o10_r00|t2dis_o09_r01|t2dis_o05_r05) NAME=$ARM;;
+  dev_base|dev_diversity|dev_optimizer|dev_both|t2_r03_o07|t2_r05_o05|t2_r07_o03|t2dev_lr1e5|t2dev_lr3e5|t2smoke|t2rw_o10_r00|t2rw_o09_r01|t2rw_o07_r03|t2rw_o05_r05|t2dis_o10_r00|t2dis_o09_r01|t2dis_o05_r05|t2f120_r03_o07|t2f120_r05_o05|t2f120_r07_o03) NAME=$ARM;;
   *) echo "unknown arm $ARM" >&2; exit 2;; esac
-case "$ARM" in dev_*) CFG=configs/experiments/dev_opt/${ARM#dev_}.json;; t2dev_*) CFG=configs/experiments/fixed_t2/dev/${ARM#t2dev_}.json;; t2smoke) CFG=configs/experiments/fixed_t2/smoke_r05.json;; t2rw_*) CFG=configs/experiments/fixed_t2/dev_reward/${ARM#t2rw_}.json;; t2dis_*) CFG=configs/experiments/fixed_t2/dis/${ARM#t2dis_}.json;;
+case "$ARM" in dev_*) CFG=configs/experiments/dev_opt/${ARM#dev_}.json;; t2dev_*) CFG=configs/experiments/fixed_t2/dev/${ARM#t2dev_}.json;; t2smoke) CFG=configs/experiments/fixed_t2/smoke_r05.json;; t2rw_*) CFG=configs/experiments/fixed_t2/dev_reward/${ARM#t2rw_}.json;; t2dis_*) CFG=configs/experiments/fixed_t2/dis/${ARM#t2dis_}.json;; t2f120_*) CFG=configs/experiments/fixed_t2/final120/${ARM#t2f120_}.json;;
   t2_*) CFG=configs/experiments/fixed_t2/${ARM#t2_}.json;; *) CFG=$PROD/$NAME.json;; esac
 PY="${SHERPA_PYTHON:-python}"
 : "${CUDA_VISIBLE_DEVICES:?set five physical GPU ids, e.g. 0,1,2,3,4}"
