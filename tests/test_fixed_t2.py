@@ -220,3 +220,30 @@ def test_preflight_families_match_configs():
         cfg = arm(name); fam = protocol_family(cfg['experiment']['variant'])
         assert (fam['cases'], fam['rounds'], fam['root']) == (cases, 2, root) and cfg['output_dir'].startswith(root)
         assert fam['scorer_request_cache'] == cfg['judges']['scorer_request_cache']
+
+
+@pytest.mark.parametrize('name, w', [('dis/o10_r00', (0.0, 1.0)), ('dis/o09_r01', (0.1, 0.9))])
+def test_disagreement_arms_change_only_reward_order_cases_and_lr(name, w):
+    base, cfg = flat(arm('r05_o05')), flat(arm(name))
+    diff = {k for k in set(base) | set(cfg) if base.get(k) != cfg.get(k)}
+    research = {k for k in diff if k.split('.')[0] not in ('name', 'condition', 'output_dir', 'notes') and not k.startswith('experiment.')}
+    allowed = {'schedule.cases', 'optimizer.learning_rate', 'five_gpu.train_order_file', 'five_gpu.train_order_sha256',
+               'agent_reward.w_rubric', 'agent_reward.w_outcome', 'rubric.enabled'}
+    assert research <= allowed, research - allowed
+    assert (cfg['agent_reward.w_rubric'], cfg['agent_reward.w_outcome']) == w and cfg['schedule.cases'] == 60
+    assert cfg['optimizer.learning_rate'] == 3e-05 and cfg['rollout.rounds'] == 2 and cfg['rollout.branching'] == 4
+    assert cfg['prompt_update.enabled'] is False and cfg['output_dir'].startswith('outputs/fixed_t2_dis/')
+    assert cfg['rubric.enabled'] is (w[0] > 0)
+
+
+def test_disagreement_order_keeps_dev_positions_and_all_cases():
+    d = ROOT / 'data/interim/medmcqa/five_gpu_train500'
+    new, old = d / 'train500_order_disagreement_first_v1.json', d / 'train500_order_seed20261008.json'
+    if not new.exists() or not old.exists(): pytest.skip('disagreement-first order not built here')
+    a, b = json.loads(new.read_text()), json.loads(old.read_text())
+    assert sorted(a) == sorted(b) and a[400:] == b[400:]
+    man = json.loads((d / 'train500_order_disagreement_first_v1.manifest.json').read_text())
+    k = man['disagreement_cases']; flags = {f['case_id']: f for f in man['flags']}
+    assert all(flags[c]['disagree'] for c in a[:k]) and not any(flags[c]['disagree'] for c in a[k:400])
+    assert all(flags[c]['blind_option'] != flags[c]['doctor_option'] for c in a[:k])
+    assert not {'gold', 'correct_option', 'outcome'} & set(man['flags'][0])          # label-free

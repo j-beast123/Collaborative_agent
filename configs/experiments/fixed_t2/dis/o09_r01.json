@@ -1,0 +1,10 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "notes": "Training-alignment DEV arm: Outcome 0.9 / Rubric 0.1 on the first 60 cases of the disagreement-first order (label-free curriculum: theta0 blind private option != Doctor rounds-2 opening option; scripts/dev_opt/make_disagreement_order.py), learning rate 3e-5 (selected on the held-out DEV LR gate), otherwise the FIXED_T2 protocol (rounds 2, G 4, P0 fixed, scorer request cache). Evaluated on the held-out MedMCQA DEV split only; CasiMedicos622 is not evaluated. A zero rubric weight is Outcome-only: no rubric pipeline.",
+  "schedule": {"cases": 60},
+  "optimizer": {"learning_rate": 3e-05},
+  "five_gpu": {"train_order_file": "data/interim/medmcqa/five_gpu_train500/train500_order_disagreement_first_v1.json",
+               "train_order_sha256": "41769cc2bfcfe1c7ddff91bc19ab5e90e7fb2e0b82f32ff2242682499b86f63f"},
+  "experiment": {"reward_weight_rubric": 0.1, "reward_weight_outcome": 0.9, "output_root": "outputs/fixed_t2_dis", "variant": "t2dis",
+                 "train_order_sha256": "41769cc2bfcfe1c7ddff91bc19ab5e90e7fb2e0b82f32ff2242682499b86f63f"}
+}

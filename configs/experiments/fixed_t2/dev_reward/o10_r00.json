@@ -1,0 +1,6 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "notes": "Reward-alignment DEV ablation of the FIXED_T2 protocol: first 30 training cases (6 batches), Outcome 1.0 / Rubric 0.0, everything else the base protocol (selected learning rate, rounds 2, G 4, P0 fixed, scorer request cache). Evaluated on the held-out MedMCQA DEV split only; CasiMedicos622 is not evaluated. A zero rubric weight is Outcome-only: no rubric pipeline.",
+  "schedule": {"cases": 30},
+  "experiment": {"reward_weight_rubric": 0.0, "reward_weight_outcome": 1.0, "output_root": "outputs/fixed_t2_rw", "variant": "t2rw"}
+}
