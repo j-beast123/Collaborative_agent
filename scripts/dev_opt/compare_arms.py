@@ -40,7 +40,7 @@ def training_health(run: Path) -> dict:
                            'abs_adv': [abs(x - m) for x in rew] if len(rew) >= 2 and max(rew) - min(rew) > EPS else []})
         wit = c['rubric_bank'].get('witness') or []
         tested = [x for w in wit for x in w.get('tested') or []]
-        cases.append({'kept': len(c.get('training_rubrics') or []), 'rubrics': len(wit),
+        cases.append({'kept': len(c.get('rubric_weights') or {}),        # kept set (training_rubrics is filled only by PromptOpt) 'rubrics': len(wit),
                       'exhausted': sum(w['stop_reason'] == 'candidates_exhausted' for w in wit),
                       'reruns': sum(x.get('reruns', 0) for x in tested), 'hits': sum(x.get('positive', 0) for x in tested),
                       'leaf_accuracy': c['interaction_diagnostics'].get('leaf_accuracy')})
