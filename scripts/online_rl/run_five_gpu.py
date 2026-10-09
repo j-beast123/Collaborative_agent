@@ -18,15 +18,15 @@ from src.online_rl.tree.devices import physical_gpus, record_runtime
 
 
 def doctor_endpoint_problems(fg):
-    """Five distinct endpoints, or runtime doctor_servers whose request slots cover every actor endpoint."""
+    """Five distinct endpoints, or runtime doctor_servers (one request at a time, as on dedicated GPUs) that every actor
+    endpoint names; actors sharing a server queue their requests, which changes timing only."""
     servers = fg.get('doctor_servers')
     if not servers:
         return [] if len(set(fg['doctor_urls'])) == 5 else ['Five distinct Doctor endpoints required without doctor_servers']
-    out, capacity = [], {s['url']: s['parallel'] for s in servers}
-    if len(capacity) != len(servers): out.append('doctor_servers URLs must be distinct')
-    if any(s['parallel'] not in (1, 2, 4, 8) for s in servers): out.append('doctor_servers parallel must be 1, 2, 4 or 8')
-    for url in set(fg['doctor_urls']):
-        if fg['doctor_urls'].count(url) > capacity.get(url, 0): out.append(f'Doctor endpoint {url} has more actors than server slots')
+    out, urls = [], {s['url'] for s in servers}
+    if len(urls) != len(servers): out.append('doctor_servers URLs must be distinct')
+    if any(s['parallel'] != 1 for s in servers): out.append('doctor_servers parallel must be 1 (dedicated-GPU Doctor batching)')
+    out += [f'Doctor endpoint {u} is not a declared doctor_server' for u in sorted(set(fg['doctor_urls']) - urls)]
     return out
 
 

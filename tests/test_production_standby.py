@@ -116,24 +116,27 @@ def test_r05_launcher_names_and_preflight_mode_rules():
     assert 'r05_o05_evolving|r05_o05_p0_fixed) NAME=${ARM}_300' in sh
     from scripts.online_rl import preflight_destination as P
     assert P.EXPECTED['p0_sha256'] == P0_SHA and set(P.EXPECTED['prompt_mode']) == {'evolving', 'p0_fixed'}
-SERVERS = [{'url': 'http://127.0.0.1:11535', 'gpu': '5', 'parallel': 2}, {'url': 'http://127.0.0.1:11536', 'gpu': '6', 'parallel': 2},
-           {'url': 'http://127.0.0.1:11537', 'gpu': '7', 'parallel': 1}]
-PACKED = [s['url'] for s in SERVERS for _ in range(s['parallel'])]
 
 
-def test_packed_doctor_servers_need_a_slot_per_actor():
+SERVERS = [{'url': f'http://127.0.0.1:{p}', 'gpu': str(g), 'parallel': 1} for p, g in ((11535, 5), (11536, 6), (11537, 7))]
+PACKED = [SERVERS[i]['url'] for i in (0, 0, 1, 1, 2)]
+
+
+def test_packed_doctor_servers_are_declared_and_unbatched():
     from scripts.online_rl.run_five_gpu import doctor_endpoint_problems
     assert doctor_endpoint_problems({'doctor_urls': PACKED, 'doctor_servers': SERVERS}) == []
     assert doctor_endpoint_problems({'doctor_urls': [f'http://127.0.0.1:{p}' for p in range(5)]}) == []
     assert doctor_endpoint_problems({'doctor_urls': PACKED})                                  # shared URL without declared slots
-    over = [SERVERS[2]['url']] * 2 + PACKED[2:]
-    assert any('more actors' in e for e in doctor_endpoint_problems({'doctor_urls': over, 'doctor_servers': SERVERS}))
+    batched = [{**SERVERS[0], 'parallel': 2}, *SERVERS[1:]]
+    assert any('parallel must be 1' in e for e in doctor_endpoint_problems({'doctor_urls': PACKED, 'doctor_servers': batched}))
+    stray = PACKED[:4] + ['http://127.0.0.1:12000']
+    assert any('not a declared' in e for e in doctor_endpoint_problems({'doctor_urls': stray, 'doctor_servers': SERVERS}))
 
 
 def test_server_plan_starts_each_declared_server_once():
     from scripts.online_rl.start_five_gpu_doctors import server_plan
     plan = server_plan({'five_gpu': {'doctor_servers': SERVERS, 'doctor_urls': PACKED}})
-    assert plan == [('5', '5', SERVERS[0]['url'], 2), ('6', '6', SERVERS[1]['url'], 2), ('7', '7', SERVERS[2]['url'], 1)]
+    assert plan == [(s['gpu'], s['gpu'], s['url'], 1) for s in SERVERS]
 
 
 def test_runtime_overlay_with_packed_doctors_keeps_the_research_fingerprint(tmp_path):
