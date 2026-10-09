@@ -222,7 +222,7 @@ def test_preflight_families_match_configs():
         assert fam['scorer_request_cache'] == cfg['judges']['scorer_request_cache']
 
 
-@pytest.mark.parametrize('name, w', [('dis/o10_r00', (0.0, 1.0)), ('dis/o09_r01', (0.1, 0.9))])
+@pytest.mark.parametrize('name, w', [('dis/o10_r00', (0.0, 1.0)), ('dis/o09_r01', (0.1, 0.9)), ('dis/o05_r05', (0.5, 0.5))])
 def test_disagreement_arms_change_only_reward_order_cases_and_lr(name, w):
     base, cfg = flat(arm('r05_o05')), flat(arm(name))
     diff = {k for k in set(base) | set(cfg) if base.get(k) != cfg.get(k)}

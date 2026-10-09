@@ -9,7 +9,7 @@ ARM="${1:?usage: dev_eval.sh dev_base|dev_diversity|dev_optimizer|dev_both|t2dev
 case "$ARM" in dev_base|dev_diversity|dev_optimizer|dev_both) CFG=configs/experiments/dev_opt/${ARM#dev_}.json;;
   t2dev_lr1e5|t2dev_lr3e5) CFG=configs/experiments/fixed_t2/dev/${ARM#t2dev_}.json;;
   t2rw_o10_r00|t2rw_o09_r01|t2rw_o07_r03|t2rw_o05_r05) CFG=configs/experiments/fixed_t2/dev_reward/${ARM#t2rw_}.json;;
-  t2dis_o10_r00|t2dis_o09_r01) CFG=configs/experiments/fixed_t2/dis/${ARM#t2dis_}.json;; *) echo "unknown DEV arm $ARM" >&2; exit 2;; esac
+  t2dis_o10_r00|t2dis_o09_r01|t2dis_o05_r05) CFG=configs/experiments/fixed_t2/dis/${ARM#t2dis_}.json;; *) echo "unknown DEV arm $ARM" >&2; exit 2;; esac
 PY="${SHERPA_PYTHON:-python}"
 OUT=$("$PY" -c "import sys;sys.path.insert(0,'.');from src.online_rl.tree import experiment as X;print(X.load_config('$CFG')['output_dir'])")
 [ -f "$OUT/run_state.json" ] || { echo "no run at $OUT" >&2; exit 2; }
