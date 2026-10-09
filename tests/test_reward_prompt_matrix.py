@@ -127,7 +127,7 @@ def test_matrix_files_are_current_and_runs_are_unique():
     assert [r['config'] for r in m['families']['reward_sweep']] == [f'{MATRIX}/{REWARD_RUNS[t]}' for t in SWEEP]
     assert [(r['config'], r['priority'], r['status']) for r in m['families']['prompt_ablation']] == [
         (f'{MATRIX}/{P0_FIXED}', 2, 'ready'), (f'{MATRIX}/{EVOLVING}', 2, 'ready'), (f'{MATRIX}/{PFINAL}', 3, 'blocked_pfinal_missing')]
-    assert m['run_count_by_priority'] == {'1': 5, '2': 1} and len(m['runs']) == 6 and len(list((ROOT / MATRIX).glob('*/*.json'))) == 7
+    assert m['run_count_by_priority'] == {'1': 5, '2': 1} and len(m['runs']) == 6 and len(list([f for fam in ('reward_sweep', 'prompt_ablation') for f in (ROOT / MATRIX / fam).glob('*.json')])) == 7
     runs = m['runs']; evo = runs['r05_o05__evolving__sonnet46__seed0']
     assert evo['families'] == ['prompt_ablation', 'reward_sweep'] and evo['priority'] == 1      # reused, not duplicated
     assert m['anchor_reward_rubric_outcome'] == [0.5, 0.5] and m['pfinal_source_run_id'] == evo['run_id']
@@ -164,7 +164,7 @@ def test_matrix_never_reads_evaluation_results():
 def test_configs_differ_from_reference_protocol_only_in_reward_prompt_mode_feedback_model_and_runtime_path():
     ref = json.loads((ROOT / REFERENCE).read_text())
     allowed = {'name', 'condition', 'output_dir', 'experiment', 'agent_reward', 'feedback', 'prompt_update', 'rubric', 'five_gpu'}
-    for f in sorted((ROOT / MATRIX).glob('*/*.json')):
+    for f in sorted([f for fam in ('reward_sweep', 'prompt_ablation') for f in (ROOT / MATRIX / fam).glob('*.json')]):
         if f.name == Path(PFINAL).name: continue
         cfg = X.load_config(f.relative_to(ROOT)); e = cfg['experiment']
         assert {k for k in set(ref) | set(cfg) if ref.get(k) != cfg.get(k)} <= allowed, f

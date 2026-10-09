@@ -1,0 +1,50 @@
+{
+  "python": "3.10.12",
+  "torch": "2.5.1+cu121",
+  "cuda": "12.1",
+  "transformers": "4.56.2",
+  "driver": "570.172.08",
+  "gpu_name": "NVIDIA RTX A6000",
+  "compute_capability": "8.6",
+  "gpus": [
+    {
+      "name": "NVIDIA RTX A6000",
+      "uuid": "GPU-260057b7-25bb-6d01-c723-75bfbb713686",
+      "memory_total_mib": "49140",
+      "driver": "570.172.08",
+      "compute_capability": "8.6"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "uuid": "GPU-14f26db4-9f37-31bc-59f0-62a324750dd9",
+      "memory_total_mib": "49140",
+      "driver": "570.172.08",
+      "compute_capability": "8.6"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "uuid": "GPU-363bc22b-02e2-d175-bcb4-93cc5cb46cc3",
+      "memory_total_mib": "49140",
+      "driver": "570.172.08",
+      "compute_capability": "8.6"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "uuid": "GPU-2a99651c-ee3f-32e7-2bcc-f755938c5b0a",
+      "memory_total_mib": "49140",
+      "driver": "570.172.08",
+      "compute_capability": "8.6"
+    },
+    {
+      "name": "NVIDIA RTX A6000",
+      "uuid": "GPU-e94c0a34-9dd0-1a89-71e7-7a364684f44d",
+      "memory_total_mib": "49140",
+      "driver": "570.172.08",
+      "compute_capability": "8.6"
+    }
+  ],
+  "ollama_version": "0.12.5",
+  "agent_dtype": "bfloat16",
+  "attn_implementation": "transformers default (sdpa)",
+  "role": "reference stack for the R03_O07 main run (rollout-relevant fields: gpu_name, compute_capability, torch, cuda, transformers, ollama_version, agent_dtype, attn_implementation)"
+}
