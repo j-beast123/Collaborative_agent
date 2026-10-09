@@ -1,0 +1,6 @@
+{
+  "extends": "configs/experiments/fixed_t2/r05_o05.json",
+  "notes": "1-batch performance smoke of the frozen FIXED_T2 protocol: R05_O05 (OURS without PromptOpt), 5 cases, the base learning rate. Run once per destination host before its 120-case arm; never compared with the arms.",
+  "schedule": {"cases": 5},
+  "experiment": {"output_root": "outputs/fixed_t2_smoke", "variant": "t2smoke"}
+}

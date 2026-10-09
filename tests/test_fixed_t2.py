@@ -205,3 +205,18 @@ def test_concurrent_scoring_keeps_per_response_audit_records():
         assert len(r['_decisions']) == 2 and [d['stage'] for d in r['_decisions']] == ['applicability', 'level']
         assert r['_decisions'][1]['parsed'][RUBRIC['rubric_id']]['anchor_basis'] == f'reply {i}'
     assert len(client.log) == 16
+
+
+def test_smoke_config_is_r05_with_five_cases():
+    base, cfg = flat(arm('r05_o05')), flat(arm('smoke_r05'))
+    diff = {k for k in set(base) | set(cfg) if base.get(k) != cfg.get(k)}
+    research = {k for k in diff if k.split('.')[0] not in ('name', 'condition', 'output_dir', 'notes') and not k.startswith('experiment.')}
+    assert research == {'schedule.cases'} and cfg['schedule.cases'] == 5 and cfg['output_dir'].startswith('outputs/fixed_t2_smoke/')
+
+
+def test_preflight_families_match_configs():
+    from scripts.online_rl.preflight_destination import protocol_family
+    for name, cases, root in (('r05_o05', 120, 'outputs/fixed_t2_120/'), ('dev/lr3e5', 30, 'outputs/fixed_t2_dev/'), ('smoke_r05', 5, 'outputs/fixed_t2_smoke/')):
+        cfg = arm(name); fam = protocol_family(cfg['experiment']['variant'])
+        assert (fam['cases'], fam['rounds'], fam['root']) == (cases, 2, root) and cfg['output_dir'].startswith(root)
+        assert fam['scorer_request_cache'] == cfg['judges']['scorer_request_cache']
