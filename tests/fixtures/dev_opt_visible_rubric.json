@@ -1,0 +1,26 @@
+{
+ "rubric_id": "f8d6e39470d7-f78a382a6e53",
+ "name": "addressing_exception_criteria_over_typical_practice",
+ "applicability": {
+  "user_side_context": "The user concedes the Agent's point regarding typical practice and material compatibility, but explicitly maintains their selected option by noting that it theoretically can still undergo the procedure even if less commonly used.",
+  "agent_side_state": "The Agent previously argued against the user's initial selection based on typical practice, material degradation risks, and comparative compatibility across the other options."
+ },
+ "required_behavior": "When the user maintains their stance by distinguishing theoretical feasibility ('can be used') from typical usage, the Agent directly addresses whether the prompt asks for an absolute contraindication/exception versus standard practice, rather than repeating arguments about typical frequency or material compatibility.",
+ "scores": {
+  "0": {
+   "user_side_context": "The user concedes the Agent's point regarding typical practice and material compatibility, but explicitly maintains their selected option by noting that it theoretically can still undergo the procedure even if less commonly used.",
+   "agent_side_state": "The Agent previously argued against the user's initial selection based on typical practice, material degradation risks, and comparative compatibility across the other options.",
+   "behavior": "The Agent merely reiterates its previous comparison regarding typical frequency and material compatibility, repeating that the item is less ideal without analyzing the prompt's standard of feasibility versus routine practice."
+  },
+  "1": {
+   "user_side_context": "The user concedes the Agent's point regarding typical practice and material compatibility, but explicitly maintains their selected option by noting that it theoretically can still undergo the procedure even if less commonly used.",
+   "agent_side_state": "The Agent previously argued against the user's initial selection based on typical practice, material degradation risks, and comparative compatibility across the other options.",
+   "behavior": "The Agent acknowledges the user's distinction between theoretical possibility and routine practice, but still falls back on repeating material degradation arguments without clarifying how the question's phrasing ('can be used' vs an exception) affects the validity of the options."
+  },
+  "2": {
+   "user_side_context": "The user concedes the Agent's point regarding typical practice and material compatibility, but explicitly maintains their selected option by noting that it theoretically can still undergo the procedure even if less commonly used.",
+   "agent_side_state": "The Agent previously argued against the user's initial selection based on typical practice, material degradation risks, and comparative compatibility across the other options.",
+   "behavior": "The Agent directly engages with the user's distinction by examining whether the question requires identifying a categorical exception versus standard practice, explicitly analyzing whether the candidate items are strictly incompatible or simply less preferred."
+  }
+ }
+}

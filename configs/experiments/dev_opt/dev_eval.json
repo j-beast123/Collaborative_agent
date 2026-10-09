@@ -1,0 +1,8 @@
+{
+  "notes": "DEV evaluation of the dev_opt arms: the production checkpoint evaluator (scripts/online_rl/async_eval.py) on the fixed held-out MedMCQA DEV split built by scripts/dev_opt/make_dev_split.py (order positions 400-499, never trained on). theta0 (checkpoint_000000) and the final checkpoint of every arm are evaluated with the same seed, Doctor and openings.",
+  "eval_file": "data/interim/medmcqa/five_gpu_train500/dev100_order400_499.jsonl",
+  "eval_sha256": "472a4e3ba4dd81b8b205b49c63b363137368b6b8a5e006d3d19c7658232a797d",
+  "eval_cases": 100,
+  "eval_dataset": "MedMCQA train500 DEV order 400-499",
+  "dev_manifest": "data/interim/medmcqa/five_gpu_train500/dev100_order400_499.manifest.json"
+}

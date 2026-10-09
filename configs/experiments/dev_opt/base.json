@@ -1,0 +1,7 @@
+{
+  "extends": "configs/experiments/reward_prompt_matrix/reward_sweep/r05_o05_evolving.json",
+  "notes": "DEV-only optimization arm A (BASE): canonical OURS = R05_O05 EVOLVING exactly as frozen, on the first 60 cases of the frozen train500 order (12 batches of 5, at most 12 optimizer steps). Checkpoint evaluation stays off; DEV evaluation (order positions 400-499) runs separately via scripts/dev_opt/dev_eval.sh. CasiMedicos622 is never evaluated by these arms.",
+  "schedule": {"cases": 60},
+  "five_gpu": {"api_workers": 6, "checkpoint_evaluation_enabled": false, "checkpoint_every_cases": 30},
+  "experiment": {"output_root": "outputs/dev_opt", "output_dir": null, "variant": "dev_base"}
+}

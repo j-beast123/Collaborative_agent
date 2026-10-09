@@ -25,6 +25,7 @@ EXPECTED = {'batch_cases': 5, 'branching': 4, 'rounds': 4, 'cases': 300, 'prompt
             'p0_sha256': 'f8d6e39470d7f8a93ce8224cea9e5aa2ed2fa07ced9d982cc5e16d0e495d9bad',
             'feedback_model': 'anthropic/claude-4.6-sonnet-20260217', 'ollama_version': '0.12.5',
             'theta0_policy_sha256': '9018ce3bbacd319049576e8ace88afb4777621a8769919bf46676fca8a85b17c'}
+DEV_CASES, DEV_ROOT = 60, 'outputs/dev_opt/'   # DEV-only optimization arms (experiment.variant dev_*), never production
 # Fields whose difference changes generated rollouts (Agent bf16 kernels, llama.cpp kernels).
 NUMERIC_FIELDS = ('gpu_name', 'compute_capability', 'torch', 'cuda', 'transformers', 'ollama_version', 'agent_dtype', 'attn_implementation')
 
@@ -87,7 +88,10 @@ def check(cfg_path, runtime_cfg, expected_commit):
     e, ar, ro = cfg['experiment'], cfg['agent_reward'], cfg['rollout']
     proto = {'batch_cases': cfg['five_gpu']['batch_cases'], 'branching': ro['branching'], 'rounds': ro['rounds'],
              'cases': cfg['schedule']['cases'], 'prompt_mode': e['prompt_mode'], 'feedback_model': cfg['feedback']['model']}
-    hard += [f'{k}={v!r} expected {EXPECTED[k]!r}' for k, v in proto.items() if (v not in EXPECTED[k] if k == 'prompt_mode' else v != EXPECTED[k])]
+    dev = (e.get('variant') or '').startswith('dev_')
+    expected = {**EXPECTED, 'cases': DEV_CASES} if dev else EXPECTED
+    hard += [f'{k}={v!r} expected {expected[k]!r}' for k, v in proto.items() if (v not in expected[k] if k == 'prompt_mode' else v != expected[k])]
+    if dev and not cfg['output_dir'].startswith(DEV_ROOT): hard.append(f'DEV arm must write under {DEV_ROOT}')
     if not cfg['rubric']['enabled']: hard.append('rubric reward pipeline not enabled')
     if cfg['prompt_update']['enabled'] != (e['prompt_mode'] == 'evolving'): hard.append('prompt evolution does not match prompt_mode')
     if cfg['rubric']['prompt_sha256'] != EXPECTED['p0_sha256']: hard.append('initial P0 differs from the production P0')
@@ -106,7 +110,8 @@ def check(cfg_path, runtime_cfg, expected_commit):
                                                  else 'A: runtime differs but rollout kernels match; acceptable with the difference reported')}
     report = {'time_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'commit': head, 'config': cfg_path, 'runtime_config': runtime_cfg,
               'run_id': e['run_id'], 'output_dir': cfg['output_dir'], 'resolved_config_sha256': sha256_json(cfg),
-              'experiment_fingerprint': X.fingerprint(cfg), 'reward': {'w_outcome': ar['w_outcome'], 'w_rubric': ar['w_rubric']},
+              'experiment_fingerprint': X.fingerprint(cfg), 'variant': e.get('variant'),
+              'training_hyperparameters': X.training_hyperparameters(cfg), 'reward': {'w_outcome': ar['w_outcome'], 'w_rubric': ar['w_rubric']},
               'protocol': proto, 'feedback_prompt_sha256': cfg['feedback']['prompt_sha256'], 'p0_sha256': cfg['rubric']['prompt_sha256'],
               'expected_theta0_policy_sha256': EXPECTED['theta0_policy_sha256'], 'data': {'train_sha256': cfg['data']['train_sha256'],
               'train_order_sha256': cfg['five_gpu']['train_order_sha256'], 'eval_sha256': cfg['five_gpu']['eval_sha256'], 'seed': cfg['schedule']['seed']},

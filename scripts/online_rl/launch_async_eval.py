@@ -1,7 +1,7 @@
 """Start the asynchronous evaluator: one dedicated Ollama Doctor and one async_eval.py process per eval GPU.
 Doctor servers use the same Ollama environment as start_five_gpu_doctors.py, on ports disjoint from training.
   launch_async_eval.py --config CFG --gpus 5,6,7 --ports 11545,11546,11547 [--eval-root DIR] [--cases-limit M]
-      [--checkpoint NAME] [--once] [--stop]"""
+      [--checkpoint NAME] [--once] [--stop] [--eval-override JSON --include-initial]   (DEV-only evaluation)"""
 import argparse
 import json
 import os
@@ -62,7 +62,7 @@ def main():
     a = argparse.ArgumentParser()
     a.add_argument('--config', required=True); a.add_argument('--gpus', default='5,6,7'); a.add_argument('--ports', default='11545,11546,11547')
     a.add_argument('--eval-root'); a.add_argument('--cases-limit'); a.add_argument('--checkpoint'); a.add_argument('--once', action='store_true')
-    a.add_argument('--stop', action='store_true')
+    a.add_argument('--stop', action='store_true'); a.add_argument('--eval-override'); a.add_argument('--include-initial', action='store_true')
     x = a.parse_args()
     cfg = X.load_config(x.config); out = ROOT / cfg['output_dir']
     run_dir = (Path(x.eval_root) if x.eval_root else out / 'evaluation').resolve() / 'async_runtime'; run_dir.mkdir(parents=True, exist_ok=True)
@@ -76,9 +76,10 @@ def main():
     urls = [start_doctor(cfg, g, p, run_dir) for g, p in zip(gpus, ports)]
     for k, (g, url) in enumerate(zip(gpus, urls)):
         cmd = [sys.executable, 'scripts/online_rl/async_eval.py', '--config', x.config, '--shard', str(k), '--shards', str(len(gpus)), '--doctor-url', url]
-        for flag in ('eval_root', 'cases_limit', 'checkpoint'):
+        for flag in ('eval_root', 'cases_limit', 'checkpoint', 'eval_override'):
             if getattr(x, flag): cmd += [f"--{flag.replace('_', '-')}", str(getattr(x, flag))]
         if x.once: cmd.append('--once')
+        if x.include_initial: cmd.append('--include-initial')
         with (run_dir / f'eval_gpu{g}.log').open('a') as log:
             proc = subprocess.Popen(cmd, cwd=ROOT, env={**os.environ, 'CUDA_VISIBLE_DEVICES': g}, stdout=log, stderr=log, start_new_session=True)
         (run_dir / f'eval_gpu{g}.pid').write_text(str(proc.pid))
