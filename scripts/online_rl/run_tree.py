@@ -134,14 +134,15 @@ def load_key() -> str:
     return H.load_key()
 
 
-def judge_client(model: str, key: str, system: str):
+def judge_client(model: str, key: str, system: str, request_cache=None):
     """Jev (decisions API, label probabilities) for typesafe/jev models, else a hard-label decision client (Luna)."""
     if model.startswith('typesafe/jev'):
+        if request_cache: raise ValueError('scorer_request_cache is implemented for the Luna decision client only')
         from src.judges.jev import JevClient
         from src.prompt_opt import harness as H
         return JevClient(**{**H.JEV, 'model': model})
     from src.online_rl.tree.luna import LunaDecisionClient
-    return LunaDecisionClient(model=model, key=key, system=system)
+    return LunaDecisionClient(model=model, key=key, system=system, request_cache=request_cache)
 
 
 def opening_table(cfg: dict, policy, which: str):
@@ -192,7 +193,8 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
     ro, pu, ar = cfg['rollout'], cfg['prompt_update'], cfg['agent_reward']
     jm = cfg['judges']; key = load_key()
     gate_client = judge_client(jm['gate_model'], key, text(jm['gate_prompt_file']))
-    scorer_client = judge_client(jm['scorer_model'], key, text(jm['scorer_prompt_file']))
+    cache = jm.get('scorer_request_cache')                      # opt-in; frozen runs build the scorer client exactly as before
+    scorer_client = judge_client(jm['scorer_model'], key, text(jm['scorer_prompt_file']), **({'request_cache': cache} if cache else {}))
     policy = policy if policy is not None else make_policy(cfg, key)
     if (policy.args.rounds, policy.args.doctor_model) != (ro['rounds'], ro['doctor_model']):
         raise RuntimeError('policy/harness rounds or Doctor model differ from rollout config')

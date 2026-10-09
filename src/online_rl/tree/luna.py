@@ -4,7 +4,7 @@ Output alignment only: trivial representation differences are canonicalised; a m
 answer gets ONE repair request to the same model with the same input plus a schema correction; a second failure is an
 operational error. Nothing is mapped to a nearest value or filled in."""
 from __future__ import annotations
-import json, re, time, urllib.error, urllib.request
+import hashlib, json, re, threading, time, urllib.error, urllib.request
 from typing import Callable, Optional
 from src.common import usage
 from src.common.retry import RETRYABLE_STATUS, Retry, rate_limited
@@ -12,6 +12,13 @@ from src.common.config import IntegrationUnavailable
 from src.online_rl.integrated.records import sha256_text
 
 URL = 'https://openrouter.ai/api/v1/chat/completions'
+REQUEST_CACHE = 'canonical_request_sha256_v1'   # judges.scorer_request_cache: identical full requests share one sampled answer
+
+
+def request_key(payload: dict) -> str:
+    """sha256 of the canonical full request (model, messages, schema, every parameter). Nothing outside the payload, such as a
+    node id, enters the key, so two responses' requests share an answer only when the scorer sees exactly the same input."""
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
 
 
 def http_post(url: str, payload: dict, key: str, timeout: float) -> dict:
@@ -44,13 +51,39 @@ class LunaDecisionClient:
     """decide(state, questions, purpose) -> ({qid: {'value', 'probabilities': None, 'confidence': None}}, record), like JevClient."""
 
     def __init__(self, *, model: str, key: str, system: str, max_tokens: int = 2000, post: Callable = http_post,
-                 sleep: Callable = time.sleep, timeout_s: float = 180.0):
+                 sleep: Callable = time.sleep, timeout_s: float = 180.0, request_cache: Optional[str] = None):
         self.model, self.key, self.system, self.max_tokens, self.post, self.sleep = model, key, system, max_tokens, post, sleep
         self.timeout_s, self.protocol_sha256, self.log = timeout_s, sha256_text(system), []
+        if request_cache not in (None, REQUEST_CACHE): raise ValueError(f'request_cache must be None or {REQUEST_CACHE!r}')
+        # In-process, single-flight: concurrent identical requests wait for the first answer. Off by default (frozen runs).
+        self.request_cache, self._answers, self._inflight, self._cache_lock = request_cache, {}, {}, threading.Lock()
+        self.cache_hits = 0
+        if request_cache: self.protocol_sha256 = sha256_text(f'{system}|{request_cache}')
 
     def _chat(self, messages: list[dict], schema: dict, purpose: str) -> str:
         payload = {'model': self.model, 'messages': messages, 'max_tokens': self.max_tokens,
                    'response_format': {'type': 'json_schema', 'json_schema': {'name': 'decisions', 'strict': True, 'schema': schema}}}
+        if not self.request_cache: return self._request(payload, purpose)
+        key = request_key(payload)
+        with self._cache_lock:
+            if key in self._answers: self.cache_hits += 1; return self._answers[key]
+            event = self._inflight.get(key)
+            owner = event is None
+            if owner: event = self._inflight[key] = threading.Event()
+        if not owner:
+            event.wait()
+            with self._cache_lock:
+                if key in self._answers: self.cache_hits += 1; return self._answers[key]
+            return self._chat(messages, schema, purpose)          # the first request failed: try again ourselves
+        try:
+            text = self._request(payload, purpose)
+            with self._cache_lock: self._answers[key] = text
+            return text
+        finally:
+            with self._cache_lock: self._inflight.pop(key, None)
+            event.set()
+
+    def _request(self, payload: dict, purpose: str) -> str:
         retry = Retry(f'OpenRouter {self.model} ({purpose})', sleep=self.sleep)        # src/common/retry.py: bounded, larger for 429
         started = time.monotonic(); request_seconds = 0.0; retry_wait_seconds = 0.0
         request_started = None

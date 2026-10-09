@@ -204,6 +204,8 @@ def fingerprint(cfg: dict) -> Optional[str]:
                 'seed': cfg['schedule']['seed'], 'theta0': theta0_identity(cfg)}
     if cfg['experiment'].get('variant') is not None:
         identity.update(variant=cfg['experiment']['variant'], training_hyperparameters=training_hyperparameters(cfg))
+    if cfg.get('judges', {}).get('scorer_request_cache'):        # absent in every frozen run: their fingerprints are unchanged
+        identity['scorer_request_cache'] = cfg['judges']['scorer_request_cache']
     return sha256_json(identity)
 
 
