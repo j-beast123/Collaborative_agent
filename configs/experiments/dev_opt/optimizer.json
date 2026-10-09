@@ -1,0 +1,6 @@
+{
+  "extends": "configs/experiments/dev_opt/base.json",
+  "notes": "DEV arm C (OPTIMIZER): BASE + one optimizer change, optimizer.learning_rate 1e-5 -> 3e-5 (one half-decade step); still one optimizer step per batch, same beta, clip and grad clip. R03 batches 1-8 at 1e-5 reached a token-mean KL to theta0 of only ~0.001 after 7 steps.",
+  "optimizer": {"learning_rate": 3e-05},
+  "experiment": {"variant": "dev_opt_lr3e5"}
+}

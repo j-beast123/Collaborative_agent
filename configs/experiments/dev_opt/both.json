@@ -1,0 +1,7 @@
+{
+  "extends": "configs/experiments/dev_opt/base.json",
+  "notes": "DEV arm D (DIVERSITY + OPTIMIZER): B and C together, nothing else.",
+  "rollout": {"top_p": 1.0},
+  "optimizer": {"learning_rate": 3e-05},
+  "experiment": {"variant": "dev_div_topp10_opt_lr3e5"}
+}

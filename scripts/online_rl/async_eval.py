@@ -2,7 +2,8 @@
 CasiMedicos622 for every committed permanent checkpoint. Reads only immutable checkpoint files; writes only the evaluation
 tree (same EvaluationQueue identity/schema as the synchronous runner). Never touches training state.
   CUDA_VISIBLE_DEVICES=<one physical GPU> async_eval.py --config CFG --shard K --shards N --doctor-url URL [--eval-root DIR]
-      [--cases-limit M] [--once] [--checkpoint checkpoint_000010]"""
+      [--cases-limit M] [--once] [--checkpoint checkpoint_000010]
+      [--eval-override configs/experiments/dev_opt/dev_eval.json --include-initial]   (DEV-only: another eval file, theta0 too)"""
 import argparse
 import copy
 import json
@@ -32,15 +33,30 @@ def due(cursor, cfg):
 def settings(cfg, out):
     fg = cfg['five_gpu']
     return {'seed': fg['eval_seed'], 'data_sha256': fg['eval_sha256'],
-            'protocol_sha256': json.loads((out / 'run_manifest.json').read_text())['protocol_sha256'], 'dataset': DATASET}
+            'protocol_sha256': json.loads((out / 'run_manifest.json').read_text())['protocol_sha256'], 'dataset': fg.get('eval_dataset', DATASET)}
 
 
-def committed_checkpoints(out, cfg):
+OVERRIDE_KEYS = ('eval_file', 'eval_sha256', 'eval_cases', 'eval_dataset')
+
+
+def apply_eval_override(cfg, path):
+    """DEV evaluation: replace only the evaluation data of five_gpu (file, hash, size, label); a trained case may not be in it."""
+    o = json.loads((ROOT / path).read_text())
+    cfg['five_gpu'].update({k: o[k] for k in OVERRIDE_KEYS})
+    from src.online_rl.cases import load_cases
+    from src.online_rl.tree.five_gpu import training_order
+    trained = set(training_order(cfg, load_cases(ROOT / cfg['data']['train']), ROOT)[:cfg['schedule']['cases']])
+    overlap = trained & {c['case_id'] for c in load_cases(ROOT / o['eval_file'])}
+    if overlap: raise SystemExit(f'{len(overlap)} evaluation cases were trained on')
+    return cfg
+
+
+def committed_checkpoints(out, cfg, include_initial=False):
     for ckpt in sorted((out / 'checkpoints').glob('checkpoint_*')):
         receipt = ckpt / 'COMPLETE.json'
         if ckpt.name.endswith('.pending') or not receipt.exists(): continue
         r = json.loads(receipt.read_text())
-        if due(r['completed_cases'], cfg): yield ckpt, r
+        if due(r['completed_cases'], cfg) or (include_initial and r['completed_cases'] == 0): yield ckpt, r
 
 
 def log_job(path, **row):
@@ -52,7 +68,9 @@ def main():
     a.add_argument('--config', required=True); a.add_argument('--shard', type=int, required=True); a.add_argument('--shards', type=int, required=True)
     a.add_argument('--doctor-url', required=True); a.add_argument('--eval-root'); a.add_argument('--cases-limit', type=int)
     a.add_argument('--once', action='store_true'); a.add_argument('--checkpoint')
+    a.add_argument('--eval-override'); a.add_argument('--include-initial', action='store_true')
     x = a.parse_args()
+    if x.eval_override and not x.eval_root: raise SystemExit('--eval-override needs its own --eval-root')
     if not 0 <= x.shard < x.shards: raise SystemExit('shard must be in [0, shards)')
     vis = os.environ.get('CUDA_VISIBLE_DEVICES', '')
     if not vis or ',' in vis: raise SystemExit('CUDA_VISIBLE_DEVICES must name exactly one physical GPU')
@@ -61,7 +79,9 @@ def main():
     from src.online_rl.environment import final_outcome
     from src.online_rl.integrated.continuation import adapter_sha256
     from src.online_rl.runtime import SharedPolicy
-    cfg = X.load_config(x.config); fg = cfg['five_gpu']; out = (ROOT / cfg['output_dir']).resolve()
+    cfg = X.load_config(x.config)
+    if x.eval_override: cfg = apply_eval_override(cfg, x.eval_override)
+    fg = cfg['five_gpu']; out = (ROOT / cfg['output_dir']).resolve()
     eval_root = Path(x.eval_root).resolve() if x.eval_root else out / 'evaluation'
     if file_sha256(ROOT / fg['eval_file']) != fg['eval_sha256']: raise SystemExit('Evaluation data hash differs')
     cases = load_cases(ROOT / fg['eval_file'])
@@ -103,7 +123,7 @@ def main():
         return True
 
     while True:
-        for ckpt, receipt in committed_checkpoints(out, cfg):
+        for ckpt, receipt in committed_checkpoints(out, cfg, x.include_initial):
             if x.checkpoint and ckpt.name != x.checkpoint: continue
             try: run_job(ckpt, receipt)
             except Exception as e:                                  # an eval failure never touches training; retried next poll
@@ -111,7 +131,7 @@ def main():
         state = json.loads((out / 'run_state.json').read_text()) if (out / 'run_state.json').exists() else {}
         final = eval_root / f"checkpoint_{cfg['schedule']['cases']:06d}" / 'summary.json'
         if state.get('case_cursor') == cfg['schedule']['cases'] and final.exists() and json.loads(final.read_text()).get('status') == 'complete':
-            if not x.cases_limit and not x.checkpoint:
+            if not x.cases_limit and not x.checkpoint and not x.eval_override:
                 atomic_write_json(out / 'EXPERIMENT_COMPLETE.json', {'time_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                                   'final_checkpoint': f"checkpoint_{cfg['schedule']['cases']:06d}", 'final_eval': json.loads(final.read_text())})
             return

@@ -68,7 +68,7 @@ def build(matrix: str) -> dict[Path, str]:
                 else:
                     exp['output_dir'] = cfg['output_dir'] if cfg else None
                     out[ROOT / rel] = dump({'extends': spec['base'],
-                                            'experiment': {k: exp[k] for k in X.EXPERIMENT_KEYS if k != 'output_root'}})
+                                            'experiment': {k: exp[k] for k in X.EXPERIMENT_KEYS if k != 'output_root' and (k != 'variant' or k in exp)}})
                     if cfg: runs[rid] = {**run_entry(cfg), 'config': rel, 'priority': priority}
                 if cfg:
                     runs[rid]['families'] = sorted({*runs[rid]['families'], family})

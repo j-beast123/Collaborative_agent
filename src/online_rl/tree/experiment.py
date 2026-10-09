@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 from typing import Optional
 from src.online_rl.integrated.records import sha256_json
@@ -16,7 +17,13 @@ MODE_TAGS = {'p0_fixed': 'p0fixed', 'pfinal_fixed': 'pfinal', 'evolving': 'evolv
 OUTCOME_ONLY_TAG = 'outcomeonly'             # zero rubric weight: no rubric prompt in use
 MODEL_TAGS = {'anthropic/claude-4.6-sonnet-20260217': 'sonnet46', 'anthropic/claude-4.5-haiku-20251001': 'haiku45'}
 EXPERIMENT_KEYS = ('family', 'reward_weight_rubric', 'reward_weight_outcome', 'prompt_mode', 'pfinal_artifact',
-                   'feedback_model', 'seed', 'train_order_sha256', 'output_root', 'output_dir')
+                   'feedback_model', 'seed', 'train_order_sha256', 'output_root', 'output_dir', 'variant')
+# A variant names a training-hyperparameter setting other than the frozen reward-matrix one (DEV-only optimization arms).
+# It enters the run id and the resume fingerprint together with these values; without a variant both are unchanged.
+VARIANT_TAG = re.compile(r'^[a-z0-9]+(_[a-z0-9]+)*$')
+TRAINING_HYPERPARAMETERS = (('rollout', 'temperature'), ('rollout', 'top_p'), ('rollout', 'top_k'), ('rollout', 'branching'),
+                            ('rollout', 'rounds'), ('optimizer', 'learning_rate'), ('optimizer', 'beta'),
+                            ('optimizer', 'clip_epsilon'), ('optimizer', 'grad_clip'), ('advantage_normalization', 'mode'))
 PFINAL_SCHEMA = 'sherpa_pfinal_v2'
 PFINAL_KEYS = ('source_run_id', 'source_output_dir', 'source_checkpoint', 'source_batch', 'source_completed_cases',
                'prompt_sha256', 'prompt_text_path', 'parent_prompt_sha256', 'p0_sha256', 'adoption_history',
@@ -144,8 +151,13 @@ def apply_prompt_mode(cfg: dict, mode: str, pfinal_artifact: Optional[str]) -> O
 def run_id(exp: dict, prompt_sha256: str) -> str:
     mode = (OUTCOME_ONLY_TAG if exp['reward_weight_rubric'] == 0 else
             MODE_TAGS[exp['prompt_mode']] + (f'_{prompt_sha256[:8]}' if exp['prompt_mode'] == 'pfinal_fixed' else ''))
-    return '__'.join((mixture_tag(exp['reward_weight_rubric'], exp['reward_weight_outcome']), mode,
-                      model_tag(exp['feedback_model']), f"seed{exp['seed']}"))
+    parts = [mixture_tag(exp['reward_weight_rubric'], exp['reward_weight_outcome']), mode, model_tag(exp['feedback_model']), f"seed{exp['seed']}"]
+    if exp.get('variant') is not None: parts.append(exp['variant'])
+    return '__'.join(parts)
+
+
+def training_hyperparameters(cfg: dict) -> dict:
+    return {f'{a}.{b}': cfg[a].get(b) for a, b in TRAINING_HYPERPARAMETERS}
 
 
 def resolve(raw: dict) -> dict:
@@ -157,6 +169,9 @@ def resolve(raw: dict) -> dict:
     validate_weights(w_r, w_o)
     if exp['train_order_sha256'] != cfg['five_gpu']['train_order_sha256']: raise ValueError('experiment.train_order_sha256 differs from five_gpu')
     if isinstance(exp['seed'], bool) or not isinstance(exp['seed'], int): raise ValueError('experiment.seed must be an integer')
+    variant = exp.get('variant')
+    if variant is not None and (not isinstance(variant, str) or not VARIANT_TAG.match(variant)):
+        raise ValueError(f'experiment.variant must be a lowercase tag like dev_base; got {variant!r}')
     cfg['agent_reward'] = {**cfg['agent_reward'], 'w_outcome': w_o, 'w_rubric': w_r}
     # Zero rubric weight = Outcome-only: no rubric pipeline.
     cfg['rubric']['enabled'] = w_r > 0.0
@@ -172,19 +187,24 @@ def resolve(raw: dict) -> dict:
     cfg['experiment'] = {**{k: exp.get(k) for k in EXPERIMENT_KEYS if k not in ('family', 'output_dir')},
                          'run_id': rid, 'pfinal': pfinal, 'rubric_pipeline': cfg['rubric']['enabled'],
                          'feedback_prompt_sha256': cfg['feedback']['prompt_sha256'], 'rubric_prompt_sha256': cfg['rubric']['prompt_sha256']}
+    if variant is None: cfg['experiment'].pop('variant', None)
+    else: cfg['experiment']['training_hyperparameters'] = training_hyperparameters(cfg)
     return cfg
 
 
 def fingerprint(cfg: dict) -> Optional[str]:
     """Research identity a checkpoint must share to be resumed; runtime devices/paths excluded. None without an experiment block."""
     if 'experiment' not in cfg: return None
-    return sha256_json({'reward': {k: cfg['agent_reward'][k] for k in ('w_outcome', 'w_rubric')},
-                        'rubric_pipeline': cfg['rubric']['enabled'], 'prompt_mode': cfg['experiment']['prompt_mode'],
-                        'rubric_prompt_sha256': cfg['rubric']['prompt_sha256'], 'prompt_evolution': cfg['prompt_update']['enabled'],
-                        'feedback': {k: cfg['feedback'][k] for k in ('model', 'prompt_sha256')},
-                        'data': {'train_sha256': cfg['data']['train_sha256'], 'train_order_sha256': cfg['five_gpu']['train_order_sha256'],
-                                 'cases': cfg['schedule']['cases']},
-                        'seed': cfg['schedule']['seed'], 'theta0': theta0_identity(cfg)})
+    identity = {'reward': {k: cfg['agent_reward'][k] for k in ('w_outcome', 'w_rubric')},
+                'rubric_pipeline': cfg['rubric']['enabled'], 'prompt_mode': cfg['experiment']['prompt_mode'],
+                'rubric_prompt_sha256': cfg['rubric']['prompt_sha256'], 'prompt_evolution': cfg['prompt_update']['enabled'],
+                'feedback': {k: cfg['feedback'][k] for k in ('model', 'prompt_sha256')},
+                'data': {'train_sha256': cfg['data']['train_sha256'], 'train_order_sha256': cfg['five_gpu']['train_order_sha256'],
+                         'cases': cfg['schedule']['cases']},
+                'seed': cfg['schedule']['seed'], 'theta0': theta0_identity(cfg)}
+    if cfg['experiment'].get('variant') is not None:
+        identity.update(variant=cfg['experiment']['variant'], training_hyperparameters=training_hyperparameters(cfg))
+    return sha256_json(identity)
 
 
 def receipt_fields(cfg: dict) -> dict:

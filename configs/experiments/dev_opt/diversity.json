@@ -1,0 +1,6 @@
+{
+  "extends": "configs/experiments/dev_opt/base.json",
+  "notes": "DEV arm B (DIVERSITY): BASE + one sampling change, rollout.top_p 0.9 -> 1.0 (temperature 0.7 and the model's top_k 20 unchanged). Under top_p 0.9, 91% of the first 8 Agent tokens of R03 batches 1-4 had raw probability >= 0.9, i.e. a one-token nucleus, so sibling stances could not differ; temperature alone cannot change that.",
+  "rollout": {"top_p": 1.0},
+  "experiment": {"variant": "dev_div_topp10"}
+}
