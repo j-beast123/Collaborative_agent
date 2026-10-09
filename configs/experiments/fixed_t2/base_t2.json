@@ -1,0 +1,32 @@
+{
+  "extends": "configs/experiments/reward_prompt_matrix/base_batch5.json",
+  "notes": "FIXED_T2 protocol (2026-10-10): the reward-matrix method with Prompt Optimization OFF (p0_fixed, canonical P0), at most two Agent turns (rollout.rounds 2: tree depth, Agent replies, the Doctor's 'turn k of at most N' and the checkpoint evaluator), 120 training cases in batches of 5, and two engineering fixes: deterministic reuse of identical full scorer requests (judges.scorer_request_cache) and per-response scorer/gate audit records. Sampling, G, halting settings, rubric/feedback/witness/scoring semantics and GRPO are those of the reward matrix. The three arms differ only in reward weights.",
+  "rollout": {
+    "rounds": 2
+  },
+  "optimizer": {
+    "learning_rate": 1e-05
+  },
+  "judges": {
+    "scorer_request_cache": "canonical_request_sha256_v1"
+  },
+  "schedule": {
+    "cases": 120
+  },
+  "five_gpu": {
+    "api_workers": 6,
+    "checkpoint_evaluation_enabled": false,
+    "checkpoint_every_cases": 30
+  },
+  "experiment": {
+    "family": "fixed_t2",
+    "prompt_mode": "p0_fixed",
+    "pfinal_artifact": null,
+    "feedback_model": "anthropic/claude-4.6-sonnet-20260217",
+    "seed": 0,
+    "train_order_sha256": "b527dc1a7bb237a9271f6db575ca155cb2d5f64b5a29b8a39bf2ce41b6e3f5f0",
+    "output_root": "outputs/fixed_t2_120",
+    "output_dir": null,
+    "variant": "t2_lr1e5"
+  }
+}

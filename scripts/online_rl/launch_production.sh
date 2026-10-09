@@ -2,6 +2,8 @@
 # Launch a 300-case production reward-ablation arm with the accepted runtime profile.
 # Usage: launch_production.sh r03_o07|r07_o03|r05_o05_evolving|r05_o05_p0_fixed [--dry-run]
 #        launch_production.sh dev_base|dev_diversity|dev_optimizer|dev_both [--dry-run]   (60-case DEV-only arms, outputs/dev_opt)
+#        launch_production.sh t2_r03_o07|t2_r05_o05|t2_r07_o03 [--dry-run]                 (FIXED_T2 120-case arms, outputs/fixed_t2_120)
+#        launch_production.sh t2dev_lr1e5|t2dev_lr3e5 [--dry-run]                          (FIXED_T2 30-case optimizer DEV arms)
 # Runtime inputs (never written into research configs):
 #   CUDA_VISIBLE_DEVICES   five physical GPU ids (logical 0-4; logical 4 runs the update)
 #   SHERPA_OLLAMA_BINARY   Ollama 0.12.5 executable
@@ -11,11 +13,13 @@
 #   SHERPA_PYTHON, SHERPA_ENV_FILE (destination secrets; default ./.env)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-ARM="${1:?usage: launch_production.sh r03_o07|r07_o03|r05_o05_evolving|r05_o05_p0_fixed|dev_base|dev_diversity|dev_optimizer|dev_both [--dry-run]}"; DRY="${2:-}"
+ARM="${1:?usage: launch_production.sh <arm> [--dry-run] (see header)}"; DRY="${2:-}"
 PROD=configs/experiments/reward_prompt_matrix/production
 case "$ARM" in r03_o07|r07_o03) NAME=${ARM}_evolving_300;; r05_o05_evolving|r05_o05_p0_fixed) NAME=${ARM}_300;;
-  dev_base|dev_diversity|dev_optimizer|dev_both) NAME=$ARM;; *) echo "unknown arm $ARM" >&2; exit 2;; esac
-case "$ARM" in dev_*) CFG=configs/experiments/dev_opt/${ARM#dev_}.json;; *) CFG=$PROD/$NAME.json;; esac
+  dev_base|dev_diversity|dev_optimizer|dev_both|t2_r03_o07|t2_r05_o05|t2_r07_o03|t2dev_lr1e5|t2dev_lr3e5) NAME=$ARM;;
+  *) echo "unknown arm $ARM" >&2; exit 2;; esac
+case "$ARM" in dev_*) CFG=configs/experiments/dev_opt/${ARM#dev_}.json;; t2dev_*) CFG=configs/experiments/fixed_t2/dev/${ARM#t2dev_}.json;;
+  t2_*) CFG=configs/experiments/fixed_t2/${ARM#t2_}.json;; *) CFG=$PROD/$NAME.json;; esac
 PY="${SHERPA_PYTHON:-python}"
 : "${CUDA_VISIBLE_DEVICES:?set five physical GPU ids, e.g. 0,1,2,3,4}"
 : "${SHERPA_OLLAMA_BINARY:?set the Ollama 0.12.5 executable}"

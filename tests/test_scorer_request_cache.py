@@ -89,6 +89,11 @@ def test_cache_changes_protocol_and_fingerprint_only_when_enabled():
     assert X.fingerprint(cfg) != '093ad76d54316ad9ef3e9fd44c6bdbff76672f2454e0952a67a5728984459637'
 
 
-def test_no_frozen_or_dev_config_enables_the_cache():
+def test_only_fixed_t2_enables_the_cache():
+    """Frozen reward-matrix runs and the dev_opt arms keep the old scorer; the FIXED_T2 protocol uses the cache in every arm."""
     for path in sorted((ROOT / 'configs/experiments').rglob('*.json')):
+        rel = path.relative_to(ROOT / 'configs/experiments').parts[0]
+        if rel == 'fixed_t2': continue
         assert 'scorer_request_cache' not in path.read_text(), path
+    for path in sorted((ROOT / 'configs/experiments/fixed_t2').rglob('*.json')):
+        assert X.load_raw(str(path.relative_to(ROOT)))['judges']['scorer_request_cache'] == REQUEST_CACHE, path

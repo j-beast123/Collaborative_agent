@@ -25,7 +25,16 @@ EXPECTED = {'batch_cases': 5, 'branching': 4, 'rounds': 4, 'cases': 300, 'prompt
             'p0_sha256': 'f8d6e39470d7f8a93ce8224cea9e5aa2ed2fa07ced9d982cc5e16d0e495d9bad',
             'feedback_model': 'anthropic/claude-4.6-sonnet-20260217', 'ollama_version': '0.12.5',
             'theta0_policy_sha256': '9018ce3bbacd319049576e8ace88afb4777621a8769919bf46676fca8a85b17c'}
-DEV_CASES, DEV_ROOT = 60, 'outputs/dev_opt/'   # DEV-only optimization arms (experiment.variant dev_*), never production
+# Protocol families other than the 300-case reward matrix, by experiment.variant prefix: expected values and output root.
+PROTOCOLS = {
+    'dev_': {'cases': 60, 'rounds': 4, 'prompt_mode': ('evolving',), 'root': 'outputs/dev_opt/', 'scorer_request_cache': None},
+    't2dev_': {'cases': 30, 'rounds': 2, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/fixed_t2_dev/', 'scorer_request_cache': 'canonical_request_sha256_v1'},
+    't2_': {'cases': 120, 'rounds': 2, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/fixed_t2_120/', 'scorer_request_cache': 'canonical_request_sha256_v1'},
+}
+
+
+def protocol_family(variant):
+    return next((PROTOCOLS[k] for k in PROTOCOLS if (variant or '').startswith(k)), None)
 # Fields whose difference changes generated rollouts (Agent bf16 kernels, llama.cpp kernels).
 NUMERIC_FIELDS = ('gpu_name', 'compute_capability', 'torch', 'cuda', 'transformers', 'ollama_version', 'agent_dtype', 'attn_implementation')
 
@@ -88,10 +97,12 @@ def check(cfg_path, runtime_cfg, expected_commit):
     e, ar, ro = cfg['experiment'], cfg['agent_reward'], cfg['rollout']
     proto = {'batch_cases': cfg['five_gpu']['batch_cases'], 'branching': ro['branching'], 'rounds': ro['rounds'],
              'cases': cfg['schedule']['cases'], 'prompt_mode': e['prompt_mode'], 'feedback_model': cfg['feedback']['model']}
-    dev = (e.get('variant') or '').startswith('dev_')
-    expected = {**EXPECTED, 'cases': DEV_CASES} if dev else EXPECTED
+    fam = protocol_family(e.get('variant'))
+    expected = {**EXPECTED, **{k: fam[k] for k in ('cases', 'rounds', 'prompt_mode')}} if fam else EXPECTED
     hard += [f'{k}={v!r} expected {expected[k]!r}' for k, v in proto.items() if (v not in expected[k] if k == 'prompt_mode' else v != expected[k])]
-    if dev and not cfg['output_dir'].startswith(DEV_ROOT): hard.append(f'DEV arm must write under {DEV_ROOT}')
+    if fam and not cfg['output_dir'].startswith(fam['root']): hard.append(f"variant {e.get('variant')} must write under {fam['root']}")
+    if cfg['judges'].get('scorer_request_cache') != (fam or {}).get('scorer_request_cache'):
+        hard.append(f"judges.scorer_request_cache {cfg['judges'].get('scorer_request_cache')!r} does not match the protocol")
     if not cfg['rubric']['enabled']: hard.append('rubric reward pipeline not enabled')
     if cfg['prompt_update']['enabled'] != (e['prompt_mode'] == 'evolving'): hard.append('prompt evolution does not match prompt_mode')
     if cfg['rubric']['prompt_sha256'] != EXPECTED['p0_sha256']: hard.append('initial P0 differs from the production P0')

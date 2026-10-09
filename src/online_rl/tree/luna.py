@@ -58,13 +58,14 @@ class LunaDecisionClient:
         # In-process, single-flight: concurrent identical requests wait for the first answer. Off by default (frozen runs).
         self.request_cache, self._answers, self._inflight, self._cache_lock = request_cache, {}, {}, threading.Lock()
         self.cache_hits = 0
+        self._last = threading.local()                             # (request_sha256, cache_hit) of this thread's last _chat
         if request_cache: self.protocol_sha256 = sha256_text(f'{system}|{request_cache}')
 
     def _chat(self, messages: list[dict], schema: dict, purpose: str) -> str:
         payload = {'model': self.model, 'messages': messages, 'max_tokens': self.max_tokens,
                    'response_format': {'type': 'json_schema', 'json_schema': {'name': 'decisions', 'strict': True, 'schema': schema}}}
         if not self.request_cache: return self._request(payload, purpose)
-        key = request_key(payload)
+        key = request_key(payload); self._last.info = (key, True)
         with self._cache_lock:
             if key in self._answers: self.cache_hits += 1; return self._answers[key]
             event = self._inflight.get(key)
@@ -76,12 +77,19 @@ class LunaDecisionClient:
                 if key in self._answers: self.cache_hits += 1; return self._answers[key]
             return self._chat(messages, schema, purpose)          # the first request failed: try again ourselves
         try:
+            self._last.info = (key, False)
             text = self._request(payload, purpose)
             with self._cache_lock: self._answers[key] = text
             return text
         finally:
             with self._cache_lock: self._inflight.pop(key, None)
             event.set()
+
+    def _request_info(self) -> dict:
+        """Audit fields of this thread's last request: its canonical sha256 and whether a cached answer was reused."""
+        if not self.request_cache: return {}
+        key, hit = getattr(self._last, 'info', (None, None))
+        return {'request_sha256': key, 'request_cache_hit': hit}
 
     def _request(self, payload: dict, purpose: str) -> str:
         retry = Retry(f'OpenRouter {self.model} ({purpose})', sleep=self.sleep)        # src/common/retry.py: bounded, larger for 429
@@ -147,15 +155,18 @@ class LunaDecisionClient:
                                                                 'properties': fields} for i in items}}}}
         user = json.dumps({'stage': stage, 'state': state, 'items': items}, ensure_ascii=False)
         messages = [{'role': 'system', 'content': self.system}, {'role': 'user', 'content': user}]
-        raw = [self._chat(messages, schema, purpose)]; parsed, err = parse_objects(raw[0], list(items), fields); errors = [err] if err else []
+        raw = [self._chat(messages, schema, purpose)]; info = [self._request_info()]
+        parsed, err = parse_objects(raw[0], list(items), fields); errors = [err] if err else []
         if err:
             fix = (f'Your previous output was not valid: {err}. Return only JSON {{"answers": {{item_id: object}}}} with exactly these item ids '
                    f'{list(items)} and, in each object, exactly these fields: {json.dumps(fields)}.')
             raw.append(self._chat(messages + [{'role': 'assistant', 'content': raw[0]}, {'role': 'user', 'content': fix}], schema, purpose))
+            info.append(self._request_info())
             parsed, err = parse_objects(raw[1], list(items), fields)
             if err: errors.append(err)
         rec = {'purpose': purpose, 'stage': stage, 'model': self.model, 'protocol_sha256': self.protocol_sha256, 'raw': raw, 'parsed': parsed,
-               'repaired': len(raw) > 1, 'repair_ok': len(raw) > 1 and err is None, 'errors': errors}
+               'repaired': len(raw) > 1, 'repair_ok': len(raw) > 1 and err is None, 'errors': errors,
+               **({'requests': info} if self.request_cache else {})}
         self.log.append(rec)
         if err or parsed is None: raise IntegrationUnavailable(f'{self.model} returned no valid {purpose} decision after one repair: {err}')
         return parsed, rec
