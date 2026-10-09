@@ -1,0 +1,7 @@
+{
+  "extends": "configs/experiments/fixed_t2/r05_o05.json",
+  "notes": "Optimizer DEV arm of the FIXED_T2 protocol: R05_O05, first 30 training cases (6 batches, at most 6 optimizer steps), learning rate 1e-5 only. Evaluated on the held-out MedMCQA DEV split (scripts/dev_opt/dev_eval.sh); CasiMedicos622 is not evaluated.",
+  "schedule": {"cases": 30},
+  "optimizer": {"learning_rate": 1e-5},
+  "experiment": {"output_root": "outputs/fixed_t2_dev", "variant": "t2dev_lr1e5"}
+}

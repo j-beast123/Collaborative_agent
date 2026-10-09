@@ -387,17 +387,17 @@ def two_stage_structured_scorer(client, observed_context: bool = False):
         latest = next((t['text'] for t in reversed(prefix) if t.get('speaker') == 'doctor'), '')
         before = {'case_context': {'question': view['question'], 'options': view['options']}, 'dialogue_before_target_reply': prefix}
         stage1_state = {**before, 'latest_physician_message': latest}      # the situation the target reply must respond to
-        n0 = len(getattr(client, 'log', []))
-        app, _ = with_role('rubric_scorer', lambda: client.judge('applicability', stage1_state, stage1_items(rubrics), STAGE1_FIELDS,
-                                                                  'tree_response_rubric_score_applicability'))
-        on = [r for r in rubrics if app[r['rubric_id']]['applicable']]; lev = {}
+        app, rec1 = with_role('rubric_scorer', lambda: client.judge('applicability', stage1_state, stage1_items(rubrics), STAGE1_FIELDS,
+                                                                     'tree_response_rubric_score_applicability'))
+        on = [r for r in rubrics if app[r['rubric_id']]['applicable']]; lev = {}; recs = [rec1]
         if on:
-            lev, _ = with_role('rubric_scorer', lambda: client.judge('level', {**before, 'target_agent_reply': reply}, stage2_items(on), STAGE2_FIELDS,
-                                                                      'tree_response_rubric_score_behavior'))
+            lev, rec2 = with_role('rubric_scorer', lambda: client.judge('level', {**before, 'target_agent_reply': reply}, stage2_items(on), STAGE2_FIELDS,
+                                                                         'tree_response_rubric_score_behavior'))
+            recs.append(rec2)
         out = {r['rubric_id']: {'applicable': r['rubric_id'] in lev, 'probabilities': None,
                                 'hard': int(lev[r['rubric_id']]['level']) if r['rubric_id'] in lev else None,
                                 'stage1': app[r['rubric_id']], 'stage2': lev.get(r['rubric_id'])} for r in rubrics}
-        out['_decisions'] = getattr(client, 'log', [])[n0:]
+        out['_decisions'] = recs          # this response's own decisions (the client log is shared by concurrent scoring threads)
         return out
     def applicability(view, prefix, rubrics):
         """Stage 1 only (the same question as score's Stage 1): {rubric_id: {'applicable': bool, 'stage1': decision}}. Used by
@@ -447,9 +447,8 @@ def posthoc_gates(client, cases: dict, observed_context: bool = False):
         discussion = [d for d in to_dialogue(tin.dialogue) if d['stage'] != 'FINAL']
         state = {'case_context': {'question': tin.question, 'options': dict(tin.options)}, 'dialogue_before_target_turn': discussion,
                  'candidate_rubric': visible_rubric(rubric)}
-        n0 = len(getattr(client, 'log', []))
-        ans, _ = with_role('rubric_gate', lambda: _batched_jev_decisions(client, state, questions, purpose='tree_posthoc_rubric_gate', max_rubrics_per_call=None))
-        g['decisions'] = getattr(client, 'log', [])[n0:]
+        ans, calls = with_role('rubric_gate', lambda: _batched_jev_decisions(client, state, questions, purpose='tree_posthoc_rubric_gate', max_rubrics_per_call=None))
+        g['decisions'] = calls             # this rubric's own gate decisions, not other threads' (shared client log)
         for k in questions: g[k] = ans[k]['value'] == 'Y'
         for k in POSTHOC_BLOCKING:
             if g[k]: g['reasons'].append(k.replace('_', ' '))

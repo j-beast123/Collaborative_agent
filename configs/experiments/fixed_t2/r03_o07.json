@@ -1,0 +1,4 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "experiment": {"reward_weight_rubric": 0.3, "reward_weight_outcome": 0.7}
+}
