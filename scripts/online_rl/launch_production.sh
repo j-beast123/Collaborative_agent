@@ -35,7 +35,7 @@ EOF
 fi
 if [ -n "${SHERPA_RUNTIME_OVERLAY:-}" ]; then
   # Host runtime overlay: only Doctor placement keys; the research fingerprint must not change.
-  BASE=$RUNCFG; RUNCFG=outputs/reward_prompt_matrix/runtime/${ARM}_evolving_300.runtime.json
+  BASE=$RUNCFG; RUNCFG=outputs/reward_prompt_matrix/runtime/$NAME.runtime.json
   mkdir -p "$(dirname "$RUNCFG")"
   "$PY" - "$BASE" "$SHERPA_RUNTIME_OVERLAY" "$RUNCFG" <<'EOF'
 import json, sys
