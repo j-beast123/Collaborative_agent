@@ -21,7 +21,8 @@ from src.online_rl.tree.devices import physical_gpus
 PROD = 'configs/experiments/reward_prompt_matrix/production'
 PROFILE = f'{PROD}/runtime_profile.json'
 REFERENCE_ENV = f'{PROD}/reference_env.json'
-EXPECTED = {'batch_cases': 5, 'branching': 4, 'rounds': 4, 'cases': 300, 'prompt_mode': 'evolving',
+EXPECTED = {'batch_cases': 5, 'branching': 4, 'rounds': 4, 'cases': 300, 'prompt_mode': ('evolving', 'p0_fixed'),
+            'p0_sha256': 'f8d6e39470d7f8a93ce8224cea9e5aa2ed2fa07ced9d982cc5e16d0e495d9bad',
             'feedback_model': 'anthropic/claude-4.6-sonnet-20260217', 'ollama_version': '0.12.5',
             'theta0_policy_sha256': '9018ce3bbacd319049576e8ace88afb4777621a8769919bf46676fca8a85b17c'}
 # Fields whose difference changes generated rollouts (Agent bf16 kernels, llama.cpp kernels).
@@ -86,8 +87,10 @@ def check(cfg_path, runtime_cfg, expected_commit):
     e, ar, ro = cfg['experiment'], cfg['agent_reward'], cfg['rollout']
     proto = {'batch_cases': cfg['five_gpu']['batch_cases'], 'branching': ro['branching'], 'rounds': ro['rounds'],
              'cases': cfg['schedule']['cases'], 'prompt_mode': e['prompt_mode'], 'feedback_model': cfg['feedback']['model']}
-    hard += [f'{k}={v!r} expected {EXPECTED[k]!r}' for k, v in proto.items() if v != EXPECTED[k]]
-    if not cfg['prompt_update']['enabled'] or not cfg['rubric']['enabled']: hard.append('evolving rubric pipeline not enabled')
+    hard += [f'{k}={v!r} expected {EXPECTED[k]!r}' for k, v in proto.items() if (v not in EXPECTED[k] if k == 'prompt_mode' else v != EXPECTED[k])]
+    if not cfg['rubric']['enabled']: hard.append('rubric reward pipeline not enabled')
+    if cfg['prompt_update']['enabled'] != (e['prompt_mode'] == 'evolving'): hard.append('prompt evolution does not match prompt_mode')
+    if cfg['rubric']['prompt_sha256'] != EXPECTED['p0_sha256']: hard.append('initial P0 differs from the production P0')
     if X.fingerprint(cfg) != X.fingerprint(prod): hard.append('runtime overlay changed the research fingerprint')
     if profile.get('status') != 'decided': hard.append('runtime profile not decided (smoke pending)')
     elif cfg['five_gpu']['api_workers'] != profile['api_workers']: hard.append('config api_workers differs from the runtime profile')

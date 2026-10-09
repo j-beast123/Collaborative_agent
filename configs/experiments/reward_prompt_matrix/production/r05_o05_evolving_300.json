@@ -1,0 +1,6 @@
+{
+  "extends": "configs/experiments/reward_prompt_matrix/reward_sweep/r05_o05_evolving.json",
+  "schedule": {"cases": 300},
+  "five_gpu": {"api_workers": 6, "checkpoint_evaluation_enabled": false},
+  "experiment": {"output_root": "outputs/reward_prompt_matrix_300", "output_dir": null}
+}
