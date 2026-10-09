@@ -69,3 +69,50 @@ def test_standby_files_have_no_machine_paths_and_launcher_parses():
     files = [*(ROOT / PROD).glob('*.json'), ROOT / 'scripts/online_rl/launch_production.sh', ROOT / 'scripts/online_rl/preflight_destination.py']
     assert all('/home/' not in f.read_text() for f in files)
     assert subprocess.run(['bash', '-n', str(ROOT / 'scripts/online_rl/launch_production.sh')]).returncode == 0
+
+
+P0_SHA = 'f8d6e39470d7f8a93ce8224cea9e5aa2ed2fa07ced9d982cc5e16d0e495d9bad'
+R05 = {'evolving': 'r05_o05_evolving_300', 'p0_fixed': 'r05_o05_p0_fixed_300'}
+
+
+def r05(mode): return X.load_config(f'{PROD}/{R05[mode]}.json')
+
+
+def flat(d, p=''):
+    return {k2: v2 for k, v in d.items() for k2, v2 in (flat(v, f'{p}{k}.').items() if isinstance(v, dict) else [(p + k, v)])}
+
+
+@pytest.mark.parametrize('mode', list(R05))
+def test_r05_production_arms_share_the_production_protocol(mode):
+    c = r05(mode)
+    assert (c['agent_reward']['w_rubric'], c['agent_reward']['w_outcome']) == (0.5, 0.5)
+    assert c['schedule']['cases'] == 300 and c['five_gpu']['batch_cases'] == 5 and c['schedule']['seed'] == 0
+    assert c['five_gpu']['api_workers'] == profile()['api_workers'] and not c['five_gpu']['checkpoint_evaluation_enabled']
+    assert c['experiment']['prompt_mode'] == mode and c['rubric']['enabled'] and c['rubric']['prompt_sha256'] == P0_SHA
+    assert c['prompt_update']['enabled'] == (mode == 'evolving')
+    tag = {'evolving': 'evolving', 'p0_fixed': 'p0fixed'}[mode]
+    assert c['output_dir'] == f'outputs/reward_prompt_matrix_300/r05_o05__{tag}__sonnet46__seed0'
+
+
+def test_r05_research_difference_is_prompt_mode_only():
+    evo, p0 = flat(r05('evolving')), flat(r05('p0_fixed'))
+    bookkeeping = {'name', 'condition', 'output_dir', 'experiment.run_id', 'experiment.family'}
+    derived = {'prompt_update.enabled'}                        # set from prompt_mode by experiment.apply_prompt_mode
+    assert {k for k in evo.keys() | p0.keys() if evo.get(k) != p0.get(k)} - bookkeeping - derived == {'experiment.prompt_mode'}
+    a, b = r05('evolving'), r05('p0_fixed')
+    a['experiment']['prompt_mode'], a['prompt_update']['enabled'] = 'p0_fixed', False
+    assert X.fingerprint(a) == X.fingerprint(b) != X.fingerprint(r05('evolving'))
+
+
+def test_r05_evolving_matches_r03_production_except_reward_weights():
+    r, o = flat(r05('evolving')), flat(cfg('r03_o07'))
+    ignore = {'name', 'condition', 'output_dir', 'experiment.run_id', 'experiment.family',
+              'agent_reward.w_rubric', 'agent_reward.w_outcome', 'experiment.reward_weight_rubric', 'experiment.reward_weight_outcome'}
+    assert {k for k in r.keys() | o.keys() if r.get(k) != o.get(k)} - ignore == set()
+
+
+def test_r05_launcher_names_and_preflight_mode_rules():
+    sh = (ROOT / 'scripts/online_rl/launch_production.sh').read_text()
+    assert 'r05_o05_evolving|r05_o05_p0_fixed) NAME=${ARM}_300' in sh
+    from scripts.online_rl import preflight_destination as P
+    assert P.EXPECTED['p0_sha256'] == P0_SHA and set(P.EXPECTED['prompt_mode']) == {'evolving', 'p0_fixed'}
