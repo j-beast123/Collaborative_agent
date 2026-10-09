@@ -13,6 +13,8 @@ sys.path.insert(0, str(ROOT))
 from src.online_rl.integrated.records import atomic_write_json, sha256_json
 from src.online_rl.tree.five_gpu import (EvaluationQueue, batch_slots, cache_openings,
     evaluation_adapter, load_checkpoint, save_checkpoint, training_order, update_batch, wait_with_evaluation)
+from src.online_rl.tree import experiment
+from src.online_rl.tree.devices import physical_gpus, record_runtime
 
 
 def preflight(cfg):
@@ -94,9 +96,8 @@ def preflight(cfg):
         except (ValueError, RuntimeError) as e: errors.append(str(e))
         try: training_order(cfg,train,ROOT)
         except (ValueError,OSError) as e: errors.append(str(e))
-    visible = os.environ.get('CUDA_VISIBLE_DEVICES')
-    if visible is not None and visible != '0,1,2,3,4':
-        errors.append('CUDA_VISIBLE_DEVICES must be unset or 0,1,2,3,4 (physical GPU mapping)')
+    try: physical_gpus()
+    except ValueError as e: errors.append(str(e))
     return errors
 
 
@@ -155,7 +156,8 @@ def run(cfg, max_batches=None, eval_only=False):
     lock = (out/'runner.lock').open('a')
     try: fcntl.flock(lock, fcntl.LOCK_EX|fcntl.LOCK_NB)
     except BlockingIOError: raise RuntimeError('Another runner owns this output directory/GPU4')
-    gpu_lock = Path('/tmp/sherpa_tree_physical_gpu4.lock').open('a')
+    # Lock the updater's physical GPU.
+    gpu_lock = Path(f"/tmp/sherpa_tree_physical_gpu{physical_gpus()[fg['update_gpu']]}.lock").open('a')
     try: fcntl.flock(gpu_lock, fcntl.LOCK_EX|fcntl.LOCK_NB)
     except BlockingIOError:
         lock.close(); gpu_lock.close()
@@ -165,6 +167,7 @@ def run(cfg, max_batches=None, eval_only=False):
     os.environ.pop('SHERPA_DOCTOR_ENDPOINTS', None)
     os.environ['API_USAGE_LOG'] = str(out/'api_usage.jsonl')
     os.environ['SHERPA_API_WORKERS'] = str(fg.get('api_workers',3))
+    record_runtime(out,cfg)
     key = load_key()
     local = copy.deepcopy(cfg)
     local['rollout']['doctor_backend']['endpoint'] = fg['doctor_urls'][4]
@@ -199,10 +202,13 @@ def run(cfg, max_batches=None, eval_only=False):
                             'mode':fg['opening_mode'],'na':RUBRIC_ONLY_NA_POLICY,
                             **({'execution_mode':POOL_MODE,'batch_cases':5} if shared else {})})
     path = out/'run_state.json'
+    theta0 = adapter_sha256(policy.model)
+    experiment.check_pfinal_source(cfg,theta0,protocol)
     if path.exists():
         state = json.loads(path.read_text())
         if state['config_sha256'] != config_sha or state['protocol_sha256'] != protocol:
             raise RuntimeError('Run configuration/protocol changed; use a new output directory')
+        experiment.check_resume(cfg,out,state,theta0)
         load_checkpoint(updater,state['checkpoint'])
         if adapter_sha256(policy.model) != state['policy_sha256']: raise RuntimeError('Resume adapter mismatch')
         manifest_path = out/'run_manifest.json'
@@ -220,9 +226,10 @@ def run(cfg, max_batches=None, eval_only=False):
         if (out/'checkpoints').exists(): raise RuntimeError('Checkpoint artifacts without committed run state')
         initial = out/'checkpoints/checkpoint_000000'
         sha = adapter_sha256(policy.model)
-        save_checkpoint(updater,initial,{'completed_cases':0,'policy_sha256':sha,'protocol_sha256':protocol})
+        save_checkpoint(updater,initial,{'completed_cases':0,'policy_sha256':sha,'protocol_sha256':protocol,
+                                         **experiment.receipt_fields(cfg)})
         state = {'case_cursor':0,'batch_cursor':0,'config_sha256':config_sha,'protocol_sha256':protocol,
-                 'policy_sha256':sha,'checkpoint':str(initial)}
+                 'policy_sha256':sha,'checkpoint':str(initial),**experiment.state_fields(cfg,theta0)}
         if evolving:state.update(prompt_sha256=initial_prompt,prompt_id=cfg['rubric']['prompt_id'])
         atomic_write_json(out/'run_manifest.json',{'config':cfg,'protocol_sha256':protocol,
                             'rubric_only_na_policy':RUBRIC_ONLY_NA_POLICY,'rerun_outcome_policy':RERUN_OUTCOME_POLICY,
@@ -376,11 +383,15 @@ def run(cfg, max_batches=None, eval_only=False):
                 if shared:
                     assert_idle(pool_spec)
                     with parent_actor.changing_policy():pass
+                reward_rows = experiment.check_batch(cfg,records)
+                if reward_rows:
+                    atomic_write_json(out/'reward_components'/f'batch_{batch:06d}.json',reward_rows)
                 digest = sha256_json(records); cursor = state['case_cursor']+len(records)
                 milestone = cursor%fg['checkpoint_every_cases'] == 0 or cursor == cfg['schedule']['cases']
                 ckpt = out/'checkpoints'/(f'checkpoint_{cursor:06d}' if milestone else f'recovery_{batch:06d}')
                 if ckpt.exists():
                     proof = json.loads((ckpt/'COMPLETE.json').read_text())
+                    experiment.check_receipt(cfg,proof,'Recovery checkpoint')
                     if proof['records_sha256'] != digest or proof['source_policy_sha256'] != state['policy_sha256']:
                         raise RuntimeError('Recovery receipt differs from replayed batch')
                     if evolving and proof.get('next_prompt')!=next_prompt:
@@ -396,7 +407,7 @@ def run(cfg, max_batches=None, eval_only=False):
                         update = update_batch(updater,records,state['policy_sha256'],lambda:adapter_sha256(policy.model))
                     proof = {'records_sha256':digest,'source_policy_sha256':state['policy_sha256'],
                         'policy_sha256':adapter_sha256(policy.model),'completed_cases':cursor,
-                        'protocol_sha256':protocol,'update':update}
+                        'protocol_sha256':protocol,'update':update,**experiment.receipt_fields(cfg)}
                     if evolving:proof['next_prompt']=next_prompt
                     save_checkpoint(updater,ckpt,proof)
                 previous = Path(state['checkpoint'])
@@ -439,11 +450,12 @@ def main():
     parser.add_argument('--eval-only',action='store_true')
     parser.add_argument('--max-batches',type=int)
     args = parser.parse_args()
-    cfg = json.loads((ROOT/args.config).read_text())
+    cfg = experiment.load_config(args.config)
     errors = preflight(cfg)
     print(json.dumps({'training_cases':cfg['schedule']['cases'],'rollout_gpus':cfg['five_gpu']['rollout_gpus'],'lanes_per_gpu':cfg['five_gpu']['lanes_per_gpu'],'batch_cases':cfg['five_gpu']['batch_cases'],'update_gpu':4,
                       'checkpoint_every_cases':cfg['five_gpu']['checkpoint_every_cases'],'evaluation_cases':cfg['five_gpu']['eval_cases'] if cfg['five_gpu'].get('checkpoint_evaluation_enabled',True) else 0,
                       'execution_mode':cfg['five_gpu'].get('execution_mode','fixed_case_v1'),
+                      'output_dir':cfg['output_dir'],'experiment':cfg.get('experiment'),
                       'blockers':errors,'launch':args.launch},ensure_ascii=False,indent=2),flush=True)
     if errors: raise SystemExit(1)
     if args.max_batches is not None and args.max_batches < 1: parser.error('--max-batches must be positive')

@@ -1,0 +1,14 @@
+{
+  "extends": "configs/experiments/reward_prompt_matrix/base_batch5.json",
+  "experiment": {
+    "family": "prompt_ablation",
+    "reward_weight_rubric": 0.5,
+    "reward_weight_outcome": 0.5,
+    "prompt_mode": "pfinal_fixed",
+    "pfinal_artifact": null,
+    "feedback_model": "anthropic/claude-4.6-sonnet-20260217",
+    "seed": 0,
+    "train_order_sha256": "b527dc1a7bb237a9271f6db575ca155cb2d5f64b5a29b8a39bf2ce41b6e3f5f0",
+    "output_dir": null
+  }
+}

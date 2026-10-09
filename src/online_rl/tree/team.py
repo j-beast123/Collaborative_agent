@@ -24,17 +24,23 @@ def effectiveness_weighted_r_a(scores: list[ResponseRubricScore], weights: dict[
     return sum(w * x for x, w in used) / sum(w for _, w in used) if used else None
 
 
+def compose_reward(outcome: Optional[float], ra: Optional[float], w_outcome: float, w_rubric: float) -> Optional[float]:
+    """Single reward formula; None excludes the response from GRPO."""
+    unassessed_rubric_only = w_outcome == 0.0 and w_rubric > 0.0 and ra is None
+    if outcome is None or unassessed_rubric_only: return None
+    return w_outcome * outcome + (w_rubric * ra if ra is not None else 0.0)
+
+
 def node_credit(w_outcome: float, w_rubric: float):
     def credit(tree: Tree, leaf_outcomes: dict[str, float], node_r_a: dict[str, Optional[float]]) -> dict:
         desc = descendant_outcomes(tree); nodes, groups = {}, {}
         for n in tree.nodes:
             outs = list(desc[n.node_id].values())
             outcome = sum(outs) / len(outs) if outs else None; ra = node_r_a.get(n.node_id)
-            unassessed_rubric_only = w_outcome == 0.0 and w_rubric > 0.0 and ra is None
-            reward = None if outcome is None or unassessed_rubric_only else w_outcome * outcome + (w_rubric * ra if ra is not None else 0.0)
-            nodes[n.node_id] = {'outcome_component': outcome, 'descendant_leaves': len(outs), 'R_A': ra, 'reward': reward}
+            nodes[n.node_id] = {'outcome_component': outcome, 'descendant_leaves': len(outs), 'R_A': ra,
+                                'reward': compose_reward(outcome, ra, w_outcome, w_rubric)}
             groups.setdefault(n.parent_id or 'root', []).append(n.node_id)
-        return {'nodes': nodes, 'groups': groups}
+        return {'nodes': nodes, 'groups': groups, 'reward_weights': {'w_outcome': w_outcome, 'w_rubric': w_rubric}}
     return credit
 
 

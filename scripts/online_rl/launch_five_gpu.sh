@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4}"  # logical GPU0-4 -> physical
 export SHERPA_AGENT_REPLICAS=1
 export TOKENIZERS_PARALLELISM=false
 : "${SHERPA_ENV_FILE:=$PWD/.env}"
