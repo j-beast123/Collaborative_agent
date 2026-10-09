@@ -17,6 +17,19 @@ from src.online_rl.tree import experiment
 from src.online_rl.tree.devices import physical_gpus, record_runtime
 
 
+def doctor_endpoint_problems(fg):
+    """Five distinct endpoints, or runtime doctor_servers whose request slots cover every actor endpoint."""
+    servers = fg.get('doctor_servers')
+    if not servers:
+        return [] if len(set(fg['doctor_urls'])) == 5 else ['Five distinct Doctor endpoints required without doctor_servers']
+    out, capacity = [], {s['url']: s['parallel'] for s in servers}
+    if len(capacity) != len(servers): out.append('doctor_servers URLs must be distinct')
+    if any(s['parallel'] not in (1, 2, 4, 8) for s in servers): out.append('doctor_servers parallel must be 1, 2, 4 or 8')
+    for url in set(fg['doctor_urls']):
+        if fg['doctor_urls'].count(url) > capacity.get(url, 0): out.append(f'Doctor endpoint {url} has more actors than server slots')
+    return out
+
+
 def preflight(cfg):
     from scripts.online_rl.run_tree import blockers, PROMPT_HASHES, file_sha
     from src.online_rl.cases import load_cases, file_sha256
@@ -44,8 +57,9 @@ def preflight(cfg):
         errors.append('Shared mode requires the measured Agent4 / Doctor1 configuration')
     if fg['rollout_gpus'] != (list(range(5)) if shared else [0,1,2,3]) or fg['update_gpu'] != 4 or fg['lanes_per_gpu'] != 1 or fg.get('batch_cases') != batch_cases:
         errors.append(f'Need {batch_cases} case coordinators, one lane each, updater GPU4')
-    if fg['checkpoint_every_cases'] != (30 if shared else 24) or len(fg['doctor_urls']) != 5 or len(set(fg['doctor_urls'])) != 5:
-        errors.append('Need the declared snapshot interval and five distinct Doctor endpoints')
+    if fg['checkpoint_every_cases'] != (30 if shared else 24) or len(fg['doctor_urls']) != 5:
+        errors.append('Need the declared snapshot interval and five Doctor endpoints')
+    errors += doctor_endpoint_problems(fg)
     if cfg.get('evaluation'):
         errors.append('Use the asynchronous evaluation queue in this runner')
     if cfg['prompt_update']['enabled']:

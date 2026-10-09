@@ -6,23 +6,33 @@ sys.path.insert(0,str(ROOT))
 from src.online_rl.tree.devices import physical_gpus
 
 
+def server_plan(cfg, selected_gpus=None):
+    """(label, physical device, url, parallel) per Doctor server: runtime doctor_servers, else one per logical GPU."""
+    fg=cfg['five_gpu']
+    if fg.get('doctor_servers'):
+        servers=[s for s in fg['doctor_servers'] if selected_gpus is None or int(s['gpu']) in selected_gpus]
+        return [(str(s['gpu']),str(s['gpu']),s['url'],int(s['parallel'])) for s in servers]
+    gpu_ids=fg.get('doctor_gpu_ids',list(range(len(fg['doctor_urls']))))
+    if len(gpu_ids)!=len(fg['doctor_urls']):raise ValueError('Doctor GPU IDs and URLs must have identical lengths')
+    requested=set(gpu_ids if selected_gpus is None else selected_gpus)
+    unknown=requested-set(gpu_ids)
+    if unknown:raise ValueError(f'Doctor GPU IDs not configured: {sorted(unknown)}')
+    physical=physical_gpus();plan=[]
+    for gpu,url in zip(gpu_ids,fg['doctor_urls']):
+        if gpu not in requested:continue
+        parallelism=int(os.environ.get('SHERPA_DOCTOR_CONCURRENCY',fg.get('doctor_concurrency',fg['lanes_per_gpu']))) if gpu in (0,1,2,3) else 1
+        if parallelism not in (1,2,4,8):raise ValueError('Doctor concurrency must be 1, 2, 4 or 8')
+        plan.append((gpu,physical[gpu],url,parallelism))   # logical Doctor GPU -> physical
+    return plan
+
+
 def start(cfg, *, require_model=True, selected_gpus=None):
     out=ROOT/cfg['output_dir']/'doctor_servers';out.mkdir(parents=True,exist_ok=True)
     configured_binary=os.environ.get('SHERPA_OLLAMA_BINARY',cfg['five_gpu'].get('ollama_binary','ollama'))
     found=shutil.which(configured_binary) if '/' not in configured_binary else None
     binary=str(Path(found or configured_binary).resolve())
     if not Path(binary).is_file():raise FileNotFoundError(f'Ollama binary not found: {configured_binary}; set SHERPA_OLLAMA_BINARY')
-    gpu_ids=cfg['five_gpu'].get('doctor_gpu_ids',list(range(len(cfg['five_gpu']['doctor_urls']))))
-    if len(gpu_ids)!=len(cfg['five_gpu']['doctor_urls']):raise ValueError('Doctor GPU IDs and URLs must have identical lengths')
-    requested=set(gpu_ids if selected_gpus is None else selected_gpus)
-    unknown=requested-set(gpu_ids)
-    if unknown:raise ValueError(f'Doctor GPU IDs not configured: {sorted(unknown)}')
-    physical=physical_gpus()
-    for gpu,url in zip(gpu_ids,cfg['five_gpu']['doctor_urls']):
-        if gpu not in requested:continue
-        device=physical[gpu]  # logical Doctor GPU -> physical
-        parallelism=int(os.environ.get('SHERPA_DOCTOR_CONCURRENCY',cfg['five_gpu'].get('doctor_concurrency',cfg['five_gpu']['lanes_per_gpu']))) if gpu in (0,1,2,3) else 1
-        if parallelism not in (1,2,4,8):raise ValueError('Doctor concurrency must be 1, 2, 4 or 8')
+    for gpu,device,url,parallelism in server_plan(cfg,selected_gpus):
         # A live foreign server is never adopted merely because its port matches.
         pidfile=out/f'gpu{gpu}.pid'
         if pidfile.exists():
