@@ -29,6 +29,10 @@ EXPECTED = {'batch_cases': 5, 'branching': 4, 'rounds': 4, 'cases': 300, 'prompt
 PROTOCOLS = {
     'dev_': {'cases': 60, 'rounds': 4, 'prompt_mode': ('evolving',), 'root': 'outputs/dev_opt/', 'scorer_request_cache': None},
     't2dev_': {'cases': 30, 'rounds': 2, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/fixed_t2_dev/', 'scorer_request_cache': 'canonical_request_sha256_v1'},
+    't2rw': {'cases': 30, 'rounds': 2, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/fixed_t2_rw/', 'scorer_request_cache': 'canonical_request_sha256_v1',
+             'outcome_only_allowed': True},
+    't2dis': {'cases': 60, 'rounds': 2, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/fixed_t2_dis/', 'scorer_request_cache': 'canonical_request_sha256_v1',
+              'outcome_only_allowed': True},
     't2smoke': {'cases': 5, 'rounds': 2, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/fixed_t2_smoke/', 'scorer_request_cache': 'canonical_request_sha256_v1'},
     't2_': {'cases': 120, 'rounds': 2, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/fixed_t2_120/', 'scorer_request_cache': 'canonical_request_sha256_v1'},
 }
@@ -104,7 +108,8 @@ def check(cfg_path, runtime_cfg, expected_commit):
     if fam and not cfg['output_dir'].startswith(fam['root']): hard.append(f"variant {e.get('variant')} must write under {fam['root']}")
     if cfg['judges'].get('scorer_request_cache') != (fam or {}).get('scorer_request_cache'):
         hard.append(f"judges.scorer_request_cache {cfg['judges'].get('scorer_request_cache')!r} does not match the protocol")
-    if not cfg['rubric']['enabled']: hard.append('rubric reward pipeline not enabled')
+    outcome_only = ar['w_rubric'] == 0 and (fam or {}).get('outcome_only_allowed')
+    if not cfg['rubric']['enabled'] and not outcome_only: hard.append('rubric reward pipeline not enabled')
     if cfg['prompt_update']['enabled'] != (e['prompt_mode'] == 'evolving'): hard.append('prompt evolution does not match prompt_mode')
     if cfg['rubric']['prompt_sha256'] != EXPECTED['p0_sha256']: hard.append('initial P0 differs from the production P0')
     if X.fingerprint(cfg) != X.fingerprint(prod): hard.append('runtime overlay changed the research fingerprint')
