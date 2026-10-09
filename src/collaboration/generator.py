@@ -173,6 +173,15 @@ def dialogue_text(dialogue: list[dict]) -> str:
     )
 
 
+class ProviderRefusal(RuntimeError):
+    """The provider returned no content because its content filter refused this request (finish_reason content_filter).
+    Deterministic for a given request, so it is never retried; the caller decides what a refused call means."""
+
+    def __init__(self, model: str, finish_reason, native_finish_reason, provider):
+        super().__init__(f'{model} refused the request: finish_reason={finish_reason} native={native_finish_reason} provider={provider}')
+        self.model, self.finish_reason, self.native_finish_reason, self.provider = model, finish_reason, native_finish_reason, provider
+
+
 def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, temperature: float = 0.4,
                 extra: dict | None = None, meta: dict | None = None) -> str:
     """One OpenRouter chat completion (retry policy: src/common/retry.py). `extra` adds request fields (e.g. reasoning
@@ -205,7 +214,10 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, t
             error = body.get("error") if isinstance(body, dict) else None
             if error:  # a 200 response carrying a provider error instead of a completion
                 raise _ProviderError(error)
-            text = body["choices"][0]["message"]["content"].strip()
+            first = body["choices"][0]
+            if first["message"].get("content") is None and first.get("finish_reason") == "content_filter":
+                raise ProviderRefusal(model, first.get("finish_reason"), first.get("native_finish_reason"), body.get("provider"))
+            text = first["message"]["content"].strip()
             if meta is not None:
                 choice = body["choices"][0]
                 meta.update(finish_reason=choice.get("finish_reason"), native_finish_reason=choice.get("native_finish_reason"),

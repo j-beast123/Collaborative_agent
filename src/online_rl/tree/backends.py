@@ -95,8 +95,10 @@ def api_behavior_feedback(key: str, model: str, system: str, max_tokens: int, pr
     final decision, outcome or gold). The answer ends with 'Behavioral locus: Agent reply N'. Deterministic guards: reply
     labels, locus, and answer leakage (option labels, option texts, correctness wording; posthoc.leakage_problems). Any
     problem -> ONE repair with the same input plus a note naming the problems. Leakage still present -> invalid feedback
-    (valid=False, no locus); never silently redacted. A locus problem alone leaves a valid feedback without locus."""
-    from src.collaboration.generator import doctor_call
+    (valid=False, no locus); never silently redacted. A locus problem alone leaves a valid feedback without locus.
+    A provider content-filter refusal (no text at all; deterministic for the request) -> invalid feedback with status
+    'provider_refusal': like leaked feedback, the trajectory gets no rubric mapping; nothing is substituted."""
+    from src.collaboration.generator import ProviderRefusal, doctor_call
     from src.online_rl.tree.posthoc import behavior_message, feedback_label_problems, leakage_problems, split_locus
     call = lambda user: with_role('feedback', lambda: doctor_call(key, model, system, user, max_tokens))
 
@@ -104,16 +106,25 @@ def api_behavior_feedback(key: str, model: str, system: str, max_tokens: int, pr
         clean, rid, locus = split_locus(text, n)
         return clean, rid, locus, feedback_label_problems(text, n), leakage_problems(clean, view)
 
+    def refused(error, raw, first_leak):
+        return {'text': '', 'target_reply_id': None, 'status': 'provider_refusal', 'raw': raw, 'valid': False,
+                'leakage': {'first': first_leak, 'final': first_leak}, 'kind': protocol,
+                'provider_refusal': {'finish_reason': error.finish_reason, 'native_finish_reason': error.native_finish_reason, 'provider': error.provider}}
+
     def feedback(view, dialogue, outcome):                          # view / outcome: used only by the guard, never shown
         user, n = behavior_message(dialogue)
-        text = call(user); raw = [text]; clean, rid, locus, labels, leak = check(text, n, view); first_leak = leak
+        try: text = call(user)
+        except ProviderRefusal as error: return refused(error, [], [])
+        raw = [text]; clean, rid, locus, labels, leak = check(text, n, view); first_leak = leak
         if locus or labels or leak:
             parts = []
             if leak: parts.append('used answer-specific or correctness wording (' + '; '.join(leak) + '): describe behavior only, refer to positions '
                                   'abstractly, and do not judge whether anything was correct')
             if labels: parts.append(f'referred to {", ".join(labels)}, which does not exist (only Agent reply 1 to Agent reply {n})')
             if locus: parts.append(f'did not end with exactly one valid line "Behavioral locus: Agent reply N" ({locus})')
-            text = call(user + '\n\nYour previous feedback ' + ' and '.join(parts) + '. Write the feedback again following every rule.'); raw.append(text)
+            try: text = call(user + '\n\nYour previous feedback ' + ' and '.join(parts) + '. Write the feedback again following every rule.')
+            except ProviderRefusal as error: return refused(error, raw, first_leak)
+            raw.append(text)
             clean, rid, locus, labels, leak = check(text, n, view)
         valid = not leak
         status = ('ok' if len(raw) == 1 else 'repaired') if valid and locus is None else ('leakage' if not valid else locus)
