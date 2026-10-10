@@ -9,6 +9,7 @@ import copy
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import time
@@ -28,8 +29,28 @@ ENV_PATHS = {'SHERPA_BASE_MODEL': ('policy', 'base_model'),
              'SHERPA_OLLAMA_MODELS': ('five_gpu', 'ollama_models_dir')}
 
 
-def load_config(path=CONFIG):
+def positive_learning_rate(value):
+    try:
+        rate = float(value)
+    except (TypeError, ValueError):
+        raise ValueError('Learning rate must be a finite positive number') from None
+    if isinstance(value, bool) or not math.isfinite(rate) or rate <= 0:
+        raise ValueError('Learning rate must be a finite positive number')
+    return rate
+
+
+def load_config(path=CONFIG, *, learning_rate=None):
     cfg = json.loads((ROOT / path).read_text())
+    # Explicit CLI > environment > config. Equivalent numeric forms have the
+    # same configuration identity; a changed LR starts a separate experiment.
+    requested = learning_rate if learning_rate is not None else os.environ.get('SHERPA_LEARNING_RATE')
+    baseline = positive_learning_rate(cfg['optimizer']['learning_rate'])
+    rate = baseline if requested is None else positive_learning_rate(requested)
+    if rate != baseline:
+        cfg['optimizer']['learning_rate'] = rate
+        cfg['output_dir'] += '/lr_' + repr(rate)
+        cfg['experiment']['output_root'] = cfg['output_dir']
+        cfg['notes']['changes'].append(f'Run-start learning rate override: {baseline} -> {rate}; separate output/cache/checkpoints')
     from src.online_rl.tree.b200_doctor_setup import receipt_path, apply_receipt
     receipt = receipt_path()
     if receipt.is_file():
@@ -40,6 +61,11 @@ def load_config(path=CONFIG):
         if os.environ.get(env):
             cfg[section][key] = str(Path(os.environ[env]).expanduser().resolve())
     return cfg
+
+
+def validate_resume_identity(state, cfg, source_sha):
+    if state and (state['config_sha256'] != sha256_json(cfg) or state['source_sha256'] != source_sha):
+        raise RuntimeError('Config/code changed (including learning rate); resume requires the original run settings')
 
 
 def file_sha(path):
@@ -259,8 +285,7 @@ def run(cfg, *, max_batches=None, evaluate=False):
         config_sha, source_sha = sha256_json(cfg), code_identity()
         path = out / 'run_state.json'
         state = json.loads(path.read_text()) if path.exists() else None
-        if state and (state['config_sha256'] != config_sha or state['source_sha256'] != source_sha):
-            raise RuntimeError('Config/code changed; resume requires the original scientific and execution identity')
+        validate_resume_identity(state, cfg, source_sha)
         if evaluate and (not state or state['case_cursor'] != 120):
             raise RuntimeError('Final evaluation requires all 120 training cases committed')
         if state is None and any((out / 'checkpoints').glob('*')):

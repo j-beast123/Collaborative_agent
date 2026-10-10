@@ -304,6 +304,18 @@ default is `$HOME/.local/share/sherpa-b200`; model storage is its `models/` chil
 Remote filesystem, credentials and live provider model availability remain
 unverified on this editing server.
 
+## Clone a new server and choose learning rate
+
+See [the complete clone-to-evaluation command guide](B200_CLONE_RUN.md).
+Set `SHERPA_LEARNING_RATE` or pass `--learning-rate`; CLI wins over environment,
+then config. Default `1e-5` preserves the existing output path. A different value
+adds `lr_<value>/` before `doctor_<digest>/`, separating output, cache and
+checkpoints. The effective optimizer config enters the manifest/config hash.
+Resume and evaluation require the original learning rate; this does not add a
+scheduler or permit changing LR inside an existing run. Report supports the same
+flag/environment. For example `SHERPA_LEARNING_RATE=5e-6` selects
+`outputs/sherpa_b200_max4_parallel_bank_v2/lr_5e-06/doctor_<digest12>/`.
+
 ## Commands on B200
 
 Use the existing CUDA/PyTorch/Transformers/PEFT environment compatible with this
@@ -512,3 +524,5 @@ running outside the sandbox. No actual GPU inference, API request, installation,
 download, service management, training or test evaluation was performed.
 CPU preflight returned an empty blocker list. Remote resources/model support
 must still pass the user-run checks described above.
+
+Learning-rate override addition: **74 targeted CPU tests passed**, including13 new LR tests (CLI/environment/default precedence, invalid values, separate output paths, resume identity, real CPU optimizer and progress reporting). CPU preflight with `SHERPA_LEARNING_RATE=5e-6` returned no blockers. The743 full-suite result above precedes this addition. No installation or live execution was performed.

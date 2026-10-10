@@ -15,14 +15,17 @@ def main():
     parser.add_argument('--action', choices=('preflight', 'train', 'evaluate'), default='preflight')
     parser.add_argument('--cpu-only', action='store_true', help='Validate scientific config/data/prompts; omit server resources and credentials')
     parser.add_argument('--max-batches', type=int)
+    parser.add_argument('--learning-rate', help='Positive run-start LR; overrides SHERPA_LEARNING_RATE, then optimizer.learning_rate')
     args = parser.parse_args()
     if args.cpu_only and args.action != 'preflight': parser.error('--cpu-only is for preflight only')
     if args.max_batches is not None and (args.action != 'train' or args.max_batches < 1): parser.error('--max-batches is positive and train-only')
-    cfg = load_config(args.config)
+    try: cfg = load_config(args.config, learning_rate=args.learning_rate)
+    except ValueError as exc: parser.error(str(exc))
     errors = preflight(cfg, resources=not args.cpu_only)
     print(json.dumps({'action': args.action, 'blockers': errors, 'output': cfg['output_dir'],
                       'topology': cfg['two_gpu'], 'gpu_mapping': physical_devices() if not errors else None,
                       'train_cases': cfg['schedule']['cases'], 'reward': cfg['agent_reward'],
+                      'learning_rate': cfg['optimizer']['learning_rate'],
                       'bank_mode': cfg['rubric'].get('bank_mode'),
                       'candidate_batch_size': cfg['rubric'].get('candidate_batch_size'),
                       'global_api_max_in_flight': cfg['execution'].get('global_api_max_in_flight'),

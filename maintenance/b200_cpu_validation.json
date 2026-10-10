@@ -51,5 +51,15 @@
     "real_provider_support_verified": false,
     "real_training_or_gpu_execution": false
   },
-  "config_sha256": "abcd4b873db21006eabb0c5ca9f621221125358a884e2f0b33e5b02359a26f1a"
+  "config_sha256": "abcd4b873db21006eabb0c5ca9f621221125358a884e2f0b33e5b02359a26f1a",
+  "learning_rate_override_addition": {
+    "targeted_cpu_tests_passed": 74,
+    "new_lr_tests": 13,
+    "seconds": 7.32,
+    "command": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q tests/test_b200_runner.py tests/test_b200_partner.py tests/test_parallel_bank.py tests/test_b200_doctor_setup.py",
+    "cpu_preflight_learning_rate": 5e-06,
+    "cpu_preflight_blockers": [],
+    "real_gpu_api_training": false,
+    "scope": "LR CLI/environment, optimizer wiring, resume identity and affected runner regressions; earlier full-suite count retained"
+  }
 }

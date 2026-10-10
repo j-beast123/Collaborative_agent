@@ -169,3 +169,66 @@ def test_http_attempt_audit_keeps_usage_but_never_credentials_or_prompt(tmp_path
     assert 'TEST-SECRET' not in data and 'private-prompt' not in data
     row = json.loads(data)
     assert row['case_id'] == 'case-a' and row['input_tokens'] == 3 and row['output_tokens'] == 2
+
+
+@pytest.fixture
+def lr_environment(monkeypatch):
+    monkeypatch.delenv('SHERPA_LEARNING_RATE', raising=False)
+    monkeypatch.delenv('SHERPA_DOCTOR_RECEIPT', raising=False)
+    monkeypatch.setattr('src.online_rl.tree.b200_doctor_setup.receipt_path', lambda: R.ROOT / '__no_test_receipt__')
+
+
+def test_lr_default_env_cli_precedence_and_separate_paths(lr_environment, monkeypatch):
+    default = R.load_config()
+    assert default['optimizer']['learning_rate'] == 1e-5
+    assert R.load_config(learning_rate='0.00001') == default
+    monkeypatch.setenv('SHERPA_LEARNING_RATE', '5e-6')
+    changed = R.load_config()
+    assert changed['optimizer']['learning_rate'] == 5e-6
+    assert changed['output_dir'] == default['output_dir'] + '/lr_5e-06'
+    assert changed['experiment']['output_root'] == changed['output_dir']
+    assert R.load_config(learning_rate='1e-5') == default
+    assert R.load_config(learning_rate='0.000005') == changed
+    assert changed['optimizer'] == {**default['optimizer'], 'learning_rate': 5e-6}
+    for field in ('agent_reward', 'rollout', 'verification', 'policy', 'two_gpu', 'rubric'):
+        assert changed[field] == default[field]
+
+
+@pytest.mark.parametrize('bad', ['0', '-1e-5', 'nan', 'inf', '-inf', '', 'oops', True, '1e-999'])
+def test_invalid_learning_rate_rejected_before_loading_models(lr_environment, bad):
+    with pytest.raises(ValueError, match='finite positive'):
+        R.load_config(learning_rate=bad)
+
+
+def test_same_lr_resume_identity_and_changed_lr_refusal(lr_environment):
+    from src.online_rl.integrated.records import sha256_json
+    cfg = R.load_config(learning_rate='5e-6')
+    saved = {'config_sha256': sha256_json(cfg), 'source_sha256': 'code'}
+    R.validate_resume_identity(saved, R.load_config(learning_rate='0.000005'), 'code')
+    with pytest.raises(RuntimeError, match='learning rate'):
+        R.validate_resume_identity(saved, R.load_config(learning_rate='1e-5'), 'code')
+
+
+def test_lr_override_reaches_real_cpu_optimizer(lr_environment):
+    import torch
+    from src.online_rl.integrated.grpo import make_updater
+    cfg = R.load_config(learning_rate='5e-6')
+    policy = SimpleNamespace(torch=torch, model=torch.nn.Linear(2, 2))
+    updater = make_updater(policy, cfg)
+    assert all(group['lr'] == 5e-6 for group in updater.optimizer.param_groups)
+    assert updater.identity()['learning_rate'] == 5e-6
+
+
+def test_lr_cli_preflight_and_progress_report(lr_environment, monkeypatch, capsys):
+    import runpy, sys
+    from scripts.online_rl import run_b200
+    monkeypatch.setattr(R, 'physical_devices', lambda: ['0', '1'])
+    monkeypatch.setattr(R, 'preflight', lambda cfg, **kw: [])
+    monkeypatch.setenv('SHERPA_LEARNING_RATE', '8e-6')
+    monkeypatch.setattr(sys, 'argv', ['run_b200.py', '--action', 'preflight', '--cpu-only', '--learning-rate', '5e-6'])
+    run_b200.main()
+    report = json.loads(capsys.readouterr().out)
+    assert report['learning_rate'] == 5e-6 and report['output'].endswith('/lr_5e-06')
+    monkeypatch.setattr(sys, 'argv', ['report_b200.py', '--learning-rate', '5e-6'])
+    runpy.run_path(str(R.ROOT / 'scripts/online_rl/report_b200.py'), run_name='__main__')
+    assert json.loads(capsys.readouterr().out)['output'] == report['output']

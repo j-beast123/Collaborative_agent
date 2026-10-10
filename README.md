@@ -11,6 +11,10 @@ consolidation fixes the bank and source mappings before gate/verification.
 All API roles and retries share a global100 in-flight limit. Gate/scorer,
 Doctor, rubric-only reward and the five-case update barrier remain unchanged.
 
+**새 서버 clone → 환경 준비 → 학습/재개/평가:** [한국어 실행 명령](docs/B200_CLONE_RUN.md).
+Learning rate: `SHERPA_LEARNING_RATE=5e-6` 또는 `--learning-rate 5e-6` (기본 `1e-5`).
+다른 LR은 별도 출력 경로를 사용하며 재개·평가는 학습 당시 값을 유지합니다.
+
 **Setup, complete commands, resume rules and changes:** [B200 execution guide](docs/B200_SHERPA.md).
 Configuration: [train120_max4_rubric_only_b200.json](configs/experiments/train120_max4_rubric_only_b200.json).
 Launcher: [launch_b200.sh](scripts/online_rl/launch_b200.sh).
