@@ -66,7 +66,7 @@ class DoctorReflectionError(RuntimeError):
         self.audit = {'raw': raw, 'evidence': evidence, 'settings': settings}
 
 
-def parse_reflection(raw: str, count: int) -> dict:
+def parse_reflection(raw: str, count: int, *, allow_multiple=False) -> dict:
     # Some local models wrap valid JSON despite the no-Markdown instruction.
     # Remove only a single complete outer JSON fence, never surrounding prose,
     # multiple fenced blocks, missing fields, or values inside the JSON object.
@@ -84,7 +84,7 @@ def parse_reflection(raw: str, count: int) -> dict:
     for field in ('helpful', 'unresolved'):
         if not isinstance(result[field], list):
             raise ValueError(f'{field} must be an array')
-        if len(result[field]) > 1:
+        if not allow_multiple and len(result[field]) > 1:
             raise ValueError(f'{field} must contain zero or one experience')
         for item in result[field]:
             if not isinstance(item, dict) or set(item) != {'agent_reply_id', 'experience'}:
@@ -95,6 +95,41 @@ def parse_reflection(raw: str, count: int) -> dict:
             if not isinstance(item['experience'], str) or not item['experience'].strip():
                 raise ValueError(f'{field}.experience must be a non-empty string')
     return result
+
+
+SELECTION_REPAIR = """[Reflection format repair: selection only]
+For THIS correction call, replace the reflection output format above with:
+{"helpful_index": 0, "unresolved_index": null}
+Return exactly these two keys. Select one zero-based index from each NONEMPTY
+list of your previously reported experiences below. Use null ONLY for an empty
+list. Choose the experience most directly supported by a specific recorded
+Agent reply and your actual discussion; do not favor agreement, confidence,
+correctness, or a desired final answer. Do not rewrite, combine or invent any
+experience. These are indices in the supplied lists, NOT Agent reply IDs.
+Return only this small JSON object, with no explanation, Markdown or STATUS.
+"""
+
+
+def selected_reflection(raw, candidates, count):
+    # Same single-fence tolerance as the reflection contract; no arbitrary JSON
+    # extraction and no first-item fallback if the Doctor chooses invalid IDs.
+    fence = re.fullmatch(r'\s*```(?:json)?[ \t]*\r?\n(?P<body>.*?)\r?\n```\s*', raw, flags=re.S | re.I)
+    if fence is not None and '```' not in fence.group('body'): raw = fence.group('body')
+    try: choice = json.loads(raw)
+    except (ValueError, TypeError) as exc: raise ValueError('Reflection selection must be one JSON object') from exc
+    if not isinstance(choice, dict) or set(choice) != {'helpful_index', 'unresolved_index'}:
+        raise ValueError('Reflection selection requires helpful_index and unresolved_index')
+    selected = {}
+    for field in ('helpful', 'unresolved'):
+        index = choice[field + '_index']; items = candidates[field]
+        if not items:
+            if index is not None: raise ValueError(f'{field}_index must be null for an empty list')
+            selected[field] = []
+        else:
+            if type(index) is not int or not 0 <= index < len(items):
+                raise ValueError(f'{field}_index must be an integer in 0..{len(items)-1}; cannot discard a nonempty list')
+            selected[field] = [items[index]]
+    return parse_reflection(json.dumps(selected), count), choice
 
 
 def local_doctor_feedback(doctor, system: str, max_tokens: int, run_seed: int = 0, *, prospective_needs=False):
@@ -131,21 +166,35 @@ def local_doctor_feedback(doctor, system: str, max_tokens: int, run_seed: int = 
             user += '\n\nPublic utterance IDs for literal evidence:\n' + json.dumps(public_turns(dialogue), ensure_ascii=False)
         identity = sha256_json({'case_id': view.get('case_id'), 'user': user, 'settings': settings})
         raw, evidence, errors = [], [], []
+        candidates = None; selection = None
         for attempt in range(2):
-            request = user if attempt == 0 else (user + '\n\nYour previous output did not satisfy the JSON contract: ' +
-                errors[-1] + '. Rewrite the reflection as the required JSON object using only valid Agent reply IDs. '
-                'Do not invent experience to fill empty lists.')
+            call_system = combined
+            if attempt == 0:
+                request = user
+            elif candidates is not None:
+                call_system = combined + '\n\n' + SELECTION_REPAIR
+                request = (user + '\n\nYour previous reflection had too many experiences. '
+                    'Choose one index per nonempty list; the program will preserve the chosen text verbatim. '
+                    'Previous experiences (array order is authoritative):\n' + json.dumps(candidates, ensure_ascii=False))
+            else:
+                request = (user + '\n\nYour previous output did not satisfy the JSON contract: ' +
+                    errors[-1] + '. Rewrite the reflection as the required JSON object using only valid Agent reply IDs. '
+                    'Each helpful/unresolved list must have at most ONE item. '
+                    'Do not invent experience to fill empty lists.\nPrevious output:\n' + raw[-1])
             seed = doctor_seed(run_seed, identity, PROTOCOL, attempt)
-            messages = [{'role': 'user', 'content': f'{combined}\n\n{request}'}]
-            body = with_role('doctor_reflection', lambda: doctor._chat(request, seed, max_tokens, combined))
+            messages = [{'role': 'user', 'content': f'{call_system}\n\n{request}'}]
+            body = with_role('doctor_reflection', lambda: doctor._chat(request, seed, max_tokens, call_system))
             raw.append(body)
             evidence.append({'attempt': attempt + 1, 'seed': seed, 'model': doctor.model,
                              'doctor_protocol': doctor.protocol, 'messages': messages,
                              'messages_sha256': sha256_json(messages), 'max_tokens': max_tokens,
-                             'response_sha256': sha256_text(body)})
+                             'response_sha256': sha256_text(body),
+                             **({'repair_mode': 'select_existing_experience_v1' if candidates is not None else 'rewrite_format_v1'} if attempt else {})})
             try:
                 links = []
-                if prospective_needs:
+                if candidates is not None:
+                    result, selection = selected_reflection(body, candidates, count)
+                elif prospective_needs:
                     obj = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', body.strip()))
                     if set(obj) != {'helpful', 'unresolved', 'need_assessment'}: raise ValueError('Expected helpful, unresolved, need_assessment')
                     links = validate_need_links(obj['need_assessment'], private_needs, dialogue, count)
@@ -155,12 +204,18 @@ def local_doctor_feedback(doctor, system: str, max_tokens: int, run_seed: int = 
             except (ValueError, TypeError, KeyError) as exc:
                 errors.append(str(exc))
                 evidence[-1]['validation_error'] = str(exc)
+                if attempt == 0 and not prospective_needs:
+                    try:
+                        multiple = parse_reflection(body, count, allow_multiple=True)
+                        if any(len(multiple[k]) > 1 for k in ('helpful', 'unresolved')): candidates = multiple
+                    except (ValueError, TypeError, KeyError): pass
                 continue
             refs = [item['agent_reply_id'] for field in ('helpful', 'unresolved') for item in result[field]]
             return {'text': json.dumps(result, ensure_ascii=False), 'target_reply_id': refs[0] if refs else None,
                     'status': 'ok' if attempt == 0 else 'repaired', 'valid': True, 'kind': PROTOCOL,
                     'raw': raw, 'reflection': result, 'reflection_need_links': links, 'evidence': evidence, 'settings': dict(settings),
-                    'protocol': sha256_json(settings), 'leakage': {'first': [], 'final': []}}
+                    'protocol': sha256_json(settings), 'leakage': {'first': [], 'final': []},
+                    **({'selection_repair': {'protocol': 'select_existing_experience_v1', 'choice': selection}} if selection is not None else {})}
         raise DoctorReflectionError('Doctor post-FINAL reflection failed local validation after one repair: ' + errors[-1],
                                     raw=raw, evidence=evidence, settings=dict(settings))
 

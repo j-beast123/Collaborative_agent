@@ -184,3 +184,61 @@ def test_reflection_uses_shared_doctor_capacity_and_audits_actual_override(tmp_p
     finally:
         actor.close()
         shutil.rmtree(spec['directory'])
+
+
+def test_multiple_experiences_repair_selects_existing_text_with_no_rewrite():
+    multiple=copy.deepcopy(GOOD)
+    multiple['helpful'].append({'agent_reply_id':1,'experience':'I compared a second consideration from the same reply.'})
+    doctor=RecordingDoctor([json.dumps(multiple),json.dumps({'helpful_index':1,'unresolved_index':0})])
+    fn=local_doctor_feedback(doctor,'Reflect.',512,run_seed=17)
+    result=fn(CASE,DIALOGUE,'HIDDEN_OUTCOME_LABEL')
+    assert result['status']=='repaired' and len(doctor.calls)==2
+    assert result['reflection']['helpful']==[multiple['helpful'][1]]
+    assert result['reflection']['unresolved']==multiple['unresolved']
+    assert result['selection_repair']['choice']=={'helpful_index':1,'unresolved_index':0}
+    request=doctor.calls[1]
+    assert json.dumps(multiple,ensure_ascii=False) in request['user']
+    assert 'indices in the supplied lists, NOT Agent reply IDs' in request['system']
+    assert not any(secret in json.dumps(request) for secret in ('HIDDEN_GOLD','HIDDEN_STATUS','HIDDEN_OUTCOME_LABEL'))
+    assert result['evidence'][1]['messages']==[{'role':'user','content':request['system']+'\n\n'+request['user']}]
+    assert result['evidence'][1]['repair_mode']=='select_existing_experience_v1'
+
+
+@pytest.mark.parametrize('index',[None,True,-1,2,'1'])
+def test_invalid_selection_never_silently_truncates_or_zeros(index):
+    multiple=copy.deepcopy(GOOD);multiple['helpful']*=2
+    doctor=RecordingDoctor([json.dumps(multiple),json.dumps({'helpful_index':index,'unresolved_index':0})])
+    with pytest.raises(DoctorReflectionError,match='helpful_index') as error:
+        local_doctor_feedback(doctor,'Reflect.',512)(CASE,DIALOGUE,'success')
+    assert len(doctor.calls)==2 and len(error.value.audit['raw'])==2
+
+
+def test_empty_list_selection_and_seed_repeat_are_stable():
+    multiple=copy.deepcopy(GOOD);multiple['helpful']*=2;multiple['unresolved']=[]
+    replies=[json.dumps(multiple),json.dumps({'helpful_index':0,'unresolved_index':None})]
+    a=RecordingDoctor(replies);b=RecordingDoctor(replies)
+    first=local_doctor_feedback(a,'Reflect.',512,run_seed=42)(CASE,DIALOGUE,'success')
+    second=local_doctor_feedback(b,'Reflect.',512,run_seed=42)(CASE,DIALOGUE,'failure')
+    assert a.calls==b.calls and first==second
+    assert first['reflection']['unresolved']==[]
+
+
+def test_malformed_item_requires_full_format_repair_with_previous_raw():
+    multiple=copy.deepcopy(GOOD);multiple['helpful']*=2;multiple['helpful'][1]={'agent_reply_id':999,'experience':'bad ID'}
+    doctor=RecordingDoctor([json.dumps(multiple),json.dumps(GOOD)])
+    result=local_doctor_feedback(doctor,'Reflect.',512)(CASE,DIALOGUE,'success')
+    assert 'Previous output:' in doctor.calls[1]['user']
+    assert result['reflection']==GOOD and 'selection_repair' not in result
+    assert result['evidence'][1]['repair_mode']=='rewrite_format_v1'
+
+
+def test_selection_success_cache_reuses_without_doctor_calls(tmp_path):
+    from src.online_rl.tree.cache import CallCache
+    multiple=copy.deepcopy(GOOD);multiple['helpful']*=2
+    doctor=RecordingDoctor([json.dumps(multiple),json.dumps({'helpful_index':1,'unresolved_index':0})])
+    fn=local_doctor_feedback(doctor,'Reflect.',512,run_seed=42)
+    cache=CallCache(tmp_path/'calls.jsonl');identity={'protocol':fn.protocol,'settings':fn.settings,'case':'case'}
+    result=cache.call('feedback',identity,lambda:fn(CASE,DIALOGUE,'success'))
+    assert len(doctor.calls)==2 and fn.settings['format_repair_attempts']==1
+    restored=CallCache(cache.path).call('feedback',identity,lambda:pytest.fail('Doctor called on resume'))
+    assert restored==result

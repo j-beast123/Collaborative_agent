@@ -38,3 +38,12 @@ def test_batch_raw_logprobs_match_teacher_forced_path():
         raw=logits.float().log_softmax(-1).gather(1,torch.tensor(completion)[:,None]).squeeze(1)
         assert torch.allclose(raw,torch.tensor(t['old_policy_logprobs']),atol=1e-5)
         assert t['logprob_semantics']=='raw_policy_before_sampling_warpers_v1'
+
+
+def test_model_defaults_notice_does_not_change_explicit_row_sampling():
+    m=model();tok=Tokenizer()
+    baseline=generate_batch(m,tok,['3 4'],[55],4,.7,.9,0)
+    m.generation_config.transformers_version='4.53.3'
+    m.generation_config.do_sample=True;m.generation_config.temperature=.6;m.generation_config.top_p=.95
+    actual=generate_batch(m,tok,['3 4'],[55],4,.7,.9,0)
+    assert actual==baseline

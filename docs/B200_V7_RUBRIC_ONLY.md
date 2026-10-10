@@ -306,3 +306,38 @@ canonical source 선택과 성공 cache key는 유지합니다. 누락 후보를
 공유 checkout의 프로세스들을 중단한 뒤 pull하고 동일 train 명령을 다시 실행하면 됩니다.
 저장된 정상 후보 생성·rollout 결과는 재사용하며, 이번 수정만으로 새 run을 만들지 않습니다.
 Doctor 배치 추론으로 전환하는 것은 별도 config/run 선택이며 자동 적용되지 않습니다.
+
+## Doctor reflection의 항목 개수 오류
+
+`helpful must contain zero or one experience`는 로컬 Doctor가 helpful 또는 unresolved에
+둘 이상의 경험을 반환했다는 뜻입니다. 대화 종료 후 reflection 단계의 오류이며,
+consolidate/GRPO 업데이트 실패와 구분합니다.
+
+최초 reflection 요청·모델·seed·512-token 예산·성공 cache identity는 유지합니다.
+단, 처음 반환한 JSON의 각 항목이 모두 유효하고 개수만 초과했다면 기존 1회의 수정 요청은
+전체 reflection 재작성 대신 **기존 항목 번호 선택**으로 처리합니다:
+
+```json
+{"helpful_index": 1, "unresolved_index": null}
+```
+
+번호는 기존 리스트의 0-based 위치이며 Agent reply ID가 아닙니다. 비어 있는 리스트만
+null을 허용하고, 비어 있지 않은 리스트에서는 Doctor가 근거가 가장 직접적인 항목을
+하나 선택해야 합니다. 최종 reflection은 그 항목의 원문과 Agent reply ID를 그대로
+복사한 기존 helpful/unresolved 형식입니다. 임의로 첫 항목을 채택하거나 문장을 합치지
+않습니다. 새로운 의료 판단·outcome 목표·참조 정답을 제공하지 않습니다.
+
+잘못된 ID/빈 내용/JSON 오류 등은 기존의 전체 형식 수정 요청을 사용하되, 이제 이전
+잘못된 응답을 함께 전달합니다. 최대 최초 1회 + 수정 1회는 유지하고, 선택마저 잘못되면
+DoctorReflectionError와 raw/messages/seed를 저장합니다. 실패를 빈 reflection이나
+0점으로 대체하지 않습니다. 성공한 항목 선택은 `selection_repair`, 실제 수정 프롬프트는
+`evidence[].messages`와 `repair_mode`에 보존합니다.
+
+동일 config/run 이름/LR로 재개하며 원래 성공 cache는 재사용합니다. 이번 변경으로
+새 run을 만들거나 Doctor 배치 크기·GPU 설정을 바꾸지 않습니다.
+
+`generation_config` 모델 기본값 경고는 이 reflection validator 오류의 원인이 아닙니다.
+Assistant는 generate의 명시적 kwargs가 실제 sampling 값을 다시 적용하고, Doctor 배치는
+`use_model_defaults=False`로 자동 기본값 적용을 막습니다. CPU 테스트에서 model defaults를
+경고에 나온 do_sample=True/temperature=0.6/top_p=0.95로 바꿔도 기존 명시적 sampler의
+출력·점수가 유지되는 것을 확인했습니다. 이 경고를 숨기기 위해 decoding 값을 바꾸지 않습니다.

@@ -84,7 +84,8 @@ def test_actual_pinned_code_allows_only_this_operational_fix():
     got=R.validate_resume_identity(state,cfg,current)
     assert got['effective_source_sha256']==current
     assert set(got['changed_files'])=={'src/online_rl/tree/parallel_bank.py','src/online_rl/tree/b200_runner.py','src/online_rl/tree/backends.py',
-        'src/online_rl/hf_doctor.py','src/online_rl/doctor_batch.py','src/online_rl/tree/hf_doctor_setup.py'}
+        'src/online_rl/hf_doctor.py','src/online_rl/doctor_batch.py','src/online_rl/tree/hf_doctor_setup.py',
+        'src/online_rl/tree/doctor_reflection.py'}
     for source in receipt.get('additional_sources', []):
         got=R.validate_resume_identity({**state,'source_sha256':source['old_source_sha256']},cfg,current)
         assert got['effective_source_sha256']==current

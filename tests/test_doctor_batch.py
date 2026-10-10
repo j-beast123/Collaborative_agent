@@ -124,3 +124,12 @@ def test_batched_chat_failure_never_returns_empty_or_zero(local_model, monkeypat
     d._tok=Tok()
     with pytest.raises(DoctorUnavailable,match='out of memory'):d._chat('history',1,32)
     assert d._chat_metadata.last['error'] and d._chat_metadata.last.get('output_tokens') is None
+
+
+def test_model_specific_defaults_cannot_override_doctor_batch_sampling():
+    m=tiny_model();req=[Request('1 4 7',51,3)]
+    baseline=decode(m,Tok(),req,context=64)[0]
+    m.generation_config.transformers_version='4.53.3'
+    m.generation_config.do_sample=True;m.generation_config.temperature=.6;m.generation_config.top_p=.95
+    actual=decode(m,Tok(),req,context=64)[0]
+    assert actual['body']==baseline['body'] and actual['output_tokens']==baseline['output_tokens']
