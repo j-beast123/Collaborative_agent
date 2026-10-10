@@ -42,9 +42,12 @@ def cfg_of(name): return X.load_config(f'{MATRIX}/{name}')
 
 
 def reference_reward(outcome, ra, w_outcome, w_rubric):
-    """Oracle: the node_credit reward expression before compose_reward was extracted (b647f33), verbatim."""
-    unassessed_rubric_only = w_outcome == 0.0 and w_rubric > 0.0 and ra is None
-    return None if outcome is None or unassessed_rubric_only else w_outcome * outcome + (w_rubric * ra if ra is not None else 0.0)
+    """Only active components may require an outcome or a rubric assessment."""
+    if w_outcome == 0:
+        return None if ra is None and w_rubric > 0 else w_rubric * ra if w_rubric else 0.0
+    if outcome is None:
+        return None
+    return w_outcome * outcome + (w_rubric * ra if w_rubric and ra is not None else 0.0)
 
 
 def tiny_tree(prefix=''):

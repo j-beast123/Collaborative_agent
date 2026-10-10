@@ -11,7 +11,13 @@ from src.online_rl.integrated.conditions import unresolved
 PROMPT_HASHES = (('rubric', 'generator_prompt_file', 'prompt_sha256'), ('feedback', 'prompt_file', 'prompt_sha256'),
                  ('prompt_update', 'feedback_prompt_file', 'feedback_prompt_sha256'), ('prompt_update', 'refiner_prompt_file', 'refiner_prompt_sha256'),
                  ('intervention', 'score0_template_file', 'score0_template_sha256'), ('intervention', 'score2_template_file', 'score2_template_sha256'),
+                 ('intervention', 'instruction_template_file', 'instruction_template_sha256'),
+                 ('intervention', 'agent_system_prompt_file', 'agent_system_prompt_sha256'),
                  ('judges', 'gate_prompt_file', 'gate_prompt_sha256'), ('judges', 'scorer_prompt_file', 'scorer_prompt_sha256'))
+EVIDENCE_SCORER_PROTOCOL = 'response_evidence_v1'
+EVIDENCE_GATE_PROTOCOL = 'evidence_gate_v2'
+JOINT_OUTPUT_CONTRACT = 'trajectory_analysis_candidate_v2_with_intervention'
+JOINT_GUIDED_PROTOCOL = 'joint_instruction_v2_1'
 SMOKE_DIR = 'outputs/online_rl/tree_smoke'
 PILOT_DIR, PILOT_MAX_CASES = 'outputs/online_rl/tree_pilot', 5
 # Named exceptions to the pilot cap: stage -> (output_dir, cases). Each is ONE continuous Outcome-only diagnostic (one policy,
@@ -28,18 +34,142 @@ def blockers(cfg: dict) -> list[str]:
     """Unresolved settings plus every approved prompt/template whose file differs from its pinned sha256 (as run_integrated)."""
     from src.online_rl.tree.conditions import active_unresolved
     out = active_unresolved(cfg)                                    # only settings the condition uses
+    raw_sampling = (cfg.get('optimizer') or {}).get('require_raw_on_policy_sampling', False)
+    if not isinstance(raw_sampling, bool):
+        out.append('optimizer.require_raw_on_policy_sampling must be boolean')
+    elif raw_sampling:
+        from src.online_rl.integrated.grpo import validate_raw_sampling
+        try:
+            validate_raw_sampling(cfg.get('rollout', {}), recorded=False, label='rollout config')
+        except ValueError as exc:
+            out.append(str(exc))
     if cfg['rubric'].get('match_batch_size',1) not in (1,8):out.append('rubric.match_batch_size must be 1 or 8')
     for sec, f, h in PROMPT_HASHES:
+        if f not in cfg.get(sec, {}) or h not in cfg.get(sec, {}): continue
         if cfg[sec][h] not in ('TBD', file_sha(cfg[sec][f])): out.append(f'{sec}.{f} differs from {sec}.{h}')
+    generation = (cfg.get('rubric') or {}).get('generation') or {}
+    schema_file = generation.get('local_schema_file')
+    if schema_file and generation.get('local_schema_sha256') != file_sha(schema_file):
+        out.append('rubric.generation.local_schema_file differs from rubric.generation.local_schema_sha256')
     if cfg['rubric'].get('schema'):
         from src.online_rl.tree.agent_state import SCHEMA
         if cfg['rubric']['schema'] != SCHEMA: out.append('Unknown rubric.schema')
         path = cfg['rubric'].get('state_addendum_file')
         if not path or not (ROOT / path).exists(): out.append('Missing visible-context rubric contract')
         elif cfg['rubric'].get('state_addendum_sha256') != file_sha(path): out.append('Visible-context rubric contract hash differs')
-        if cfg['judges'].get('scorer_protocol') != 'structured_v2': out.append('Visible-context rubric requires structured_v2 scorer')
+        if cfg['judges'].get('scorer_protocol') not in ('structured_v2', EVIDENCE_SCORER_PROTOCOL):
+            out.append('Visible-context rubric requires structured_v2 or response_evidence_v1 scorer')
         if not cfg['feedback'].get('behavioral_locus') or cfg['rubric'].get('source_consistency') != 'source_locus_v1':
             out.append('Visible-context rubric requires a checked behavioral locus')
+    if cfg.get('feedback', {}).get('protocol') == 'physician_post_final_reflection_v1':
+        backend = cfg.get('rollout', {}).get('doctor_backend') or {}
+        expected = f"ollama/{backend.get('model')}@{str(backend.get('model_digest', ''))[:12]}"
+        if backend.get('engine') != 'ollama' or cfg['feedback'].get('model') != expected:
+            out.append('Post-FINAL reflection must use the same pinned local Doctor as the dialogue')
+    return out + joint_protocol_problems(cfg) + gate_protocol_problems(cfg)
+
+
+def gate_protocol_problems(cfg: dict) -> list[str]:
+    """Evidence gating is opt-in and needs an output budget for quoted judgments."""
+    jm = cfg.get('judges', {})
+    protocol = jm.get('gate_protocol', 'legacy_v1')
+    quote_protocol = jm.get('gate_quote_protocol')
+    if quote_protocol not in (None, 'visible_field_enum_v1'):
+        return [f'Unknown judges.gate_quote_protocol {quote_protocol!r}']
+    if quote_protocol is not None and protocol != EVIDENCE_GATE_PROTOCOL:
+        return ['judges.gate_quote_protocol requires evidence_gate_v2']
+    if protocol not in ('legacy_v1', EVIDENCE_GATE_PROTOCOL):
+        return [f'Unknown judges.gate_protocol {protocol!r}']
+    if protocol != EVIDENCE_GATE_PROTOCOL:
+        return []
+    out = []
+    if str(jm.get('gate_model', '')).startswith('typesafe/jev'):
+        out.append('evidence_gate_v2 requires a structured Luna client')
+    budget = jm.get('gate_max_tokens')
+    if isinstance(budget, bool) or not isinstance(budget, int) or budget < 2048:
+        out.append('evidence_gate_v2 requires judges.gate_max_tokens >= 2048')
+    digest = jm.get('gate_prompt_sha256')
+    if (not jm.get('gate_prompt_file') or not isinstance(digest, str) or len(digest) != 64
+            or any(char not in '0123456789abcdef' for char in digest)):
+        out.append('evidence_gate_v2 requires a pinned gate prompt')
+    return out
+
+
+def evidence_gate_identity(cfg: dict, root: Path = ROOT):
+    """Post-rollout research identity, independent of a frozen rollout override."""
+    jm = cfg.get('judges', {})
+    if jm.get('gate_protocol') != EVIDENCE_GATE_PROTOCOL:
+        return None
+    from src.online_rl.tree.luna import LunaDecisionClient
+    from src.online_rl.tree.quality_gate import evidence_posthoc_gate
+    # Construction is offline: no credentials are read and no judge is called.
+    # Derive the exact runtime contract, including fields and input boundaries,
+    # instead of maintaining a second weaker manifest-only fingerprint.
+    client = LunaDecisionClient(model=jm['gate_model'], key='',
+                                system=(root / jm['gate_prompt_file']).read_text(),
+                                max_tokens=jm['gate_max_tokens'])
+    quote_options = {'rubric_quote_protocol': jm['gate_quote_protocol']} if jm.get('gate_quote_protocol') is not None else {}
+    return evidence_posthoc_gate(client, {}, observed_context=bool(cfg.get('rubric', {}).get('schema')), **quote_options).settings
+
+
+def joint_protocol_problems(cfg: dict) -> list[str]:
+    """Validate the optional joint generator, evidence scorer and guided Agent contract before any API/model load."""
+    from string import Formatter
+    out = []
+    rb, iv, jm = cfg.get('rubric', {}), cfg.get('intervention', {}), cfg.get('judges', {})
+    generation = rb.get('generation') or {}
+    feedback_check = generation.get('feedback_check_protocol')
+    if feedback_check not in (None, 'all_reflection_claims_v1'):
+        out.append('Unknown rubric.generation.feedback_check_protocol')
+    if feedback_check == 'all_reflection_claims_v1':
+        if cfg.get('feedback', {}).get('protocol') != 'physician_post_final_reflection_v1':
+            out.append('all_reflection_claims_v1 requires participating Doctor reflection')
+        if generation.get('output_contract') != JOINT_OUTPUT_CONTRACT:
+            out.append('all_reflection_claims_v1 requires the joint generation contract')
+        try:
+            schema = json.loads((ROOT / generation['local_schema_file']).read_text())
+            check_schema = schema['properties']['analysis']['properties']['feedback_check']
+            if ('claim_reviews' not in check_schema.get('required', []) or
+                    check_schema['properties'].get('claim_reviews', {}).get('type') != 'array'):
+                out.append('all_reflection_claims_v1 requires a schema with mandatory claim_reviews')
+        except (OSError, ValueError, KeyError, TypeError):
+            out.append('all_reflection_claims_v1 requires a valid pinned feedback audit schema')
+    guided = iv.get('guided_protocol')
+    if guided not in (None, JOINT_GUIDED_PROTOCOL):
+        out.append(f'Unknown intervention.guided_protocol {guided!r}')
+    if generation.get('selected_turn_policy') not in (None, 'generator_v1'):
+        out.append('Unknown rubric.generation.selected_turn_policy')
+    if jm.get('scorer_protocol') == EVIDENCE_SCORER_PROTOCOL:
+        if not rb.get('schema') or str(jm.get('scorer_model', '')).startswith('typesafe/jev'):
+            out.append('response_evidence_v1 requires an observed-context rubric and a structured Luna client')
+    if generation.get('output_contract') == JOINT_OUTPUT_CONTRACT:
+        if not generation.get('local_schema_file') or not generation.get('local_schema_sha256'):
+            out.append('Joint generation requires a pinned local JSON schema')
+        if not iv.get('instruction_template_file') and guided != JOINT_GUIDED_PROTOCOL:
+            out.append('Joint generation requires an instruction template or joint_instruction_v2_1 guided protocol')
+    if guided != JOINT_GUIDED_PROTOCOL:
+        return out
+    if generation.get('output_contract') != JOINT_OUTPUT_CONTRACT:
+        out.append('joint_instruction_v2_1 requires joint rubric/instruction generation')
+    if jm.get('scorer_protocol') != EVIDENCE_SCORER_PROTOCOL:
+        out.append('joint_instruction_v2_1 requires response_evidence_v1 scoring')
+    if iv.get('instruction_template_file'):
+        out.append('joint_instruction_v2_1 uses its level-specific templates; remove intervention.instruction_template_file')
+    for key in ('agent_system_prompt', 'score0_template', 'score2_template'):
+        if not iv.get(key + '_file') or not iv.get(key + '_sha256'):
+            out.append(f'joint_instruction_v2_1 requires pinned intervention.{key}_file')
+            continue
+        path = ROOT / iv[key + '_file']
+        if not path.is_file():
+            out.append(f'Missing joint intervention artifact: {path}')
+            continue
+        if key != 'agent_system_prompt':
+            try:
+                fields = [name for _, name, _, _ in Formatter().parse(path.read_text()) if name is not None]
+                if fields != ['intervention_instruction']:
+                    out.append(f'intervention.{key}_file must use only one intervention_instruction field')
+            except ValueError:
+                out.append(f'intervention.{key}_file has invalid format fields')
     return out
 
 
@@ -93,15 +223,21 @@ def setup_problems(cfg: dict, config_path: str) -> list[str]:
             out.append('rollout.halting needs enabled (true/false) and min_agent_turns = 2 or 3')
     rb = cfg.get('rubric') or {}
     if rb.get('reuse'):
-        from src.online_rl.tree.rubric_bank import ASSIGNMENT_VERSION, MARKER
+        from src.online_rl.tree.rubric_bank import ASSIGNMENT_VERSION, prompt_sections
         if rb['reuse'] != ASSIGNMENT_VERSION: out.append(f"rubric.reuse must be {ASSIGNMENT_VERSION!r}")
-        elif MARKER not in (ROOT / rb['generator_prompt_file']).read_text(): out.append(f'rubric.generator_prompt_file has no {MARKER} section')
+        else:
+            try: prompt_sections((ROOT / rb['generator_prompt_file']).read_text())
+            except (OSError, ValueError) as e: out.append(f'rubric reuse matcher package is invalid: {e}')
     if rb.get('enabled', True) and 'smoke' not in cfg:                 # every pilot / research run (smoke = legacy wiring check only)
         g = rb.get('generation') or {}
-        if (g.get('reasoning_effort'), g.get('response_format')) != ('low', 'json_schema_strict') or not isinstance(g.get('max_tokens'), int) or g['max_tokens'] < 2048:
+        local_joint = (g.get('output_contract') == JOINT_OUTPUT_CONTRACT and g.get('local_schema_file') and
+                       g.get('local_schema_sha256') and g.get('response_format') is None)
+        if g.get('reasoning_effort') != 'low' or (g.get('response_format') != 'json_schema_strict' and not local_joint) or not isinstance(g.get('max_tokens'), int) or g['max_tokens'] < 2048:
             out.append('rubric.generation must pin reasoning_effort low, response_format json_schema_strict and max_tokens >= 2048 (Gemini truncation fix)')
-        if (cfg.get('judges') or {}).get('scorer_protocol') != 'structured_v2' and not str((cfg.get('judges') or {}).get('scorer_model', '')).startswith('typesafe/jev'):
-            out.append('judges.scorer_protocol must be structured_v2 for the Luna scorer')
+        if g.get('output_contract') not in (None, 'trajectory_analysis_candidate_v2', JOINT_OUTPUT_CONTRACT):
+            out.append(f"unknown rubric.generation.output_contract {g.get('output_contract')!r}")
+        if (cfg.get('judges') or {}).get('scorer_protocol') not in ('structured_v2', EVIDENCE_SCORER_PROTOCOL) and not str((cfg.get('judges') or {}).get('scorer_model', '')).startswith('typesafe/jev'):
+            out.append('judges.scorer_protocol must be structured_v2 or response_evidence_v1 for the Luna scorer')
     pol = cfg.get('policy') or {}; seed = (pol.get('lora') or {}).get('init_seed')
     if not pol.get('init_adapter') and (not isinstance(seed, int) or isinstance(seed, bool)):
         out.append('missing policy.lora.init_seed (integer): the initial LoRA must not depend on the global RNG')
@@ -134,14 +270,39 @@ def load_key() -> str:
     return H.load_key()
 
 
-def judge_client(model: str, key: str, system: str):
+def judge_client(model: str, key: str, system: str, *, max_tokens: int = 2000):
     """Jev (decisions API, label probabilities) for typesafe/jev models, else a hard-label decision client (Luna)."""
     if model.startswith('typesafe/jev'):
         from src.judges.jev import JevClient
         from src.prompt_opt import harness as H
         return JevClient(**{**H.JEV, 'model': model})
     from src.online_rl.tree.luna import LunaDecisionClient
-    return LunaDecisionClient(model=model, key=key, system=system)
+    return LunaDecisionClient(model=model, key=key, system=system, max_tokens=max_tokens)
+
+
+def make_scorer(cfg: dict, client):
+    """Select evidence scoring only for configs that explicitly request it."""
+    from src.online_rl.tree.backends import two_stage_scorer, two_stage_structured_scorer, two_stage_hard_scorer
+    jm = cfg['judges']
+    if jm.get('scorer_protocol') == EVIDENCE_SCORER_PROTOCOL:
+        from src.online_rl.tree.pilot_evidence_scorer import evidence_scorer
+        return evidence_scorer(client, response_batch_size=rubric_score_batch_size(cfg))
+    if jm['scorer_model'].startswith('typesafe/jev'):
+        return two_stage_scorer(client)
+    if jm.get('scorer_protocol') == 'structured_v2':
+        return two_stage_structured_scorer(client, observed_context=bool(cfg['rubric'].get('schema')),
+                                           response_batch_size=rubric_score_batch_size(cfg))
+    return two_stage_hard_scorer(client)
+
+
+def make_gate(cfg: dict, client, cases):
+    """Keep legacy gating for existing configs; bind evidence gating only by explicit version."""
+    from src.online_rl.tree.backends import posthoc_gates
+    quote_options = ({'rubric_quote_protocol': cfg['judges']['gate_quote_protocol']}
+                     if cfg['judges'].get('gate_quote_protocol') is not None else {})
+    return posthoc_gates(client, {case['case_id']: case for case in cases},
+                        observed_context=bool(cfg['rubric'].get('schema')),
+                        protocol=cfg['judges'].get('gate_protocol', 'legacy_v1'), **quote_options)
 
 
 def opening_table(cfg: dict, policy, which: str):
@@ -174,6 +335,23 @@ def make_policy(cfg: dict, key: str):
     return SharedPolicy(cfg, key)
 
 
+def make_feedback(cfg: dict, policy, key: str):
+    """Select explicit observer or participating-Doctor feedback without a silent role fallback."""
+    feedback = cfg['feedback']
+    system = (ROOT / feedback['prompt_file']).read_text()
+    protocol = feedback.get('protocol')
+    if protocol == 'physician_post_final_reflection_v1':
+        from src.online_rl.tree.doctor_reflection import local_doctor_feedback
+        if policy.doctor.model != feedback['model']:
+            raise RuntimeError('Reflection model differs from the participating Doctor')
+        return local_doctor_feedback(policy.doctor, system, feedback['max_tokens'], run_seed=cfg['schedule']['seed'])
+    from src.online_rl.tree.backends import api_behavior_feedback, api_feedback
+    if protocol in ('behavior_observer_v4', 'behavior_observer_v5'):
+        return api_behavior_feedback(key, feedback['model'], system, feedback['max_tokens'], protocol)
+    return api_feedback(key, feedback['model'], system, feedback['max_tokens'],
+                        locus=bool(feedback.get('behavioral_locus')))
+
+
 def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
     """Bind the existing components to the TreeTrainer interfaces. Policy rounds / Doctor model come from cfg['rollout']."""
     from src.collaboration.generator import final_answer_option, stop_reason
@@ -188,11 +366,15 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
     from src.online_rl.tree.team import team_strategies
     from src.online_rl.tree.trainer import TreeEnv, TreeTrainer
     text = lambda rel: (ROOT / rel).read_text()
-    context_addendum = text(cfg['rubric']['state_addendum_file']) if cfg['rubric'].get('schema') else None
+    observed_context = bool(cfg['rubric'].get('schema'))
+    context_addendum = (text(cfg['rubric']['state_addendum_file'])
+                        if observed_context and cfg['rubric'].get('state_addendum_enabled', True) else None)
     ro, pu, ar = cfg['rollout'], cfg['prompt_update'], cfg['agent_reward']
     jm = cfg['judges']; key = load_key()
-    gate_client = judge_client(jm['gate_model'], key, text(jm['gate_prompt_file']))
-    scorer_client = judge_client(jm['scorer_model'], key, text(jm['scorer_prompt_file']))
+    gate_client = judge_client(jm['gate_model'], key, text(jm['gate_prompt_file']),
+        **({'max_tokens': jm['gate_max_tokens']} if 'gate_max_tokens' in jm else {}))
+    scorer_client = judge_client(jm['scorer_model'], key, text(jm['scorer_prompt_file']),
+        **({'max_tokens': jm['scorer_max_tokens']} if 'scorer_max_tokens' in jm else {}))
     policy = policy if policy is not None else make_policy(cfg, key)
     if (policy.args.rounds, policy.args.doctor_model) != (ro['rounds'], ro['doctor_model']):
         raise RuntimeError('policy/harness rounds or Doctor model differ from rollout config')
@@ -208,19 +390,17 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
             return policy.pool_behavior_logprobs(traces)
         with policy.gen_lock:
             return behavior_logprobs(policy.model, traces, cfg['optimizer']['logprob_token_chunk_size'])
-    iv = PolicyInterventions(policy, text(cfg['intervention']['score0_template_file']), text(cfg['intervention']['score2_template_file']))
+    iv = PolicyInterventions(policy, text(cfg['intervention']['score0_template_file']), text(cfg['intervention']['score2_template_file']),
+                             intervention_instruction_template=text(cfg['intervention']['instruction_template_file']) if cfg['intervention'].get('instruction_template_file') else None,
+                             guided_protocol=cfg['intervention'].get('guided_protocol'),
+                             agent_system=text(cfg['intervention']['agent_system_prompt_file']) if cfg['intervention'].get('agent_system_prompt_file') else None)
     doctor = RoleDoctor(policy.doctor) if ro.get('doctor_backend') else ApiDoctor(key, ro['doctor_model'], policy.doctor_system, ro['max_tokens_doctor'])
     env = TreeEnv(agent=PolicyAgent(policy), doctor=doctor,
                   stop_rule=stop_reason, final_option=final_answer_option, outcome_fn=final_outcome,
-                  feedback_fn=(api_behavior_feedback(key, cfg['feedback']['model'], text(cfg['feedback']['prompt_file']), cfg['feedback']['max_tokens'],
-                                                     cfg['feedback'].get('protocol', 'behavior_observer_v4'))
-                               if cfg['feedback'].get('protocol') in ('behavior_observer_v4','behavior_observer_v5') else
-                               api_feedback(key, cfg['feedback']['model'], text(cfg['feedback']['prompt_file']), cfg['feedback']['max_tokens'],
-                                            locus=bool(cfg['feedback'].get('behavioral_locus')))),
+                  feedback_fn=make_feedback(cfg, policy, key),
                   generate_fn=api_rubric_generator(key, cfg['rubric']['generator_model'], generation_settings(cfg['rubric']), context_addendum),
-                  scorer=(two_stage_scorer(scorer_client) if jm['scorer_model'].startswith('typesafe/jev') else
-                          two_stage_structured_scorer(scorer_client, observed_context=bool(context_addendum)) if jm.get('scorer_protocol') == 'structured_v2' else two_stage_hard_scorer(scorer_client)),
-                  writer=iv.write, continuation=iv.continue_, gate_fn=posthoc_gates(gate_client, {c['case_id']: c for c in cases}, observed_context=bool(context_addendum)),
+                  scorer=make_scorer(cfg, scorer_client),
+                  writer=iv.write, continuation=iv.continue_, gate_fn=make_gate(cfg, gate_client, cases),
                   behavior_logprobs=getattr(policy, 'on_primary', lambda f: f)(behavior),
                   assign_fn=api_rubric_matcher(key, cfg['rubric']['generator_model'], generation_settings(cfg['rubric']), context_addendum,
                                               cfg['rubric'].get('match_batch_size',1)) if cfg['rubric'].get('reuse') else None,
@@ -246,7 +426,9 @@ def runtime_execution(cfg: dict, policy) -> dict:
     n = int(getattr(policy, 'n_replicas', 1))
     ex = {'agent_workers': n,
           'api_workers': int(os.environ.get('SHERPA_API_WORKERS', str((cfg.get('five_gpu') or {}).get('api_workers', 1)))),
-          'member_workers': int(os.environ.get('SHERPA_MEMBER_WORKERS', str((cfg.get('execution') or {}).get('member_workers', 1))))}
+          'member_workers': int(os.environ.get('SHERPA_MEMBER_WORKERS', str((cfg.get('execution') or {}).get('member_workers', 1)))),
+          'parallel_strata': os.environ.get('SHERPA_PARALLEL_STRATA') == '1',
+          'rubric_score_batch_size': rubric_score_batch_size(cfg)}
     if cfg['rollout'].get('agent_sampling_protocol')=='per_row_rng_batch_v1':
         ex['agent_workers']=int(os.environ.get('SHERPA_AGENT_BATCH_SIZE',cfg.get('five_gpu',{}).get('agent_batch_size',1)))
     ex.update(getattr(policy,'pool_execution',{}))
@@ -257,6 +439,15 @@ def runtime_execution(cfg: dict, policy) -> dict:
            'config_execution': cfg.get('execution'), 'exec_log': os.environ.get('SHERPA_EXEC_LOG')}
     with open(out / 'execution_runtime.jsonl', 'a') as f: f.write(json.dumps(rec) + '\n')
     return ex
+
+
+def rubric_score_batch_size(cfg: dict) -> int:
+    """Number of same-state replies scored in one structured rubric request (1..8)."""
+    value = int(os.environ.get('SHERPA_RUBRIC_SCORE_BATCH_SIZE',
+                               str((cfg.get('execution') or {}).get('rubric_score_batch_size', 4))))
+    if not 1 <= value <= 8:
+        raise ValueError('SHERPA_RUBRIC_SCORE_BATCH_SIZE must be between 1 and 8')
+    return value
 
 
 def replica_barrier(cfg: dict, policy):

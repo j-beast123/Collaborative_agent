@@ -101,20 +101,30 @@ def run_case(job, phase='fixed', prompt=None):
         path = base/f'{phase}.json'
         if path.exists():
             record = json.loads(path.read_text())
-            expected_sha = prompt['sha256'] if phase in ('P0','P1') else prompt['parent_sha256']
+            expected_sha = prompt['sha256'] if phase in ('P0_prepare','P0_verify','P1_prepare','P1_verify') else prompt['parent_sha256']
             if record['prompt_sha256'] != expected_sha or record['policy_sha256'] != trainer.state.policy_sha256:
                 raise RuntimeError('Saved batch phase prompt/policy mismatch')
+            trainer.validate_member_interventions(record)
             return record
-        if phase in ('P0','P1'):
-            frozen = json.loads((base/'P0.json').read_text()) if phase == 'P1' else None
+        if phase in ('P0_prepare','P1_prepare'):
+            # The phase-barrier workflow stores verified records under the
+            # explicit phase name; P1 must reuse the frozen P0 tree/feedback.
+            frozen = json.loads((base/'P0_verify.json').read_text()) if phase == 'P1_prepare' else None
             with activity(phase + '.tree_rubric_witness'):
                 record = trainer.step(frozen_record=frozen, prompt_text=prompt['text'], prompt_id=prompt['id'],
-                                      score_responses=True, commit=False, apply_update=False)
+                                      score_responses=False, commit=False, apply_update=False,
+                                      defer_verification=True)
+        elif phase in ('P0_verify','P1_verify'):
+            prepared = json.loads((base/f'{phase.removesuffix("_verify")}_prepare.json').read_text())
+            if prepared['prompt_sha256'] != prompt['sha256']:
+                raise RuntimeError('Prepared rubric bank prompt mismatch')
+            with activity(phase + '.witness_verification'):
+                record = trainer.finish_deferred_verification(prepared)
             with activity(phase + '.full_member_effect'):
                 record['prompt_evaluation'] = evaluate_prompt_record(trainer, record)
         elif phase == 'union':
-            parent = json.loads((base/'P0.json').read_text())
-            candidate = json.loads((base/'P1.json').read_text())
+            parent = json.loads((base/'P0_verify.json').read_text())
+            candidate = json.loads((base/'P1_verify.json').read_text())
             if candidate['prompt_sha256'] != prompt['sha256']:
                 raise RuntimeError('Union candidate prompt mismatch')
             with activity('union_scoring'):
@@ -127,6 +137,7 @@ def run_case(job, phase='fixed', prompt=None):
         return record
     path = Path(job['out'])/'cases/case_000000.json'
     record = json.loads(path.read_text()) if trainer.state.case_cursor else trainer.step()
+    trainer.validate_member_interventions(record)
     record.update(case_cursor=job['index'], rollout_gpu=job['worker'], dialogue_lane=job['lane'])
     atomic_write_json(Path(job['out'])/'result.json', record)
     return record

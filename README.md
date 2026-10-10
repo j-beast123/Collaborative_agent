@@ -1,202 +1,215 @@
-# SHERPA
+# SHERPA — active 120-case, two-turn training
 
-SHERPA trains a clinical collaborator Agent for multi-turn Doctor–Agent discussions of multiple-choice medical
-questions. Training is online GRPO over branching interaction trees. The reward combines the final outcome with
-verified behavioral rubrics, and the Rubric-Generator prompt can evolve during training.
+This branch packages the current fixed-P0 training setup. Start with
+[`configs/experiments/train120_max2_fixed_p0.json`](configs/experiments/train120_max2_fixed_p0.json)
+and [`scripts/online_rl/launch_train120_max2.sh`](scripts/online_rl/launch_train120_max2.sh).
+The configuration is standalone: it does not extend older experiment files.
 
-## Overview
-
-```
-policy θ_k (frozen for the batch)
- → 5 distinct training cases, each rolled out as a tree
- → outcome + rubric reward per Agent reply
- → sibling-group GRPO over all 5 trees
- → at most one optimizer update → θ_{k+1}
- → next 5 cases rolled out fresh with θ_{k+1}
-```
-
-Per case:
-
-1. **Tree rollout.** The Doctor opens the case. At every Agent turn, each branch samples G = 4 Agent replies. A branch
-   ends at the turn limit, when the Doctor signals that the discussion is settled, or when the Agent repeats an earlier
-   reply. The Doctor then gives a FINAL answer, and the outcome is success or failure.
-2. **Feedback.** A Feedback Generator describes the Agent's behavior from the dialogue alone. It sees no question, gold
-   answer or outcome, and it names one Agent reply as the behavioral locus.
-3. **Rubrics.** Each completed trajectory maps to one rubric, either new or reused for the same behavioral reason within
-   its case and outcome stratum. New rubrics pass a validity gate.
-4. **Verification.** A rubric is kept if rewriting the matched reply at the rubric's target level flips the outcome in
-   2 of 3 continuations, on at least one of up to 10 sampled member trajectories.
-5. **Scoring.** Each kept rubric scores every Agent reply in the tree: applicability first, then level 0/1/2.
-
-Each Agent action has two stages: a private assessment formed without the dialogue, then the visible reply. GRPO
-treats both stages as one action.
-
-## Training protocol
+## Active protocol
 
 | Setting | Value |
 |---|---|
-| Training cases | 500 distinct MedMCQA training cases in a fixed order |
-| Batch | 5 cases per batch; policy frozen within the batch |
-| Update | At most one optimizer step per batch over all sibling groups |
-| Tree | G = 4 replies per Agent turn, at most 4 Agent turns |
-| Halting | Doctor-signalled stop after ≥ 2 Agent turns; a repeated Agent reply stops the branch from turn 4 |
-| GRPO | lr 1e-5, β 0.04, clip 0.2, grad clip 1.0, mean-centred advantages within same-state sibling groups |
-| Skipped groups | Fewer than two scored replies, or zero reward variance |
-| Agent | `Qwen/Qwen3-8B` + LoRA (r 16, α 32, rsLoRA, seeded initial adapter θ0) |
-| Checkpoints | Initial adapter, every 30 cases, and case 500; a recovery checkpoint after every batch |
+| Data | The same pinned 120 MedMCQA cases, in the same order |
+| Prompt | Fixed P0 v2.2 with Doctor-reflection grounding checks; no P1 optimization |
+| Rollout | At most **2 Agent turns**, 4 sibling replies per state; at most 16 leaves per case |
+| Batch | 5 cases; one frozen Agent policy throughout the batch |
+| GPU work | GPU0–4 share ready Agent, Doctor, FINAL and rerun tasks |
+| Concurrency | Agent batch 4; Doctor requests 1 per actor |
+| Update | GPU4 performs at most one LoRA optimizer step after the five cases finish |
+| Reward | 0.5 × outcome + 0.5 × rubric score |
+| GRPO | Same-state siblings, mean-centred advantage; learning rate 1e-5, KL coefficient 0.04, clip 0.2 |
+| Sampling | Temperature 1, top-p 1, top-k 0; raw-policy probability checks |
+| Checkpoints | Every 30 cases and at completion; recovery state after each batch |
+| Evaluation | Disabled in this configuration |
+| End | Stop after the selected 120 cases |
 
-## Reward configurations
+The Agent uses a private pre-assessment followed by a visible reply. Their joint
+probability is used for the training action. A fresh run starts from the base
+model with a seeded LoRA adapter; an existing run resumes its saved state.
 
-```
-final_reward = w_outcome · R_outcome + w_rubric · R_rubric
-```
+### Order of work
 
-- `R_outcome` is the mean outcome of the decided leaves below the reply.
-- `R_rubric` is the mean level/2 over the kept rubrics that apply to the reply.
-- If no kept rubric applies, `R_rubric` is NA. With `w_outcome = 0`, an NA reply gets no reward and is excluded from
-  GRPO. Otherwise the NA reply keeps its outcome term.
+1. Roll out the conversation trees and obtain each Doctor FINAL.
+2. The same local Doctor writes its post-FINAL reflection. The generator checks
+   the reflection's claims against actual speakers, turn IDs and quotations;
+   a later need cannot become a request that existed before the selected reply.
+3. Generate or reuse a rubric within each case and success/failure stratum.
+   Rubrics retain user context, Agent state, and distinct 0/1/2 behavior criteria.
+   A reused rubric gets a separate intervention instruction and target turn for
+   each member trajectory. Success and failure strata can run concurrently.
+4. Check source applicability and the evidence-based quality gate, including
+   an independent score of the original response.
+5. Verify a rubric on at most **5 sampled member trajectories**. Each rerun is
+   one fresh guided Agent reply followed by one Doctor FINAL. Within a member,
+   two agreeing results can end the planned three reruns early. A rubric is
+   kept when a member produces the requested outcome flip in at least 2/3.
+6. Freeze the case's KEEP set, then score its Agent responses. Same-state
+   siblings share applicability; behavior scoring batches four responses.
+7. Form rewards and sibling advantages, update, save, and proceed to the next
+   five cases with the updated policy.
 
-| Arm | Rubric | Outcome | Prompt |
-|---|---:|---:|---|
-| Outcome-only | 0.0 | 1.0 | N/A |
-| R03/O07 | 0.3 | 0.7 | Evolving |
-| R05/O05 | 0.5 | 0.5 | Evolving |
-| R07/O03 | 0.7 | 0.3 | Evolving |
-| Rubric-reward-only | 1.0 | 0.0 | Evolving |
+NA is distinct from behavior score 0. If no rubric applies, the mixed reward
+retains the outcome contribution. Unscorable behavior records are separately
+represented and masked consistently within sibling comparisons. Groups with
+insufficient valid responses or no reward variation do not produce an update.
 
-Outcome-only disables the rubric pipeline: there are no feedback, rubric, verification or prompt calls. In the
-Rubric-reward-only arm the training reward has no outcome term, but prompt evolution and verification still use
-outcomes.
+## Model roles and files
 
-## Prompt modes
-
-- `evolving`: start from P0 and run one prompt comparison per batch.
-  1. The first case to finish under the current prompt seeds one candidate prompt.
-  2. Both prompts are evaluated on the same frozen trees.
-  3. J = (mean success-direction effect) × (mean failure-direction effect).
-  4. The candidate is adopted only if its J is strictly higher.
-  5. Training uses the deduplicated union of both prompts' kept rubrics.
-- `p0_fixed`: P0 for the whole run.
-- `pfinal_fixed`: the final adopted prompt of a completed `evolving` run, fixed from case 0. The exported prompt must
-  match its source run's reward, feedback model, data, seed, θ0, P0 and protocol. Otherwise loading fails.
-
-## Experiment plan
-
-| Priority | Experiment | Runs |
-|---|---|---|
-| 1 | Reward ablation | The five arms above |
-| 2 | Prompt ablation at R05/O05 | `p0_fixed`; the `evolving` arm is the R05/O05 reward-ablation run |
-| 3 | Prompt ablation at R05/O05 | `pfinal_fixed`, after the R05/O05 `evolving` run completes |
-
-R05/O05 is a fixed balanced anchor. It is not chosen from evaluation results.
-
-## Model roles
-
-| Role | Model |
+| Role | Model / asset |
 |---|---|
-| Agent (trained) | `Qwen/Qwen3-8B` + LoRA |
-| Doctor | `gemma3:12b-it-q8_0` (pinned digest) on local Ollama 0.12.5 |
-| Feedback Generator | `anthropic/claude-4.6-sonnet-20260217` |
-| Rubric Generator and matcher | `google/gemini-3.8-flash-20260902` |
-| Rubric gate and scorer | `openai/gpt-5.6-luna` |
-| Prompt reflection and refinement | `anthropic/claude-sonnet-5.5-20260928` |
+| Agent | `Qwen/Qwen3-8B`, LoRA r16/alpha32, rsLoRA, q/k/v/o projections |
+| Doctor and its reflection | Local `gemma3:12b-it-q8_0`, Ollama **0.12.5** |
+| Rubric generation and matching | `google/gemini-3.8-flash-20260902` through OpenRouter |
+| Quality gate | `openai/gpt-5.6-luna` through OpenRouter |
+| Behavior scorer | `openai/gpt-6-luna` through OpenRouter |
 
-API models are called through OpenRouter. Prompts and templates are pinned by SHA256 in the config.
+Active prompt assets:
 
-## Evaluation
+- [Generator v2.2](prompts/sherpa/trajectory_rubric_generator_v2_2_reflection_audit.txt)
+  and [local output schema](prompts/sherpa/trajectory_rubric_generator_v2_2_reflection_audit.schema.json)
+- [Doctor reflection](prompts/sherpa/doctor_post_final_reflection_v1.txt)
+- [Quality gate](prompts/sherpa/luna_gate_v2_1.txt)
+- [Scorer](prompts/sherpa/pilot_joint_v2_1/scorer.txt)
+- [Rerun Agent role](prompts/sherpa/pilot_joint_v2_1/agent_system.txt),
+  [score-0 intervention](prompts/sherpa/pilot_joint_v2_1/score0.txt),
+  [score-2 intervention](prompts/sherpa/pilot_joint_v2_1/score2.txt)
 
-- Dataset: CasiMedicos, all 622 English cases. Training and evaluation questions must not overlap.
-- Cadence: every 30-case checkpoint and the final checkpoint at case 500. Training pauses until the evaluation of
-  a checkpoint completes.
-- Protocol: full Doctor–Agent episodes with the checkpoint's frozen adapter and the training Doctor. There is no
-  training signal.
-- Seeds: case `i` uses seed `eval_seed + i`, with `eval_seed = 0`. Every checkpoint and run uses the same seeds.
-- Output: `evaluation/checkpoint_<cases>/` with per-case results and `summary.json`.
+The `pilot_joint_v2_1` filenames are retained because these exact files are used
+by the active training path. Prompt/schema hashes are checked before execution.
+Legacy utilities and compatibility fields inherited from the repository remain;
+this branch's entry point is the standalone config above. Inactive prompt-search
+fields and historical notes do not enable P1 or evaluation.
 
-## Configuration
+## Prepare another server
 
-Experiment configs are in `configs/experiments/reward_prompt_matrix/`:
+Use Python 3.11 and five suitable CUDA GPUs. Install dependencies in an isolated
+environment, selecting a CUDA-compatible Torch build for the server:
 
-| Path | Content |
+```bash
+python -m pip install -r requirements-active.txt
+python -m pip install -e . --no-deps
+```
+
+The tested environment used Torch 2.6.0+cu124 and Transformers 4.53.3.
+Before launching, cache `Qwen/Qwen3-8B` locally and install Ollama 0.12.5 with
+`gemma3:12b-it-q8_0`. The required Doctor digest is:
+
+```text
+997a7c2c09753e9011ec18a3fcb498e27c0ba330599dfb26a2e05b58cfbdc1bc
+```
+
+The launcher uses offline Hugging Face loading and checks the Doctor version and
+digest. It creates five Doctor endpoints on ports 11685–11689. Set
+`SHERPA_OLLAMA_BINARY` to the installed 0.12.5 executable; the dedicated launcher
+uses this environment variable rather than the original server's binary path.
+Doctor model storage defaults to `~/.ollama/models`; set `SHERPA_OLLAMA_MODELS`
+if your installation keeps the pinned model elsewhere.
+
+### Exact training data
+
+Question text, answers, model weights, run outputs and credentials are not
+included in this branch. Supply the canonical training JSONL from the original
+server, then reconstruct and verify the exact 120-case selection:
+
+```bash
+python scripts/online_rl/prepare_train120.py \
+  --source /path/to/train120_excluding_calibration_seed20261008.jsonl
+```
+
+The helper also accepts the canonical 500-case source JSONL. It checks source
+hashes, ordered IDs, question hashes, protected/calibration exclusions and final
+file hashes. It refuses to replace conflicting existing files. The portable
+[selection manifest](data/splits/medmcqa_train120_seed20261008.manifest.json)
+contains IDs and hashes without question text.
+
+For overlap/identity checks, the current preflight also requires
+`data/interim/casimedicos/all_en_622.jsonl`, even though evaluation is disabled.
+Copy the canonical file or prepare it from the original English split files:
+
+```bash
+python scripts/online_rl/prepare_casimedicos622.py \
+  --source /path/to/casimedicos-exp/source/data/en
+```
+
+Required hashes:
+
+| File | SHA-256 |
 |---|---|
-| `matrix.json` | Reward ablation and prompt ablation definitions |
-| `base_batch5.json` | Shared protocol; extends `configs/online_rl/tree_v21_five_gpu_shared5_random10_promptv7.json` |
-| `reward_sweep/`, `prompt_ablation/` | Generated run configs |
-| `manifest.json` | Generated list of runs with family, priority, identity and status |
+| Training JSONL | `3d34929094925c822062d03839b49de8f6fb43afba71fb573de409471bb5b8ab` |
+| Training order JSON | `edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41` |
+| CasiMedicos 622 JSONL | `e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56` |
 
-Each run config sets these `experiment` fields:
+## Run and monitor
 
-- `reward_weight_rubric`, `reward_weight_outcome`
-- `prompt_mode`, `pfinal_artifact`
-- `feedback_model`
-- `seed`
-- `train_order_sha256`
-- `output_dir`
-
-A run id has the form `<reward>__<prompt mode>__<feedback model>__seed<n>`. Outputs go to
-`outputs/reward_prompt_matrix/<run id>/`.
-
-## Running
+From the repository root, first run the read-only preflight:
 
 ```bash
-pip install -e ".[train,test]"
-export OPENROUTER_API_KEY=...
+python scripts/online_rl/run_five_gpu.py \
+  --config configs/experiments/train120_max2_fixed_p0.json
 ```
 
-The training and evaluation data are local files. Their paths and SHA256 values are in the base protocol config.
-Prepare them with `scripts/online_rl/prepare_five_gpu_train500.py` and `scripts/online_rl/prepare_casimedicos622.py`.
+This checks configuration, prompt/schema identities and data. It does not launch
+training, load GPU models or call the APIs.
 
-Check configs (no GPU or API calls):
+Provide `OPENROUTER_API_KEY` in the environment or in the untracked `.env` file.
+Set executable paths for your server, then launch detached from the terminal:
 
 ```bash
-python scripts/online_rl/experiment_matrix.py --check
-python scripts/online_rl/run_five_gpu.py --config configs/experiments/reward_prompt_matrix/reward_sweep/r05_o05_evolving.json
+export SHERPA_PYTHON="$(command -v python)"
+export SHERPA_OLLAMA_BINARY=/path/to/ollama-0.12.5/bin/ollama
+export SHERPA_ENV_FILE="$PWD/.env"
+mkdir -p logs
+nohup setsid bash scripts/online_rl/launch_train120_max2.sh \
+  > logs/train120_max2.log 2>&1 < /dev/null &
+echo "PID=$!"
 ```
 
-Launch a run (starts five local Doctor servers, then trains). Re-running the same command resumes:
+A successful launch persists after terminal logout. Confirm startup in
+`logs/train120_max2.log`; a printed PID alone does not establish successful
+startup. Avoid launching a second job into an output directory already in use.
+Re-running the same command with the same saved run directory resumes committed
+progress. Moving to another server requires transferring the saved run and its
+checkpoints separately; cloning this branch alone starts a fresh run.
+Saved checkpoint references use absolute paths: preserve the original repository
+and run locations when resuming on another server. Resuming under a different
+absolute path requires a separate, validated migration.
 
 ```bash
-SHERPA_FIVE_GPU_CONFIG=configs/experiments/reward_prompt_matrix/reward_sweep/r05_o05_evolving.json \
-  bash scripts/online_rl/launch_five_gpu.sh
+RUN_DIR=outputs/reward_prompt_matrix/p0_fixed_v2_2_reflection_audit_max2_train120/r05_o05__p0fixed__gemma3doctor__seed0
+python scripts/online_rl/watch_five_gpu.py \
+  --run-dir "$RUN_DIR" --compact --interval 2
 ```
 
-A run uses five logical GPUs. To place them on other devices, set `CUDA_VISIBLE_DEVICES` to exactly five ids, e.g.
-`CUDA_VISIBLE_DEVICES=0,1,2,3,4`. A run resumes only with the same config, reward, prompt, feedback model, data, seed
-and θ0. The physical devices may change.
-
-Export Pfinal after the R05/O05 `evolving` run completes, then set `pfinal_artifact` in `matrix.json` and regenerate:
+Export originals, rubrics, scoring records, a browsable HTML report and a ZIP:
 
 ```bash
-python scripts/online_rl/export_pfinal.py --run outputs/reward_prompt_matrix/r05_o05__evolving__sonnet46__seed0
-python scripts/online_rl/experiment_matrix.py
+python scripts/online_rl/export_training_snapshot.py \
+  --run-dir "$RUN_DIR" --through-batch 1
 ```
 
-## Outputs
+Remove `--through-batch 1` to export all available cases at snapshot time. Exports
+are written under ignored `outputs/exports/` and do not change training.
 
-| Path in the run directory | Content |
-|---|---|
-| `run_state.json`, `run_manifest.json` | Committed cursor, hashes, full config |
-| `checkpoints/` | Adapter, optimizer and RNG state with a receipt |
-| `cases/` | Tree, feedback, rubrics, scores and training targets per case |
-| `prompt_events/`, `prompts/` | Per-batch prompt decisions and prompt texts (`evolving`) |
-| `reward_components/` | Per reply: `R_outcome`, `R_rubric`, weights, `final_reward` |
-| `evaluation/` | Checkpoint evaluation results |
+## Saved records and checks
 
-## Tests
+The run directory contains `run_manifest.json`, `run_state.json`, checkpoints,
+per-case trees, Doctor reflections, generated/reused rubrics, gate evidence,
+witness results, final scores, reward components and update diagnostics. Cache
+error evidence is recorded separately from valid results.
+
+For regression checks of the active training path, without downloading models
+or calling APIs:
 
 ```bash
-python -m pytest -q tests/test_reward_prompt_matrix.py
-python -m pytest -q tests
+bash scripts/online_rl/test_active_training.sh
 ```
 
-Tests run on CPU with mocks and need no API key.
+Some worker-pool tests need permission to create local Unix sockets. The
+inherited full `tests/` suite includes older entry points that currently fail
+collection; the dedicated command selects the current training checks. The
+standalone configuration resolves to the same effective config hash as the
+active max2 run:
 
-## Repository layout
-
-```
-configs/          protocol configs (online_rl/) and experiment matrices (experiments/)
-prompts/          Agent, Doctor, feedback, rubric and prompt-evolution prompts
-scripts/online_rl/  launchers, config validation, Pfinal export
-src/online_rl/    rollout, rewards, rubrics, GRPO, prompt evolution, experiment configs
-tests/            unit tests and mocked end-to-end runs
+```text
+b6475b72d7f8bd5892008bcf2af1d6b8f7402fbb26b0beef9eb0ebf28a248d6a
 ```

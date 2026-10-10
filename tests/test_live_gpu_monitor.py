@@ -173,6 +173,18 @@ def test_confirmed_scores_count_nodes_once_and_preserve_na():
     assert summary['keep']==summary['not_validated']==summary['training_rubrics']==1
 
 
+def test_outcome_signal_summarizes_node_targets_and_informative_sibling_groups():
+    summary=summarize_phase({'agent_targets':{
+        'reward_weights':{'w_outcome':0.5,'w_rubric':0.5},
+        'nodes':{'n0':{'outcome_component':0.0},'n1':{'outcome_component':1.0},
+                 'n2':{'outcome_component':0.5},'n3':{'outcome_component':0.5}},
+        'groups':{'root':['n0','n1'],'n0':['n2','n3']}}})
+    signal=summary['outcome_signal']
+    assert signal['targets']==4 and signal['zero']==1 and signal['mixed']==2 and signal['one']==1
+    assert signal['groups']==2 and signal['varying_groups']==1 and signal['varying_targets']==2
+    assert signal['mean']==0.5 and signal['mean_contribution']==0.25
+
+
 def test_phase_rubric_funnel_reports_canonical_keep_denominator():
     summary=summarize_phase({'rubric_bank':{
         'witness':[{'decision':'KEEP'},{'decision':'NOT_VALIDATED'}],
@@ -195,8 +207,43 @@ def test_phase_summary_counts_0_1_2_and_no_match_distribution():
         {'response_node_id':'n1','applicable':True,'hard':0.5,'score':0.5},
         {'response_node_id':'n2','applicable':True,'hard':1.0,'score':1.0},
         {'response_node_id':'n3','applicable':False,'hard':None,'score':None}]})
-    assert summary['score_distribution']=={'0':1,'1':1,'2':1,'NA':1,'other':0}
+    assert summary['score_distribution']=={'0':1,'1':1,'2':1,'NA':1,'U':0,'other':0}
     assert summary['scored_pairs']==4
+
+
+def test_phase_summary_keeps_unscorable_separate_from_na_and_zero():
+    from scripts.online_rl.watch_five_gpu import case_score_distribution, unscorable_suffix
+    summary=summarize_phase({'response_scores':[
+        {'response_node_id':'n0','match':True,'hard':0.0,'score':0.0,'scoring_status':'scored'},
+        {'response_node_id':'n1','match':False,'hard':None,'score':None,'scoring_status':'not_applicable'},
+        {'response_node_id':'n2','match':True,'hard':None,'score':None,'scoring_status':'group_unscorable'},
+        {'response_node_id':'n3','match':True,'hard':None,'score':None,'scoring_status':'rubric_unscorable'},
+        {'response_node_id':'n4','match':True,'hard':None,'score':None,'scoring_status':'scored'}]})
+    assert summary['score_distribution']=={'0':1,'1':0,'2':0,'NA':1,'U':2,'other':1}
+    saved={'phase_complete':{'union':True},'score_distribution':{'union':summary['score_distribution']},
+           'phase_scored_pairs':{'union':5},'live_score_distribution':{'NA':5},'live_scored_pairs':5}
+    dist,n,label=case_score_distribution(saved)
+    assert (n,label)==(5,'final') and dist['U']==2 and dist['NA']==1
+    assert unscorable_suffix(dist)==' U:2' and unscorable_suffix({'U':0})==''
+
+
+def test_joint_instruction_reruns_are_not_labeled_legacy(tmp_path):
+    protocol='fresh_agent_from_joint_generated_intervention_instruction_then_doctor_final_each_rerun_v5'
+    owner={'continuation_protocol':protocol,'case_id':'c','rubric':'r','node':'n','level':'0'}
+    rows=[{'kind':'rerun','identity':owner,'value':{'outcome':0.0}},
+          {'kind':'rerun_doctor_turn','identity':{'rerun':owner,'turn':{'stage':'FINAL'}}}]
+    path=tmp_path/'calls.jsonl';path.write_text(''.join(json.dumps(r)+'\n' for r in rows))
+    cache=WorkerCache(path);cache.update(1)
+    assert cache.one_step_reruns==cache.one_step_final_calls==1
+    assert cache.legacy_reruns==0 and len(cache.one_step_targets)==1
+
+
+def test_incomplete_verification_is_separate_from_rejected_rubrics():
+    from scripts.online_rl.watch_five_gpu import incomplete_suffix
+    summary=summarize_phase({'rubric_bank':{'witness':[
+        {'decision':'KEEP'},{'decision':'NOT_VALIDATED'},{'decision':'INCOMPLETE'}]}})
+    assert summary['rubrics_keep']==summary['rubrics_not_validated']==summary['rubrics_incomplete']==1
+    assert incomplete_suffix(summary)==' incomplete 1'
 
 
 def test_monitor_reports_api_latency_by_purpose(tmp_path,monkeypatch):

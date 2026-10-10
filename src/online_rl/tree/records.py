@@ -94,6 +94,7 @@ class TrajectoryRubric:
     problems: tuple[str, ...]
     gate: Optional[dict]                  # post-hoc gate result (None when no gate_fn is given)
     source_check: Optional[dict] = None   # v2.1 source-self-applicability at the source locus (status, stage1, repair); None before v2.1
+    intervention_instruction: Optional[str] = None  # separate execution instruction; never part of the rubric shown to scorers
 
 
 
@@ -109,6 +110,7 @@ class RubricAssignment:
     decision: Optional[dict]              # the MATCH-vs-NEW answer (decision, rubric_id, checks, rationale); None when the bank was empty
     note: str                             # why a reuse was not accepted, why a generated rubric was rejected, or ''
     feedback_sha256: str                  # the trajectory's Doctor feedback (as in its rubric input)
+    intervention_spec: Optional[dict] = None  # member-specific target/instruction; canonical rubric stays unchanged
 
 
 @dataclass(frozen=True)
@@ -141,6 +143,9 @@ class InterventionRun:
     final_option: str
     outcome: Optional[float]
     continuation_policy_sha256: str       # policy that wrote the intervention reply and ran the continuation
+    agent_seed: Optional[int] = None
+    rerun_index: Optional[int] = None
+    intervention_spec: Optional[dict] = None
 
 
 @dataclass(frozen=True)
@@ -173,3 +178,12 @@ class ResponseRubricScore:
     score: Optional[float]                # expected level / 2 when matched
     hard: Optional[float]
     probabilities: Optional[dict]
+    scoring_status: Optional[str] = None  # scored | not_applicable | group_unscorable
+    scoring_evidence: Optional[dict] = None
+    individual_assessment: Optional[dict] = None  # original verdict before a same-state rubric mask
+
+    def __post_init__(self):
+        # Old persisted records did not carry a status; keep their original
+        # applicability/score semantics rather than manufacturing an assessment.
+        if self.scoring_status is None:
+            object.__setattr__(self, 'scoring_status', 'scored' if self.match else 'not_applicable')

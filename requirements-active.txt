@@ -1,0 +1,9 @@
+# Versions used by the active Python 3.11 run. Install a CUDA-compatible Torch build.
+torch==2.6.0
+transformers==4.53.3
+tokenizers==0.21.4
+peft==0.15.2
+accelerate==1.6.0
+safetensors==0.4.4
+jsonschema==4.23.0
+pytest==8.3.2

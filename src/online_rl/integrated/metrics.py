@@ -51,15 +51,24 @@ def q_cov(scores: list[Optional[float]], outcomes: list[Optional[float]], rubric
 
 
 def reward(R_O: Optional[float], R_A: Optional[float], w_O: float, w_A: float, rubric_valid: bool) -> Optional[float]:
-    """w_O R_O + w_A R_A; R_O only when the group's rubric is masked. R_E is never added (V(h) is constant in a group)."""
-    if R_O is None: return None
-    if not rubric_valid: return w_O * R_O
+    """Use only active reward components; a missing rubric is not a behavioral zero.
+
+    Mixed reward retains its existing outcome-only fallback for an inapplicable
+    rubric. Rubric-only needs a valid score, but never needs a Doctor outcome;
+    outcome-only never needs a rubric. R_E is not an additional reward term.
+    """
+    if w_O != 0 and R_O is None: return None
+    outcome_part = w_O * R_O if w_O != 0 else 0.0
+    if w_A == 0: return outcome_part
+    if not rubric_valid: return outcome_part if w_O != 0 else None
     if R_A is None: raise RuntimeError('valid rubric with an unscored response')
-    return w_O * R_O + w_A * R_A
+    return outcome_part + w_A * R_A
 
 
 def advantages(rewards: list[Optional[float]], mode: str) -> list[Optional[float]]:
+    if mode not in ('mean_center', 'group_zscore'): raise ValueError(f'unknown advantage mode {mode}')
     v = [r for r in rewards if r is not None]
+    if any(not math.isfinite(r) for r in v): raise ValueError('rewards must be finite numbers or None')
     if len(v) < 2: return [None] * len(rewards)
     m, sd = st.mean(v), math.sqrt(_pvar(v))
     if mode == 'mean_center': return [None if r is None else r - m for r in rewards]

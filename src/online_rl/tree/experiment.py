@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[3]
 PROMPT_MODES = ('p0_fixed', 'pfinal_fixed', 'evolving')
 MODE_TAGS = {'p0_fixed': 'p0fixed', 'pfinal_fixed': 'pfinal', 'evolving': 'evolving'}
 OUTCOME_ONLY_TAG = 'outcomeonly'             # zero rubric weight: no rubric prompt in use
-MODEL_TAGS = {'anthropic/claude-4.6-sonnet-20260217': 'sonnet46', 'anthropic/claude-4.5-haiku-20251001': 'haiku45'}
+MODEL_TAGS = {'anthropic/claude-4.6-sonnet-20260217': 'sonnet46', 'anthropic/claude-4.5-haiku-20251001': 'haiku45',
+              'ollama/gemma3:12b-it-q8_0@997a7c2c0975': 'gemma3doctor'}
 EXPERIMENT_KEYS = ('family', 'reward_weight_rubric', 'reward_weight_outcome', 'prompt_mode', 'pfinal_artifact',
                    'feedback_model', 'seed', 'train_order_sha256', 'output_root', 'output_dir')
 PFINAL_SCHEMA = 'sherpa_pfinal_v2'

@@ -172,13 +172,16 @@ class OllamaDoctor:
 
     def halts(self) -> bool: return bool(self.halting.get('enabled'))
 
-    def _chat(self, user: str, seed: int, max_tokens: Optional[int] = None) -> str:
+    def _chat(self, user: str, seed: int, max_tokens: Optional[int] = None, system_override: Optional[str] = None) -> str:
         from src.common.live_gpu import activity
+        if system_override is not None and (not isinstance(system_override, str) or not system_override.strip()):
+            raise ValueError('Doctor system_override must be a non-empty string')
+        system = self.system if system_override is None else system_override
         payload = {'model': self.backend['model'], 'stream': False, 'keep_alive': -1, 'options': {**self.options, 'seed': int(seed)},
                    # Gemma has no system role: the HF chat template folds the system prompt into the first user turn as
                    # system + blank line + user. Sending that single user message reproduces it (Ollama's own template would
                    # render a system message as a separate user turn).
-                   'messages': [{'role': 'user', 'content': f'{self.system}\n\n{user}'}]}
+                   'messages': [{'role': 'user', 'content': f'{system}\n\n{user}'}]}
         if max_tokens is not None:
             payload['options']['num_predict'] = max_tokens
         retry = Retry(f"Ollama {self.backend['model']}", sleep=self.sleep)

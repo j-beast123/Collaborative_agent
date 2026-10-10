@@ -1,4 +1,4 @@
-"""An intervention rerun is one fixed Agent reply followed by one Doctor FINAL; only the FINAL is cached."""
+"""Each intervention rerun generates one fresh guided Agent reply and one Doctor FINAL; both turns are cached."""
 import hashlib, json
 from argparse import Namespace
 from pathlib import Path
@@ -11,7 +11,7 @@ from src.online_rl.tree.cache import CallCache
 from src.online_rl.integrated.records import to_dict
 
 ROOT = Path(__file__).resolve().parents[1]
-RUB = type('Rub', (), {'rubric_id': 'rub1', 'rubric': {'name': 'n', 'applicability_condition': 'c', 'required_behavior': 'b', 'scores': {}}})()
+RUB = type('Rub', (), {'rubric_id': 'rub1', 'rubric': {'name': 'n', 'applicability_condition': 'c', 'required_behavior': 'b', 'scores': {'0': 'omit the comparison', '1': 'partial comparison', '2': 'compare the options'}}})()
 h = lambda s: hashlib.sha256(s.encode()).hexdigest()
 
 
@@ -57,7 +57,7 @@ def interventions(monkeypatch, cache, doctor, policy=None, policy_sha='p0', reru
     from src.prompt_opt import harness as H
     monkeypatch.setattr(H, 'doctor_call', doctor)
     policy = policy or Policy(); leaf, n0 = setup(); iv = PolicyInterventions(policy, '{rubric_json}', '{rubric_json}')
-    writer = lambda case, prefix, turn, rubric, level, seed: 'Intervention reply: check the timeline before deciding.'
+    writer = iv.write
     return EF.run_interventions(CASES[0], leaf, n0, RUB, reruns=reruns, run_seed=0, policy_sha256=policy_sha, writer=writer,
                                 continuation=iv.continue_, cache=cache), policy
 
@@ -65,32 +65,36 @@ def interventions(monkeypatch, cache, doctor, policy=None, policy_sha='p0', reru
 def kinds(path): return [json.loads(l)['kind'] for l in Path(path).read_text().splitlines()]
 
 
-def test_failed_final_is_retried_without_extra_agent_or_discussion_calls(tmp_path, monkeypatch):
+def test_failed_final_reuses_that_reruns_agent_reply_on_resume(tmp_path, monkeypatch):
     path = tmp_path / 'calls.jsonl'; first = Doctor(fail_at=1)
     with pytest.raises(RetryExhausted): interventions(monkeypatch, CallCache(path), first)
     assert first.inputs == [] and 'rerun' not in kinds(path)
     resumed = Doctor(); runs, pol = interventions(monkeypatch, CallCache(path), resumed)
-    assert len(resumed.inputs) == 2 and pol.agent_calls == [] and all(r.final_option for r in runs)
+    assert len(resumed.inputs) == 2 and len(pol.agent_calls) == 1 and all(r.final_option for r in runs)
 
 
-def test_no_extra_agent_generation_occurs_after_intervention_reply(tmp_path, monkeypatch):
+def test_each_rerun_generates_a_fresh_agent_reply(tmp_path, monkeypatch):
     path = tmp_path / 'calls.jsonl'; runs, pol = interventions(monkeypatch, CallCache(path), Doctor())
-    assert len(runs) == 2 and pol.agent_calls == [] and kinds(path).count('rerun_agent_turn') == 0
+    assert len(runs) == 2 and len(pol.agent_calls) == 2 and kinds(path).count('rerun_agent_turn') == 2
 
 
 def test_failed_calls_are_never_cached(tmp_path, monkeypatch):
     path = tmp_path / 'calls.jsonl'; d = Doctor(fail_at=1)
     with pytest.raises(RetryExhausted): interventions(monkeypatch, CallCache(path), d)
-    assert kinds(path) == ['behavior_text']                                               # nothing of the failed rerun
+    assert kinds(path) == ['rerun_agent_turn']                                           # failed FINAL itself is never cached
 
 
 def test_complete_rerun_still_uses_the_outer_cache(tmp_path, monkeypatch):
     path = tmp_path / 'calls.jsonl'; runs, _ = interventions(monkeypatch, CallCache(path), Doctor())
-    k = kinds(path); assert k.count('rerun') == 2 and k.count('rerun_doctor_turn') == 2 and k.count('rerun_agent_turn') == 0
+    k = kinds(path); assert k.count('rerun') == 2 and k.count('rerun_doctor_turn') == 2 and k.count('rerun_agent_turn') == 2
     again = Doctor(); runs2, pol = interventions(monkeypatch, CallCache(path), again)
     assert again.inputs == [] and pol.agent_calls == [] and [to_dict(r) for r in runs2] == [to_dict(r) for r in runs]
     outer = [json.loads(l) for l in path.read_text().splitlines() if json.loads(l)['kind'] == 'rerun']
-    assert set(outer[0]['identity']) == {'rubric', 'node', 'level', 'policy', 'continuation_protocol', 'text', 'seed'}
+    assert set(outer[0]['identity']) == {'rubric', 'node', 'level', 'policy', 'continuation_protocol',
+                                         'rubric_sha256', 'prefix_sha256', 'case_sha256', 'selected_turn', 'writer_identity',
+                                         'intervention_instruction_sha256', 'intervention_template_sha256',
+                                         'member_intervention_spec',
+                                         'rerun_index', 'text', 'agent_seed', 'seed'}
 
 
 @pytest.mark.parametrize('change', ['model', 'system', 'policy', 'none'])
@@ -112,6 +116,8 @@ def test_reruns_do_not_share_turns(tmp_path, monkeypatch):
     owners = {(r['identity']['rerun']['rerun_index'], r['identity']['rerun']['seed']) for r in recs}
     assert len(owners) == 2 and all(r['identity']['rerun']['case_id'] == CASES[0]['case_id'] for r in recs)
     assert all({'model', 'system_sha256', 'stage', 'input_sha256'} <= set(r['identity']['turn']) for r in recs)
+    agent = [json.loads(l) for l in path.read_text().splitlines() if json.loads(l)['kind'] == 'rerun_agent_turn']
+    assert len({r['identity']['agent_seed'] for r in agent}) == 2
 
 
 def test_a_different_dialogue_prefix_misses_even_for_the_same_rerun(tmp_path, monkeypatch):

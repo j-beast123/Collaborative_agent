@@ -16,6 +16,25 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 ROOT=Path(__file__).resolve().parents[2]
+ONE_STEP_PROTOCOLS={'intervention_agent_once_doctor_final_once_v1',
+                    'fresh_agent_from_joint_generated_intervention_instruction_then_doctor_final_each_rerun_v4',
+                    'fresh_agent_from_joint_generated_intervention_instruction_then_doctor_final_each_rerun_v5'}
+
+
+def unscorable_suffix(distribution):
+    """U is an explicitly unscorable assessment, separate from genuine NA."""
+    return f' U:{distribution["U"]}' if distribution.get('U',0) else ''
+
+
+def incomplete_suffix(funnel):
+    return f' incomplete {funnel["rubrics_incomplete"]}' if funnel.get('rubrics_incomplete',0) else ''
+
+
+def case_score_distribution(pipeline):
+    saved=pipeline.get('score_distribution',{}).get('union') or {}
+    if saved and (pipeline.get('phase_complete',{}).get('union') or saved.get('cases')):
+        return saved.get('counts',saved), saved.get('n',pipeline.get('phase_scored_pairs',{}).get('union',0)), 'final'
+    return pipeline.get('live_score_distribution',{}), pipeline.get('live_scored_pairs',0), 'live'
 
 
 def read_json(path,default=None):
@@ -81,7 +100,8 @@ class WorkerCache:
                     if rubric_id=='_decisions' or not isinstance(result,dict) or not node:continue
                     pair=(node,rubric_id)
                     if pair in self.scored_pairs:continue
-                    if result.get('applicable') is False:label='NA'
+                    if result.get('scoring_status') in ('rubric_unscorable','group_unscorable'):label='U'
+                    elif result.get('applicable') is False:label='NA'
                     elif result.get('applicable') is True:
                         stage2=result.get('stage2') or {}
                         level=stage2.get('level') if isinstance(stage2,dict) else None
@@ -99,12 +119,12 @@ class WorkerCache:
             elif kind=='rerun':
                 self.rerun_unparsed+=(row.get('value') or {}).get('outcome') is None
                 ident=row.get('identity') or {}
-                if ident.get('continuation_protocol')=='intervention_agent_once_doctor_final_once_v1':
+                if ident.get('continuation_protocol') in ONE_STEP_PROTOCOLS:
                     self.one_step_reruns+=1
                 else:self.legacy_reruns+=1
             elif kind=='rerun_doctor_turn':
                 owner=(row.get('identity') or {}).get('rerun') or {}
-                if owner.get('continuation_protocol')=='intervention_agent_once_doctor_final_once_v1':
+                if owner.get('continuation_protocol') in ONE_STEP_PROTOCOLS:
                     turn=(row.get('identity') or {}).get('turn') or {}
                     if turn.get('stage')=='FINAL':self.one_step_final_calls+=1
                     self.one_step_targets.add((owner.get('case_id'),owner.get('rubric'),owner.get('node'),owner.get('level')))
@@ -168,7 +188,29 @@ def elapsed(start,end):
 
 def summarize_phase(record):
     """Compact confirmed results; None rewards remain distinct from real zero."""
-    targets=(record.get('agent_targets') or {}).get('nodes',{})
+    target_meta=record.get('agent_targets') or {}
+    targets=target_meta.get('nodes',{})
+    outcome_weight=float((target_meta.get('reward_weights') or {}).get('w_outcome',0.0))
+    outcome_values={nid:float(node['outcome_component']) for nid,node in targets.items()
+                    if isinstance(node,dict) and node.get('outcome_component') is not None}
+    outcome_counts=collections.Counter()
+    for value in outcome_values.values():
+        label='0' if abs(value)<1e-12 else ('1' if abs(value-1.0)<1e-12 else 'mix')
+        outcome_counts[label]+=1
+    outcome_groups=[];outcome_signal_targets=set()
+    for ids in target_meta.get('groups',{}).values():
+        values=[outcome_values[nid] for nid in ids if nid in outcome_values]
+        if len(values)>1:
+            outcome_groups.append(values)
+            if max(values)-min(values)>1e-12:outcome_signal_targets.update(nid for nid in ids if nid in outcome_values)
+    outcome_n=len(outcome_values);outcome_sum=sum(outcome_values.values())
+    outcome_signal={'targets':outcome_n,'zero':outcome_counts['0'],'mixed':outcome_counts['mix'],
+                    'one':outcome_counts['1'],'mean':outcome_sum/outcome_n if outcome_n else None,
+                    'mean_contribution':outcome_weight*outcome_sum/outcome_n if outcome_n else None,
+                    'contribution_sum':outcome_weight*outcome_sum,
+                    'groups':len(outcome_groups),
+                    'varying_groups':sum(max(v)-min(v)>1e-12 for v in outcome_groups),
+                    'varying_targets':len(outcome_signal_targets)}
     rewarded=[v['reward'] for v in targets.values() if v.get('reward') is not None]
     nodes=record.get('tree',{}).get('nodes',[])
     scores=record.get('response_scores',[])
@@ -177,8 +219,13 @@ def summarize_phase(record):
     score_distribution=collections.Counter()
     for item in scores:
         hard=item.get('hard')
-        if not item.get('applicable', hard is not None) or (hard is None and item.get('score') is None):
+        applicable=item.get('applicable',item.get('match',hard is not None or item.get('score') is not None))
+        if item.get('scoring_status') in ('rubric_unscorable','group_unscorable'):
+            score_distribution['U']+=1
+        elif not applicable:
             score_distribution['NA']+=1
+        elif hard is None and item.get('score') is None:
+            score_distribution['other']+=1
         else:
             if hard is None:
                 expected=float(item['score'])
@@ -188,14 +235,14 @@ def summarize_phase(record):
                 level=int(round(float(hard)*2))
                 label=str(level) if level in (0,1,2) else 'other'
             score_distribution[label]+=1
-    return {'total_nodes':len(nodes),
+    return {'total_nodes':len(nodes),'outcome_signal':outcome_signal,
             'scored_nodes':len({s['response_node_id'] for s in scores}),
             'valid_rewards':len(rewarded),'na_rewards':sum(v.get('reward') is None for v in targets.values()),
             'reward_sum':sum(rewarded),'keep':sum(w.get('decision')=='KEEP' for w in witness),
             'not_validated':sum(w.get('decision')=='NOT_VALIDATED' for w in witness),
             'rollout_wall_seconds':(record.get('timings') or {}).get('rollout_wall_seconds'),
             'step_wall_seconds':record.get('seconds'),
-            'score_distribution':{k:score_distribution.get(k,0) for k in ('0','1','2','NA','other')},
+            'score_distribution':{k:score_distribution.get(k,0) for k in ('0','1','2','NA','U','other')},
             'scored_pairs':len(scores),
             'training_rubrics':len(record.get('rubric_weights',{})),
             'union_rubrics':len(record.get('training_rubrics',[])),
@@ -204,6 +251,7 @@ def summarize_phase(record):
             'rubrics_generated':int(telemetry.get('created_new',0)),
             'rubrics_validated':int(telemetry.get('rubrics',len(witness))),
             'rubrics_keep':int(telemetry.get('keep',sum(w.get('decision')=='KEEP' for w in witness))),
+            'rubrics_incomplete':int(telemetry.get('incomplete',sum(w.get('decision')=='INCOMPLETE' for w in witness))),
             'rubrics_not_validated':int(telemetry.get('not_validated',sum(w.get('decision')=='NOT_VALIDATED' for w in witness)))}
 
 
@@ -308,7 +356,10 @@ class Monitor:
                     cache=self.caches.setdefault(key,WorkerCache(path));cache.update(now)
                     r.update(case_index=assignment['index'],case_id=manifest['case_ids'][manifest['assignments'].index(assignment)])
                     if (directory/'union.json').exists() or (directory/'result.json').exists():r['phase']='waiting at batch barrier'
-                    elif (directory/'P1.json').exists():r['phase']='P0+P1 union scoring / wait'
+                    elif (directory/'P1_verify.json').exists() or (directory/'P1.json').exists():r['phase']='P0+P1 union scoring / wait'
+                    elif (directory/'P1_prepare.json').exists():r['phase']='P1 rubric / rerun'
+                    elif (directory/'P0_verify.json').exists():r['phase']='P1 generation / wait'
+                    elif (directory/'P0_prepare.json').exists():r['phase']='P0 rubric / rerun'
                     elif (directory/'P0.json').exists():r['phase']='P1 verification / reflection wait'
                     elif cache.counts['feedback'] or any('rubric' in k for k in cache.counts):r['phase']='P0 rubric / rerun'
                     else:r['phase']='P0 rollout'
@@ -318,7 +369,12 @@ class Monitor:
                                          ro.get('halting',{}).get('min_agent_turns',2 if ro.get('doctor_backend') else 1))
                     case_start=first_record_time(directory/'execution_runtime.jsonl') or batch_start
                     case_end=file_time(directory/'union.json') or file_time(directory/'result.json') or wall
-                    phases={p:self.phase_summary(directory/(p+'.json')) for p in ('P0','P1','union')}
+                    phases={
+                        'P0': next((self.phase_summary(directory/f'{name}.json') for name in
+                                    ('P0_verify','P0','P0_prepare') if (directory/f'{name}.json').exists()),None),
+                        'P1': next((self.phase_summary(directory/f'{name}.json') for name in
+                                    ('P1_verify','P1','P1_prepare') if (directory/f'{name}.json').exists()),None),
+                        'union': self.phase_summary(directory/'union.json')}
                     if phases['union'] is None and (directory/'result.json').exists():
                         phases['union']=self.phase_summary(directory/'result.json')
                     final_scoring=phases['union']
@@ -334,17 +390,19 @@ class Monitor:
                               'legacy_reruns_preserved':cache.legacy_reruns,
                               'scoring_requests':cache.counts['rubric_score'],'scoring_unique_nodes':len(cache.scored_nodes),
                               'live_scored_pairs':len(cache.scored_pairs),
-                              'live_score_distribution':{k:cache.live_score_distribution.get(k,0) for k in ('0','1','2','NA')},
+                              'live_score_distribution':{k:cache.live_score_distribution.get(k,0) for k in ('0','1','2','NA','U')},
                               'phase_complete':{p:phases[p] is not None for p in phases},
                               'rollout_seconds':(phases['P0'] or {}).get('rollout_wall_seconds'),
                               'p0_step_seconds':(phases['P0'] or {}).get('step_wall_seconds'),
                               'score_distribution':{phase:(phases[phase] or {}).get('score_distribution')
                                                     for phase in ('P0','P1','union')},
+                              'outcome_signal':{phase:(phases[phase] or {}).get('outcome_signal')
+                                                for phase in ('P0','P1','union')},
                               'phase_scored_pairs':{phase:(phases[phase] or {}).get('scored_pairs')
                                                     for phase in ('P0','P1','union')},
                               'keep':{p:phases[p]['keep'] if phases[p] is not None else None for p in ('P0','P1')},
                               'rubric_funnel':{p:({key:phases[p][key] for key in
-                                                  ('rubrics_generated','rubrics_validated','rubrics_keep','rubrics_not_validated')}
+                                                  ('rubrics_generated','rubrics_validated','rubrics_keep','rubrics_not_validated','rubrics_incomplete')}
                                                  if phases[p] is not None else None) for p in ('P0','P1')},
                               'final_scored_nodes':final_scoring['scored_nodes'] if final_scoring else 0,
                               'final_nodes_total':final_scoring['total_nodes'] if final_scoring else len(cache.agent_paths),
@@ -398,9 +456,22 @@ class Monitor:
             values=[p[key] for p in pipelines if p.get(key) is not None]
             pipeline[key]=sum(values);pipeline[key+'_cases']=len(values)
         pipeline['score_distribution']={}
+        union_signals=[p['outcome_signal']['union'] for p in pipelines
+                       if p.get('outcome_signal',{}).get('union') is not None]
+        outcome_n=sum(x['targets'] for x in union_signals)
+        outcome_value_sum=sum((x['mean'] or 0.0)*x['targets'] for x in union_signals)
+        pipeline['outcome_signal']={'cases':len(union_signals),'targets':outcome_n,
+                                    'zero':sum(x['zero'] for x in union_signals),
+                                    'mixed':sum(x['mixed'] for x in union_signals),
+                                    'one':sum(x['one'] for x in union_signals),
+                                    'mean':outcome_value_sum/outcome_n if outcome_n else None,
+                                    'mean_contribution':sum(x['contribution_sum'] for x in union_signals)/outcome_n if outcome_n else None,
+                                    'groups':sum(x['groups'] for x in union_signals),
+                                    'varying_groups':sum(x['varying_groups'] for x in union_signals),
+                                    'varying_targets':sum(x['varying_targets'] for x in union_signals)}
         live_scores=collections.Counter()
         for p in pipelines:live_scores.update(p['live_score_distribution'])
-        pipeline['live_score_distribution']={k:live_scores.get(k,0) for k in ('0','1','2','NA')}
+        pipeline['live_score_distribution']={k:live_scores.get(k,0) for k in ('0','1','2','NA','U')}
         for phase in ('P0','P1','union'):
             records=[p['score_distribution'][phase] for p in pipelines if p['score_distribution'].get(phase) is not None]
             totals=collections.Counter()
@@ -408,7 +479,7 @@ class Monitor:
             for dist in records:totals.update(dist)
             scored_pairs=sum(p['phase_scored_pairs'][phase] for p in pipelines
                              if p['phase_scored_pairs'].get(phase) is not None)
-            pipeline['score_distribution'][phase]={'counts':{k:totals.get(k,0) for k in ('0','1','2','NA','other')},
+            pipeline['score_distribution'][phase]={'counts':{k:totals.get(k,0) for k in ('0','1','2','NA','U','other')},
                                                    'cases':len(records),'n':scored_pairs}
         pipeline['cases_total']=len(pipelines)
         pipeline['final_nodes_total_known']=bool(pipelines) and all(p['final_nodes_total_known'] for p in pipelines)
@@ -417,7 +488,7 @@ class Monitor:
         pipeline['rubric_funnel']={phase:{key:sum(p['rubric_funnel'][phase][key] for p in pipelines
                                                   if p['rubric_funnel'][phase] is not None)
                                           if any(p['rubric_funnel'][phase] is not None for p in pipelines) else None
-                                          for key in ('rubrics_generated','rubrics_validated','rubrics_keep','rubrics_not_validated')}
+                                          for key in ('rubrics_generated','rubrics_validated','rubrics_keep','rubrics_not_validated','rubrics_incomplete')}
                                    for phase in ('P0','P1')}
         restart=read_json(self.root/'pool_request_fanout_restart.json',{})
         return {'time':datetime.now(ZoneInfo('Asia/Seoul')).isoformat(timespec='seconds'),'run_dir':str(self.root),
@@ -454,6 +525,16 @@ def duration(seconds):
 def remaining(leaves):
     low,high=leaves['remaining_min'],leaves['remaining_max']
     return str(low) if low==high else f'{low}~{high}'
+
+
+def render_outcome_signal(signal):
+    signal=signal or {}
+    mean=signal.get('mean_contribution')
+    contribution='-' if mean is None else f'{mean:.2f}'
+    return (f'Outcome/train n={signal.get("targets",0)} '
+            f'O0:{signal.get("zero",0)} mix:{signal.get("mixed",0)} O1:{signal.get("one",0)} · '
+            f'varying sibling groups {signal.get("varying_groups",0)}/{signal.get("groups",0)} · '
+            f'mean reward part {contribution}')
 
 
 def count(v):return '-' if v is None else str(v)
@@ -574,7 +655,8 @@ def render_dashboard(s):
     """Short live view: spend/progress first, one compact status row per GPU."""
     api=s.get('api',{})
     batch=s.get('batch') or 'no batch'
-    lines=[f'{s["time"]}  {batch} · {duration(s.get("run_elapsed_seconds"))} · '
+    lines=[f'{s["time"]}  {batch} · run {duration(s.get("run_elapsed_seconds"))} · '
+           f'batch {duration(s.get("batch_elapsed_seconds"))} · '
            f'API ${api.get("recorded_usd",0):.2f} · {api.get("calls",0)} calls']
     leaves=s.get('leaves',{})
     if leaves.get('trees_total'):
@@ -590,40 +672,29 @@ def render_dashboard(s):
     p=s.get('pipeline',{})
     if p.get('cases_total'):
         done=p.get('phase_complete',{})
-        lines.append(f'P0 {done.get("P0",0)}/{p["cases_total"]} · '
-                     f'P1 {done.get("P1",0)}/{p["cases_total"]} · '
-                     f'score {done.get("union",0)}/{p["cases_total"]} · '
+        lines.append(f'Phases · P0 verified {done.get("P0",0)}/{p["cases_total"]} · '
+                     f'P1 verified {done.get("P1",0)}/{p["cases_total"]} · '
+                     f'final scoring {done.get("union",0)}/{p["cases_total"]} · '
                      f'rerun {p.get("one_step_reruns_done",0)} · updates {s.get("committed_batches",0)}')
-        keep=p.get('keep',{})
         funnel=p.get('rubric_funnel',{})
         def rubric_status(phase):
             f=funnel.get(phase)
-            if f is None or f.get('rubrics_validated') is None:return f'{phase} pending'
-            return (f'{phase} {f["rubrics_keep"]}/{f["rubrics_validated"]} KEEP'
-                    f' · {f["rubrics_generated"]} new')
-        lines.append('Rubrics · '+' | '.join(rubric_status(phase) for phase in ('P0','P1'))+
+            if f is None or f.get('rubrics_validated') is None:return f'{phase} verification pending'
+            return (f'{phase} KEEP {f["rubrics_keep"]}/{f["rubrics_validated"]}'
+                    f' (new {f["rubrics_generated"]}){incomplete_suffix(f)}')
+        lines.append('Rubrics confirmed · '+' | '.join(rubric_status(phase) for phase in ('P0','P1'))+
                      f' · gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)}')
+        lines.append(render_outcome_signal(p.get('outcome_signal')))
         if p.get('rollout_seconds_cases'):
             lines.append(f'Rollout {duration(p["rollout_seconds"])} total · '
                          f'{duration(p["rollout_seconds"]/p["rollout_seconds_cases"])} avg')
-        available=[(label,p['score_distribution'][phase]) for label,phase in
-                   (('P0','P0'),('P1','P1'),('train','union')) if p['score_distribution'][phase]['cases']]
-        if available:
-            labels=[]
-            if p.get('live_scored_pairs'):
-                live=p['live_score_distribution']
-                labels.append(f'live n={p["live_scored_pairs"]} 0:{live["0"]} 1:{live["1"]} 2:{live["2"]} NA:{live["NA"]}')
-            labels.extend(
-                f'{label} n={dist["n"]} 0:{dist["counts"]["0"]} 1:{dist["counts"]["1"]} '
-                f'2:{dist["counts"]["2"]} NA:{dist["counts"]["NA"]}'
-                for label,dist in available)
-            lines.append('Scores/rubric-response  '+' · '.join(labels))
-        elif p.get('live_scored_pairs'):
-            live=p['live_score_distribution']
-            lines.append(f'Live rubric scores n={p["live_scored_pairs"]} · '
-                         f'0:{live["0"]} 1:{live["1"]} 2:{live["2"]} NA:{live["NA"]}')
+        train=p['score_distribution']['union']
+        if train['cases']:
+            counts=train['counts']
+            lines.append(f'Train scores ({train["cases"]}/{p["cases_total"]} cases) · n={train["n"]} '
+                         f'0:{counts["0"]} 1:{counts["1"]} 2:{counts["2"]} NA:{counts["NA"]}{unscorable_suffix(counts)}')
         else:
-            lines.append('Score distribution pending · no rubric-response scores recorded yet')
+            lines.append(f'Train scores · waiting for final rubric set (union {done.get("union",0)}/{p["cases_total"]})')
     def active_task(row):
         elapsed=row.get('active_elapsed_seconds',{})
         preferred=('agent_generate','agent_batch_generate','doctor_generate','doctor_queue_wait',
@@ -661,12 +732,11 @@ def render_dashboard(s):
             def keep_text(phase):
                 f=funnel.get(phase)
                 if f is None or f.get('rubrics_validated') is None:return f'{phase} pending'
-                return f'{phase} {f["rubrics_keep"]}/{f["rubrics_validated"]}'
-            dist=case_pipeline.get('live_score_distribution',{})
-            scored=case_pipeline.get('live_scored_pairs',0)
+                return f'{phase} {f["rubrics_keep"]}/{f["rubrics_validated"]}{incomplete_suffix(f)}'
+            dist,scored,_=case_score_distribution(case_pipeline)
             lines.append(f'     case stats · KEEP {keep_text("P0")} / {keep_text("P1")} · '
                          f'score n={scored} 0:{dist.get("0",0)} 1:{dist.get("1",0)} '
-                         f'2:{dist.get("2",0)} NA:{dist.get("NA",0)}')
+                         f'2:{dist.get("2",0)} NA:{dist.get("NA",0)}{unscorable_suffix(dist)}')
     if s.get('gpu_query_error'):
         lines.append('GPU telemetry unavailable: '+s['gpu_query_error'][:100])
     timing=api.get('timing',{})
@@ -683,26 +753,33 @@ def render_compact_dashboard(s):
     """One terminal line per GPU so all five workers fit on short screens."""
     api=s.get('api',{}); p=s.get('pipeline',{}); leaves=s.get('leaves',{})
     batch=s.get('batch') or 'no batch'
-    lines=[f'{s["time"]} {batch} · {duration(s.get("run_elapsed_seconds"))} · '
+    lines=[f'{s["time"]} {batch} · run {duration(s.get("run_elapsed_seconds"))} · '
+           f'batch {duration(s.get("batch_elapsed_seconds"))} · '
            f'${api.get("recorded_usd",0):.2f} · {api.get("calls",0)} API calls']
     if leaves.get('trees_total'):
         done=p.get('phase_complete',{})
         lines.append(f'Cases {s.get("completed_cases",0)}/{s.get("total_cases",0)} · '
                      f'leaves {leaves.get("completed",0)}/{remaining(leaves)} · '
-                     f'trees {leaves.get("trees_complete",0)}/{leaves.get("trees_total",0)} · '
-                     f'P0/P1/score {done.get("P0",0)}/{done.get("P1",0)}/{done.get("union",0)} · '
+                     f'trees {leaves.get("trees_complete",0)}/{leaves.get("trees_total",0)}')
+        lines.append(f'Phases P0 verified {done.get("P0",0)}/{p["cases_total"]} · '
+                     f'P1 verified {done.get("P1",0)}/{p["cases_total"]} · '
+                     f'final scored {done.get("union",0)}/{p["cases_total"]} · '
                      f'rerun {p.get("one_step_reruns_done",0)} · update {s.get("committed_batches",0)}')
         funnel=p.get('rubric_funnel',{})
-        def compact_keep(phase):
+        def compact_rubrics(phase):
             f=funnel.get(phase)
-            if f is None or f.get('rubrics_validated') is None:return f'{phase} pending'
-            return f'{phase} {f["rubrics_keep"]}/{f["rubrics_validated"]}K/{f["rubrics_generated"]}new'
-        live=p.get('live_score_distribution',{})
-        lines.append(f'Rubrics {compact_keep("P0")} · {compact_keep("P1")} · '
-                     f'gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)} · '
-                     f'live scores n={p.get("live_scored_pairs",0)} '
-                     f'0:{live.get("0",0)} 1:{live.get("1",0)} '
-                     f'2:{live.get("2",0)} NA:{live.get("NA",0)}')
+            if f is None or f.get('rubrics_validated') is None:return f'{phase} verifying'
+            return f'{phase} KEEP {f["rubrics_keep"]}/{f["rubrics_validated"]} (new {f["rubrics_generated"]}){incomplete_suffix(f)}'
+        lines.append('Rubrics · '+compact_rubrics('P0')+' · '+compact_rubrics('P1')+
+                     f' · gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)}')
+        lines.append(render_outcome_signal(p.get('outcome_signal')))
+        train=p.get('score_distribution',{}).get('union',{})
+        if train.get('cases'):
+            counts=train['counts']
+            lines.append(f'Train scores {train["cases"]}/{p["cases_total"]} cases · n={train["n"]} '
+                         f'0:{counts["0"]} 1:{counts["1"]} 2:{counts["2"]} NA:{counts["NA"]}{unscorable_suffix(counts)}')
+        else:
+            lines.append(f'Train scores waiting · final set scored {done.get("union",0)}/{p["cases_total"]}')
     for r in s.get('gpus',[]):
         util=number(r.get('util'),'%').rjust(3)
         mem=(f'{r["memory_mb"]/1024:.0f}G' if r.get('memory_mb') is not None and r.get('total_mb') else '-')
@@ -713,14 +790,15 @@ def render_compact_dashboard(s):
             def case_keep(phase):
                 f=keep.get(phase)
                 if f is None or f.get('rubrics_validated') is None:return '-'
-                return f'{f["rubrics_keep"]}/{f["rubrics_validated"]}'
-            dist=r.get('pipeline',{}).get('live_score_distribution',{})
-            n=r.get('pipeline',{}).get('live_scored_pairs',0)
+                return f'{f["rubrics_keep"]}/{f["rubrics_validated"]}{incomplete_suffix(f)}'
+            case_pipeline=r.get('pipeline',{})
+            dist,n,score_label=case_score_distribution(case_pipeline)
             work=(f'C{r["case_index"]+1} {r.get("phase")} · '
                   f'A{r.get("agent_nodes",0)} D{r.get("doctor_calls",0)} F{r.get("finals",0)} · '
                   f'L{leaf.get("completed",0)}/{remaining(leaf)} · '
                   f'K{case_keep("P0")}/{case_keep("P1")} · '
-                  f'S{n}[0:{dist.get("0",0)} 1:{dist.get("1",0)} 2:{dist.get("2",0)} NA:{dist.get("NA",0)}]')
+                  f'{score_label} score n={n} [0:{dist.get("0",0)} 1:{dist.get("1",0)} '
+                  f'2:{dist.get("2",0)} NA:{dist.get("NA",0)}{unscorable_suffix(dist)}]')
         else:
             work=f'{r.get("phase","idle")} · {r.get("progress","-")}'
         active=next((k for k in ('agent_generate','agent_batch_generate','doctor_generate','role.rubric_generator',
@@ -749,9 +827,18 @@ def main():
         while True:
             handoff=read_json(ROOT/'outputs/diagnostics/doctor_parallel_20261008/handoff_status.json',{})
             if args.config and handoff.get('config')!=args.config:handoff={}
-            config=args.config or handoff.get('config') or 'configs/online_rl/tree_v21_five_gpu_shared5.json'
-            cfg=json.loads((ROOT/config).read_text());root=ROOT/(args.run_dir or handoff.get('run_dir') or cfg['output_dir'])
-            if args.config and not args.run_dir:root=ROOT/cfg['output_dir']
+            if args.config:
+                cfg=json.loads((ROOT/args.config).read_text())
+                root=ROOT/(args.run_dir or cfg['output_dir'])
+            elif args.run_dir:
+                root=Path(args.run_dir)
+                if not root.is_absolute():root=ROOT/root
+                saved=read_json(root/'run_manifest.json',{})
+                cfg=saved.get('config') or json.loads((ROOT/'configs/online_rl/tree_v21_five_gpu_shared5.json').read_text())
+            else:
+                config=handoff.get('config') or 'configs/online_rl/tree_v21_five_gpu_shared5.json'
+                cfg=json.loads((ROOT/config).read_text())
+                root=ROOT/handoff.get('run_dir',cfg['output_dir'])
             if current!=str(root):monitor=Monitor(root,cfg);current=str(root)
             s=monitor.snapshot();s['handoff']=handoff;output=json.dumps(s,ensure_ascii=False) if args.json else (render_compact_dashboard(s) if args.compact else render_dashboard(s))
             if handoff.get('benchmark_dir'):

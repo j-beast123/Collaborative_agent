@@ -44,6 +44,9 @@ def test_visible_history_only_applicability_then_behavior_no_extra_belief_call()
         text = json.dumps(state)
         assert 'ground_truth' not in text and 'private_assessment' not in text and 'outcome' not in text
     assert 'required_behavior' not in json.dumps(client.calls[0][2]) and 'score_anchors' not in json.dumps(client.calls[0][2])
+    stage1_item = next(iter(client.calls[0][2].values()))
+    assert 'Evaluate the supplied Agent-side state condition as written' in stage1_item['instructions']
+    assert 'Both User-side context and earlier visible Agent behavior must hold' not in stage1_item['instructions']
     client=Client(False);scorer=B.two_stage_structured_scorer(client,observed_context=True)
     result=scorer(view,prefix,[rubric()],target)['r']
     assert result['hard'] is None and not result['applicable'] and len(client.calls)==1
@@ -96,5 +99,9 @@ def test_guided_reply_uses_observed_schema_without_private_assessment():
         def agent_user_prompt(self,*args):return 'visible prefix'
         def agent(self,user,seed):self.user=user;return 'guided reply'
     policy=Policy();writer=B.PolicyInterventions(policy,'Score 0 {rubric_json}','Score 2 {rubric_json}')
-    writer.write({},[],2,rubric(),'2',42)
+    r=rubric();r['analysis']={'internal_note':'must stay hidden'}
+    writer.write({},[],2,r,'2',42)
     assert 'agent_side_state' in policy.user and 'private_assessment' not in policy.user
+    assert 'internal_note' not in policy.user and 'analysis' not in policy.user
+    assert '"2": {"behavior": "Address the request with a different, relevant explanation."}' in policy.user
+    assert '"0":' not in policy.user and '"1":' not in policy.user and 'required_behavior' not in policy.user

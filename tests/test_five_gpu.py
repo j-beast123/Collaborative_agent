@@ -238,9 +238,11 @@ def test_runner_commits_30_resumes_and_drains_eval_queue(tmp_path,monkeypatch,ev
                 if phase!='fixed':
                     cid=r['case_id']; keys={cid+'/success':1.,cid+'/failure':0.}
                     r['prompt_sha256']=prompt['sha256']
-                    r['prompt_evaluation']={'per_trajectory':{k:(.2 if phase=='P0' else .8) for k in keys},
-                        'source_outcome':keys,'rerun_policy_sha256':sha}
-                    if phase=='P0':originals[cid]=r;seen_parents.append(prompt['sha256'])
+                    if phase in ('P0_verify','P1_verify'):
+                        r['prompt_evaluation']={'per_trajectory':{k:(.2 if phase=='P0_verify' else .8) for k in keys},
+                            'source_outcome':keys,'rerun_policy_sha256':sha}
+                    if phase=='P0_prepare':seen_parents.append(prompt['sha256'])
+                    if phase=='P0_verify':originals[cid]=r
                     if phase=='union':r=originals[cid]
                 records.append(r)
             future=Future();future.set_result(records);return future
@@ -287,12 +289,12 @@ def test_runner_commits_30_resumes_and_drains_eval_queue(tmp_path,monkeypatch,ev
     state=json.loads((tmp_path/'run/run_state.json').read_text())
     assert state['case_cursor']==size and updates==[size]
     if first_seed:
-        seed=json.loads((tmp_path/'run/batches/batch_000001/prompt_seed.json').read_text())
-        assert seed['seed_mode']=='first_completed_P0_v1'
         event=json.loads((tmp_path/'run/prompt_events/batch_000001.json').read_text())
-        assert event['selection_scope']=='all_batch_trajectories_v1' and event['candidate_seed']==seed
+        assert event['selection_scope']=='all_batch_trajectories_v1'
+        assert event['candidate_evidence']=='all_P0_verified_cases_v1'
     if evolving:
-        assert phases==['P0']*size+['P1']*size+['union']*size
+        assert phases==(['P0_prepare']*size+['P0_verify']*size+['P1_prepare']*size+
+                        ['P1_verify']*size+['union']*size)
         assert state['prompt_sha256']!=cfg['rubric']['prompt_sha256']
     real_write=runner.atomic_write_json
     def crash_before_state(path,value):

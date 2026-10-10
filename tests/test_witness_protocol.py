@@ -153,7 +153,8 @@ def test_all_same_id_members_reach_fifth_support_and_stop_at_first_witness():
     assert v.decision=='KEEP' and v.num_valid_supports==5 and len(v.tested)==5
     assert v.num_reruns_executed==10 and v.protocol==W.ALL_MEMBERS_PROTOCOL
     v=run(Fx(lambda seed:None),nodes,leaves,{l:2 for l in leaves},max_valid=None)
-    assert v.decision=='NOT_VALIDATED' and v.num_valid_supports==6 and v.stop_reason=='candidates_exhausted'
+    assert v.decision=='INCOMPLETE' and v.num_valid_supports==6 and v.stop_reason=='candidates_exhausted'
+    assert v.num_reruns_executed == 18
 
 
 def test_random10_uses_reproducible_uniform_sample_and_caps_trajectories():
@@ -169,6 +170,31 @@ def test_random10_uses_reproducible_uniform_sample_and_caps_trajectories():
     again = run(Fx(lambda seed: 0.0), nodes, leaves, loci, max_valid=10, support_sampling=sampling)
     assert again.candidate_order == v.candidate_order
     assert v.candidate_order != tuple(W.support_order(list(leaves.values()), 'c1/0.0')[i].leaf_id for i in range(10))
+
+
+def test_random5_samples_five_without_replacement_and_rejects_after_all_fail():
+    nodes, leaves = tree([f'{i}.0' for i in range(12)])
+    sampled1 = W.random_support_sample(list(leaves.values()), run_seed=3, case_id='c1', rubric_id='R',
+                                       limit=5, protocol=W.RANDOM5_PROTOCOL)
+    sampled2 = W.random_support_sample(list(reversed(list(leaves.values()))), run_seed=3, case_id='c1', rubric_id='R',
+                                       limit=5, protocol=W.RANDOM5_PROTOCOL)
+    assert [x.leaf_id for x in sampled1] == [x.leaf_id for x in sampled2]
+    assert len(sampled1) == len({x.leaf_id for x in sampled1}) == 5
+
+    fx = Fx(lambda seed: 0.0)  # Failure-source intervention does not reach the requested success.
+    v = run(fx, nodes, leaves, {leaf_id: 2 for leaf_id in leaves}, max_valid=5,
+            support_sampling=W.RANDOM5_SAMPLING)
+    assert v.protocol == W.RANDOM5_PROTOCOL
+    assert v.decision == 'NOT_VALIDATED' and v.stop_reason == 'max_valid_supports'
+    assert v.num_valid_supports == 5 and len(v.tested) == 5
+    assert v.num_reruns_executed == len(fx.cont) == 10
+
+
+def test_random5_requires_exactly_five_support_cap():
+    nodes, leaves = tree(['0.0'])
+    fx = Fx(lambda seed: 0.0)
+    with pytest.raises(ValueError, match='random5_witness_v1 requires max_valid_supports = 5'):
+        run(fx, nodes, leaves, {'c1/0.0': 2}, max_valid=4, support_sampling=W.RANDOM5_SAMPLING)
 
 
 def test_order_and_targets_ignore_outcomes():
@@ -295,26 +321,74 @@ def test_protocol_hash_changes_with_the_feedback_protocol(monkeypatch):
     assert C.protocol_sha256(v2, root) != C.protocol_sha256(other, root) and v2['feedback']['protocol'] == 'behavior_observer_v4'
 
 
-@pytest.mark.parametrize('source,seq,reruns,passed,positive', [
-    (1.0,[None,None],2,False,0),
-    (1.0,[None,0.0,1.0],3,False,1),
-    (1.0,[None,0.0,0.0],3,True,2),
-    (1.0,[0.0,0.0],2,True,2),
-    (0.0,[None,None],2,False,0),
-    (0.0,[None,1.0,0.0],3,False,1),
-    (0.0,[None,1.0,1.0],3,True,2),
-    (0.0,[1.0,1.0],2,True,2),
+@pytest.mark.parametrize('source,seq,reruns,decision,positive', [
+    (1.0,[None,None,None],3,'INCOMPLETE',0),
+    (1.0,[None,0.0,1.0],3,'INCOMPLETE',1),
+    (1.0,[None,0.0,0.0],3,'KEEP',2),
+    (1.0,[None,1.0,1.0],3,'NOT_VALIDATED',0),
+    (1.0,[0.0,0.0],2,'KEEP',2),
+    (0.0,[None,None,None],3,'INCOMPLETE',0),
+    (0.0,[None,1.0,0.0],3,'INCOMPLETE',1),
+    (0.0,[None,1.0,1.0],3,'KEEP',2),
+    (0.0,[None,0.0,0.0],3,'NOT_VALIDATED',0),
+    (0.0,[1.0,1.0],2,'KEEP',2),
 ])
-def test_unparsed_final_never_counts_as_flip(source,seq,reruns,passed,positive):
+def test_unparsed_final_never_counts_as_hit_or_miss(source,seq,reruns,decision,positive):
     import dataclasses
     nodes,leaves=tree(['0.0'])
     leaves={key:dataclasses.replace(leaf,outcome=source) for key,leaf in leaves.items()}
     fx=Fx(seq_outcomes(seq))
     v=run(fx,nodes,leaves,{'c1/0.0':2},max_valid=1)
-    assert (v.decision=='KEEP')==passed and v.num_reruns_executed==reruns
+    assert v.decision==decision and v.num_reruns_executed==reruns
     assert v.tested[0]['positive']==positive
     assert v.tested[0]['outcomes'].count(None)==v.tested[0]['unparsed']
     assert W.witness_telemetry({'R':v})['unparsed_reruns']==seq.count(None)
+    row = v.tested[0]
+    assert row['valid_outcomes'] == row['valid_denominator'] == len(seq) - seq.count(None)
+    assert row['target_hits'] == positive and row['target_misses'] == row['valid_outcomes'] - positive
+    assert row['error_count'] == len(row['errors']) == seq.count(None)
+    assert row['planned_denominator'] == 3 and row['executed_denominator'] == reruns
+    assert row['result'] == {'KEEP': 'PASS', 'NOT_VALIDATED': 'FAIL', 'INCOMPLETE': 'INCOMPLETE'}[decision]
+    assert W.witness_telemetry({'R':v})['incomplete'] == (decision == 'INCOMPLETE')
+
+
+@pytest.mark.parametrize('later,expected', [([0.0,0.0],'INCOMPLETE'), ([1.0,1.0],'KEEP')])
+def test_incomplete_support_remains_distinct_until_a_real_witness_passes(later, expected):
+    nodes, leaves = tree(['0.0','1.0'])
+    fx = Fx(seq_outcomes([None, 0.0, 1.0] + later))
+    v = run(fx,nodes,leaves,{key:2 for key in leaves},max_valid=2)
+    assert v.decision == expected and v.num_valid_supports == 2 and v.num_reruns_executed == 5
+    assert v.tested[0]['result'] == 'INCOMPLETE'
+    telemetry = W.witness_telemetry({'R':v})
+    assert telemetry['incomplete_supports'] == 1
+    assert telemetry['valid_reruns'] == 4 and telemetry['rerun_errors'] == 1
+
+
+def test_witness_test_returns_none_for_unresolved_three_slots():
+    nodes, leaves = tree(['0.0'])
+    fx = Fx(seq_outcomes([None,None,1.0]))
+    passed, runs = W.witness_test(CASE, leaves['c1/0.0'], nodes['c1/0.0'], rubric(),
+        reruns=3, run_seed=0, policy_sha256='pol', writer=fx.writer, continuation=fx.continuation, cache=CallCache(None))
+    assert passed is None and len(runs) == 3
+
+
+def test_prompt_comparison_omits_incomplete_members_instead_of_using_zero(tmp_path):
+    import test_batch_prompt as BP
+    from src.online_rl.tree import batch_prompt as B
+    tr, parent, candidate, _ = BP.assessments(tmp_path)
+    changed = []
+    for witness in candidate['rubric_bank']['witness']:
+        for test in witness['tested']:
+            if test.get('reruns'):
+                test.update(result='INCOMPLETE', outcomes=[None,None,None], positive=0, reruns=3)
+                changed.append(test['leaf_id'])
+    assert changed
+    candidate['prompt_evaluation'] = B.evaluate_prompt_record(tr, candidate)
+    evidence = candidate['prompt_evaluation']
+    assert set(changed).isdisjoint(evidence['per_trajectory'])
+    assert set(evidence['incomplete_trajectory_ids']) == set(changed)
+    assert all(row['R_O'] is None for row in evidence['effectiveness'] if row['result'] == 'INCOMPLETE')
+    assert B.choose([parent],[candidate])['reason'] == 'missing_direction'
 
 
 @pytest.mark.parametrize('level,outcomes,rate',[

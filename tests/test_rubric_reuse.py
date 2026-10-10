@@ -60,7 +60,7 @@ class Fakes:
     def writer(self, case, prefix, turn, rubric, level, seed): return f'intervention level {level} seed {seed}'
 
     def continuation(self, case, prefix, turn, text, seed):
-        node = next(n for n in STATUS if derive_seed(0, n, 'guided', 0) == int(text.rsplit(' ', 1)[1]))
+        node = next(n for n in STATUS if any(derive_seed(0, n, 'guided', i) == int(text.rsplit(' ', 1)[1]) for i in range(3)))
         self.calls['continue'].append((node, text))
         k = sum(1 for n, _ in self.calls['continue'] if n == node) - 1
         o = self.reruns.get(node, [0.0, 0.0, 0.0])[k]
@@ -116,7 +116,8 @@ def test_decisions_are_cached_separately_and_keyed_by_the_bank(tmp_path):
     assert kinds.count('rubric_match') == 3 and kinds.count('rubric_generation') == 2
     g = Fakes(reuse=SAME); banks(g, CallCache(tmp_path / 'calls.jsonl')); assert g.calls['assign'] == g.calls['generate'] == []   # exact resume
     rec = [json.loads(l) for l in (tmp_path / 'calls.jsonl').read_text().splitlines() if json.loads(l)['kind'] == 'rubric_match'][0]
-    assert {'tin', 'prompt', 'version', 'stratum', 'bank', 'model', 'settings', 'transcript'} == set(rec['identity'])
+    assert {'tin', 'prompt', 'version', 'stratum', 'bank', 'model', 'settings', 'transcript', 'assignment_cache_version'} == set(rec['identity'])
+    assert rec['identity']['assignment_cache_version'] == RB.ASSIGNMENT_CACHE_VERSION
 
 
 def test_old_per_trajectory_cache_cannot_satisfy_reuse_or_new_generation_settings():

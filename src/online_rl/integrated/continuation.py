@@ -46,6 +46,13 @@ def protocol_sha256(cfg: dict, root: Path) -> str:
            'doctor_prompt': sha256_text(doctor_system := (root / ro.get('doctor_system_prompt_file', 'prompts/user_simulator.txt')).read_text())}
     if cfg.get('rubric', {}).get('enabled', True):
         out['rerun_outcome_policy'] = RERUN_OUTCOME_POLICY
+        if cfg.get('rubric', {}).get('generation', {}).get('output_contract') == 'trajectory_analysis_candidate_v2_with_intervention':
+            from src.online_rl.tree.member_intervention import MEMBER_INTERVENTION_VERSION
+            out['member_intervention_protocol'] = MEMBER_INTERVENTION_VERSION
+        intervention_file = (cfg.get('intervention') or {}).get('instruction_template_file')
+        if intervention_file:
+            out['rerun_intervention_instruction'] = {'protocol': 'joint_generated_instruction_v1',
+                'template_sha256': sha256_text((root / intervention_file).read_text())}
     if ro.get('agent_protocol'):                       # Agent action protocol (src/online_rl/agent_protocol.py)
         from src.online_rl.agent_protocol import IDENTITY
         if ro['agent_protocol'] != IDENTITY['version']: raise ValueError(f"unknown rollout.agent_protocol {ro['agent_protocol']!r}")

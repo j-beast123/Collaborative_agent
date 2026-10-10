@@ -5,6 +5,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+# Existing fixtures use both ``tests.test_*`` and ``test_*`` imports.
+# Keep those local imports available now that tests is an explicit package.
+TESTS = ROOT / 'tests'
+if str(TESTS) not in sys.path:
+    sys.path.insert(0, str(TESTS))
 
 AGENTCLINIC = "data/raw/agentclinic/agentclinic_medqa_extended.jsonl"
 

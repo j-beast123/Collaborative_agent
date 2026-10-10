@@ -43,6 +43,24 @@ class CallCache:
                     self.path.parent.mkdir(parents=True, exist_ok=True)
                     with self.path.open('a') as f: f.write(json.dumps(rec, ensure_ascii=False) + '\n')
             return value
+        except Exception as exc:
+            # Failed evidence is diagnostic only: never insert it into the
+            # immutable success cache or convert it to NA/a zero reward.
+            if self.path and getattr(exc, 'audit', None) is not None:
+                try:
+                    from datetime import datetime, timezone
+                    failure = {'time': datetime.now(timezone.utc).isoformat(),
+                               'key': key, 'kind': kind, 'identity': identity,
+                               'exception_type': type(exc).__name__, 'error': str(exc),
+                               'audit': exc.audit}
+                    line = json.dumps(failure, ensure_ascii=False) + '\n'
+                    with self._lock:
+                        self.path.parent.mkdir(parents=True, exist_ok=True)
+                        with self.path.with_suffix('.errors.jsonl').open('a') as f:
+                            f.write(line)
+                except Exception as audit_error:
+                    exc.add_note(f'Failed to persist error audit: {type(audit_error).__name__}: {audit_error}')
+            raise
         finally:
             with self._lock: del self._inflight[key]
             done.set()

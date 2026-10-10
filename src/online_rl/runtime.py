@@ -37,7 +37,9 @@ class SharedPolicy:
         self.torch, self.cfg, self.key = torch, cfg, key; p = cfg['policy']
         self.tok = AutoTokenizer.from_pretrained(p['base_model'], trust_remote_code=True)
         if self.tok.pad_token is None: self.tok.pad_token = self.tok.eos_token
-        base = AutoModelForCausalLM.from_pretrained(p['base_model'], dtype=torch.bfloat16, trust_remote_code=True)
+        # Transformers 4.53 forwards `dtype` to remote-code model constructors;
+        # use the compatible `torch_dtype` keyword to avoid passing it to Qwen3.
+        base = AutoModelForCausalLM.from_pretrained(p['base_model'], torch_dtype=torch.bfloat16, trust_remote_code=True)
         lc = p['lora']
         if p.get('init_adapter'): self.model = PeftModel.from_pretrained(base, p['init_adapter'], is_trainable=True)
         elif lc.get('init_seed') is not None: self.model = seeded_lora(base, lc)
@@ -80,7 +82,7 @@ class SharedPolicy:
             from peft import LoraConfig, PeftModel, get_peft_model
             from transformers import AutoModelForCausalLM
             for k in range(1, n):
-                b = AutoModelForCausalLM.from_pretrained(base_model, dtype=torch.bfloat16, trust_remote_code=True)
+                b = AutoModelForCausalLM.from_pretrained(base_model, torch_dtype=torch.bfloat16, trust_remote_code=True)
                 m = (PeftModel.from_pretrained(b, init_adapter, is_trainable=True) if init_adapter else
                      get_peft_model(b, LoraConfig(task_type='CAUSAL_LM', r=lc['r'], lora_alpha=lc['alpha'], lora_dropout=lc.get('dropout', 0.0),
                                                   target_modules=lc['target_modules'], use_rslora=lc.get('use_rslora', True))))
@@ -219,6 +221,12 @@ class SharedPolicy:
         with self.gen_lock:                                       # seed + generate atomically (threaded reruns)
             self.model.eval(); return self._H().Env.agent(self, user, seed)
 
+    def respond_with_system(self, system: str, user: str, seed: int) -> str:
+        """One intervention reply with an explicit role envelope, on the same frozen
+        policy and shared GPU queue. Do not mutate the rollout system in concurrent work."""
+        prompt = self.ST.chat_prompt(self.tok, system, user)
+        return self._generate(prompt, self.args.max_completion_length, seed)['completion_text']
+
     def natural(self, case, prefix, turn, seed): return self.agent(self.agent_user_prompt(case, prefix, turn), seed)
 
     def continue_from(self, case, prefix, turn, fixed_action, seed, turn_cache=None):
@@ -304,7 +312,9 @@ class SharedPolicy:
         pb = self.ST.chat_prompt(self.tok, self.agent_system, user + AP.HIDDEN_BLOCK.format(assessment=z['completion_text'].strip()))
         r = self._generate(pb, self.args.max_completion_length, sb, *_segment(self, f'A{turn}/visible_reply'))
         seg = lambda role, prompt, t, s: {'role': role, 'prompt_text': prompt, 'seed': s,
-                                         **{k: t[k] for k in ('prompt_input_ids', 'completion_ids', 'old_policy_logprobs', 'completion_text')}}
+                                         **{k: t[k] for k in ('prompt_input_ids', 'completion_ids', 'old_policy_logprobs', 'completion_text',
+                                             'sampling_logprobs', 'sampling_temperature', 'sampling_top_p', 'sampling_top_k',
+                                             'logprob_semantics', 'batch_sampling_protocol') if k in t}}
         return {'stage': f'A{turn}', 'prompt_text': pb, 'seed': seed, **r, 'private_assessment': z['completion_text'],
                 'state_prompt_hash': AP.state_hash(z['prompt_input_ids'], base), 'agent_protocol': AP.VERSION,
                 'segments': [seg('private_assessment', pa, z, sa), seg('visible_reply', pb, r, sb)]}

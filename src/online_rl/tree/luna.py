@@ -48,8 +48,8 @@ class LunaDecisionClient:
         self.model, self.key, self.system, self.max_tokens, self.post, self.sleep = model, key, system, max_tokens, post, sleep
         self.timeout_s, self.protocol_sha256, self.log = timeout_s, sha256_text(system), []
 
-    def _chat(self, messages: list[dict], schema: dict, purpose: str) -> str:
-        payload = {'model': self.model, 'messages': messages, 'max_tokens': self.max_tokens,
+    def _chat(self, messages: list[dict], schema: dict, purpose: str, max_tokens: Optional[int] = None) -> str:
+        payload = {'model': self.model, 'messages': messages, 'max_tokens': max_tokens or self.max_tokens,
                    'response_format': {'type': 'json_schema', 'json_schema': {'name': 'decisions', 'strict': True, 'schema': schema}}}
         retry = Retry(f'OpenRouter {self.model} ({purpose})', sleep=self.sleep)        # src/common/retry.py: bounded, larger for 429
         started = time.monotonic(); request_seconds = 0.0; retry_wait_seconds = 0.0
@@ -127,6 +127,96 @@ class LunaDecisionClient:
         if err or parsed is None: raise IntegrationUnavailable(f'{self.model} returned no valid {purpose} decision after one repair: {err}')
         return parsed, rec
 
+    def judge_batch(self, stage: str, shared_state: dict, responses: list[dict], items: dict[str, dict],
+                    fields: dict[str, dict], purpose: str) -> tuple[dict, dict]:
+        """Judge several sibling replies against one shared pre-reply state in one request.
+
+        Each response carries its own exact item set. IDs and fields are validated
+        independently so one reply cannot borrow another reply's score.
+        """
+        if not responses: return {}, {}
+        response_ids = [row.get('response_id') for row in responses]
+        if any(not isinstance(x, str) or not x for x in response_ids) or len(set(response_ids)) != len(response_ids):
+            raise ValueError('Batch scorer requires unique non-empty response IDs')
+        if not isinstance(items, dict) or not items:
+            raise ValueError('Batch scorer needs a non-empty shared item set')
+        if any(not isinstance(item, dict) or set(item.get('score_anchors') or {}) != {'0', '1', '2'}
+               for item in items.values()):
+            raise ValueError('Batch behavior items must have exactly the 0/1/2 score anchors')
+        schema = {'type': 'object', 'additionalProperties': False, 'required': ['answers'],
+                  'properties': {'answers': {'type': 'object', 'additionalProperties': False,
+                      'required': response_ids, 'properties': {
+                          response_id: {'type': 'object', 'additionalProperties': False,
+                              'required': list(items), 'properties': {
+                                  item_id: {'type': 'object', 'additionalProperties': False,
+                                      'required': list(fields), 'properties': fields}
+                                  for item_id in items}}
+                          for response_id in response_ids}}}}
+        packet = {'stage': stage, 'shared_pre_reply_state': shared_state,
+                  'rubric_items': items,
+                  'responses': [{'response_id': row['response_id'],
+                                 'target_agent_reply': row['target_agent_reply']} for row in responses]}
+        system = (self.system + '\nScore every response independently. The shared state is identical for all responses; '
+                  'only the target reply changes. Never transfer evidence or a score between response IDs.')
+        messages = [{'role': 'system', 'content': system},
+                    {'role': 'user', 'content': json.dumps(packet, ensure_ascii=False)}]
+        # Stage-2 explanations add output tokens for every response/rubric pair.
+        output_items = len(responses) * len(items)
+        evidence_fields = {'minimum_contribution_quote', 'completion_quote', 'missing_or_conflicting'}
+        per_item_tokens = 300 if evidence_fields <= set(fields) else 55
+        token_budget = min(8192, max(self.max_tokens, 300 + per_item_tokens * output_items))
+        def parse_batch(text):
+            value = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', (text or '').strip()))
+            if isinstance(value, dict) and set(value) == {'answers'}: value = value['answers']
+            if not isinstance(value, dict) or set(value) != set(response_ids):
+                raise ValueError('response IDs differ from requested batch')
+            parsed = {}
+            for response_id in response_ids:
+                row = value[response_id]
+                if not isinstance(row, dict) or set(row) != set(items):
+                    raise ValueError(f'{response_id}: rubric IDs differ from requested batch')
+                parsed[response_id] = {}
+                for item_id, answer in row.items():
+                    if not isinstance(answer, dict) or set(answer) != set(fields):
+                        raise ValueError(f'{response_id}/{item_id}: fields differ from schema')
+                    checked = {}
+                    for name, spec in fields.items():
+                        item = answer[name]
+                        if spec.get('type') == 'boolean' and not isinstance(item, bool):
+                            raise ValueError(f'{response_id}/{item_id}.{name}: expected boolean')
+                        if 'enum' in spec:
+                            allowed = {str(x).upper(): x for x in spec['enum']}
+                            key = str(item).strip().upper()
+                            if key not in allowed: raise ValueError(f'{response_id}/{item_id}.{name}: invalid enum')
+                            item = allowed[key]
+                        if spec.get('type') == 'string' and not isinstance(item, str):
+                            raise ValueError(f'{response_id}/{item_id}.{name}: expected string')
+                        checked[name] = item
+                    parsed[response_id][item_id] = checked
+            return parsed
+        raw = [self._chat(messages, schema, purpose, max_tokens=token_budget)]
+        errors = []
+        try: parsed = parse_batch(raw[0])
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            errors.append(str(exc)); parsed = None
+        if parsed is None:
+            fix = ('Return exactly one JSON object shaped as {"answers": {response_id: {rubric_id: {field: value}}}}. '
+                   'Include every requested response ID, rubric ID and field, with no extras. '
+                   f'Previous output error: {errors[-1]}.')
+            raw.append(self._chat(messages + [{'role': 'assistant', 'content': raw[0]},
+                {'role': 'user', 'content': fix}], schema, purpose, max_tokens=token_budget))
+            try: parsed = parse_batch(raw[1])
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                errors.append(str(exc)); parsed = None
+        rec = {'purpose': purpose, 'stage': stage, 'model': self.model,
+               'protocol_sha256': self.protocol_sha256, 'response_ids': response_ids,
+               'rubrics_per_response': {rid: len(items) for rid in response_ids},
+               'max_tokens': token_budget, 'raw': raw, 'parsed': parsed,
+               'repaired': len(raw) > 1, 'errors': errors}
+        self.log.append(rec)
+        if parsed is None: raise IntegrationUnavailable(f'{self.model} returned invalid batch scoring output: {errors[-1]}')
+        return parsed, rec
+
 
 def parse_objects(raw: str, ids: list[str], fields: dict[str, dict]) -> tuple[Optional[dict], Optional[str]]:
     text = re.sub(r'^```(?:json)?\s*|\s*```$', '', (raw or '').strip())
@@ -144,9 +234,12 @@ def parse_objects(raw: str, ids: list[str], fields: dict[str, dict]) -> tuple[Op
             if spec.get('type') == 'boolean':
                 if not isinstance(x, bool): return None, f'{i}.{f}: {x!r} is not a boolean'
             elif 'enum' in spec:
-                opts = {str(e).upper(): e for e in spec['enum']}
-                if str(x).strip().upper() not in opts: return None, f'{i}.{f}: {x!r} is not one of {spec["enum"]}'
-                x = opts[str(x).strip().upper()]
+                # Preserve literal string enums (e.g. evidence fields including
+                # whitespace or case-distinct values) before choice canonicalisation.
+                if not (isinstance(x, str) and x in spec['enum']):
+                    opts = {str(e).upper(): e for e in spec['enum']}
+                    if str(x).strip().upper() not in opts: return None, f'{i}.{f}: {x!r} is not one of {spec["enum"]}'
+                    x = opts[str(x).strip().upper()]
             elif spec.get('type') == 'string' and not isinstance(x, str): return None, f'{i}.{f}: not a string'
             o[f] = x
         out[i] = o

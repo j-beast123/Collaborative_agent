@@ -76,6 +76,25 @@ def test_same_witness_semantics_across_rubric_arms(tmp_path):
     assert out['rubric_only'] == out['fixed'] == out['evolving']
 
 
+def test_deferred_verification_builds_all_rubrics_before_any_witness_rerun(tmp_path):
+    tr, log, _ = make(tmp_path, 'evolving')
+    generate=tr.env.generate_fn
+    def always_applicable(prompt,tin):
+        value=generate(prompt,tin);value['rubric']['applicability_condition']='any turn';return value
+    tr.env=__import__('dataclasses').replace(tr.env,generate_fn=always_applicable)
+    prepared = tr.step(score_responses=False, commit=False, apply_update=False,
+                       defer_verification=True)
+    assert prepared['rubric_bank']['verification_pending'] is True
+    assert prepared['rubric_bank']['witness'] == []
+    assert prepared['response_scores'] == [] and prepared['rubric_weights'] == {}
+    assert log.counts.get('rerun', 0) == 0
+    verified = tr.finish_deferred_verification(prepared)
+    assert verified['rubric_bank']['verification_pending'] is False
+    assert verified['rubric_bank']['witness']
+    assert verified['response_scores'] == []
+    assert log.counts.get('rerun', 0) > 0
+
+
 def test_evolving_prompt_event_keeps_full_trajectory_level_j(tmp_path, monkeypatch):
     calls = {'verify_members': 0, 'witness': 0}
     vm, vw = RB.verify_members, W.verify_witness

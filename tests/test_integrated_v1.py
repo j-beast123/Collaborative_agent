@@ -594,7 +594,9 @@ def test_zero_advantage_group_does_not_update():
     from src.online_rl.integrated.continuation import adapter_sha256
     _, model, up = _tiny_updater()
     sha = adapter_sha256(model); out = up.update(_group(up, [0.4, 0.4, 0.4, 0.4]))
-    assert out == {'optimizer_step': False, 'skip_reason': 'zero_advantage_group'} and adapter_sha256(model) == sha and up.steps == 0
+    assert out['optimizer_step'] is False and out['skip_reason'] == 'zero_advantage_group'
+    assert out['skip_counts'] == {'zero_advantage_group': 1}
+    assert adapter_sha256(model) == sha and up.steps == 0
     with pytest.raises(ValueError): _tiny_updater(mode='zscore')
 
 
@@ -659,4 +661,6 @@ def test_update_groups_one_step_over_sibling_groups():
     assert out['optimizer_step'] and out['groups_used'] == 2 and out['groups_skipped'] == 1 and out['used_agent_completions'] == 8
     assert out['ratio']['max_abs_deviation'] < 1e-6 and up.steps == 1 and adapter_sha256(model) != sha
     sha = adapter_sha256(model)
-    assert up.update_groups([[{**r, 'rollout_policy_sha256': sha} for r in g3]]) == {'optimizer_step': False, 'skip_reason': 'zero_advantage_group'}
+    skipped = up.update_groups([[{**r, 'rollout_policy_sha256': sha} for r in g3]])
+    assert skipped['optimizer_step'] is False and skipped['skip_reason'] == 'zero_advantage_group'
+    assert skipped['skip_counts'] == {'zero_advantage_group': 1}

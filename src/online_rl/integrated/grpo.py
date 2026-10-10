@@ -10,6 +10,32 @@ from src.online_rl.integrated.metrics import advantages
 from src.online_rl.runtime import GRPOUpdater
 
 MODES = ('group_zscore', 'mean_center')
+RAW_LOGPROB_SEMANTICS = 'raw_policy_before_sampling_warpers_v1'
+
+
+def validate_raw_sampling(settings: dict, *, recorded: bool, label: str):
+    """The optional exact protocol samples from the distribution used by this loss.
+
+    Legacy temperature/truncation sampling remains available, but cannot opt in
+    merely by relabeling its old raw log-probabilities as on-policy evidence.
+    """
+    fields = (('sampling_temperature', 'sampling_top_p', 'sampling_top_k')
+              if recorded else ('temperature', 'top_p', 'top_k'))
+    expected = (1.0, 1.0, 0)
+    if any(key not in settings or isinstance(settings[key], bool) or settings[key] != value
+           for key, value in zip(fields, expected)):
+        raise ValueError(f'{label}: raw on-policy sampling requires explicit temperature=1, top_p=1, top_k=0')
+    if recorded and settings.get('logprob_semantics') != RAW_LOGPROB_SEMANTICS:
+        raise ValueError(f'{label}: missing or incompatible raw logprob semantics')
+    if recorded:
+        raw = settings.get('old_policy_logprobs')
+        sampled = settings.get('sampling_logprobs')
+        tokens = settings.get('completion_ids', [])
+        if not tokens or not isinstance(raw, list) or not isinstance(sampled, list) or not (len(raw) == len(sampled) == len(tokens)):
+            raise ValueError(f'{label}: raw on-policy sampling requires aligned raw and sampling logprobs')
+        if any(not math.isfinite(p) or not math.isfinite(q) or not math.isclose(p, q, rel_tol=1e-6, abs_tol=1e-5)
+               for p, q in zip(raw, sampled)):
+            raise ValueError(f'{label}: actual sampling logprobs differ from raw policy logprobs')
 
 
 def sequence_logprobs(model, prompt_ids: list[int], completion_ids: list[int], *, grad: bool,
@@ -92,6 +118,10 @@ def grpo_loss(model, records: list[dict], adv: list[float], beta: float, clip_ep
     actions; r_t = pi_theta / pi_old. The sibling advantage A credits every token of the action. Backward per segment with
     weight |segment| / |action| (the same gradient as one backward of the per-action mean)."""
     import torch
+    if not records or len(records) != len(adv):
+        raise ValueError('GRPO records and advantages must be nonempty and aligned')
+    if any(not math.isfinite(a) for a in adv):
+        raise ValueError('GRPO advantages must be finite')
     n = len(records); pol = kl = 0.0; ratios, dev_ref = [], 0.0
     for rec, a in zip(records, adv):
         tr = rec['agent_traces'][0]; segs = segments(tr); total = sum(len(c) for _, c in segs)
@@ -116,14 +146,21 @@ def grpo_loss(model, records: list[dict], adv: list[float], beta: float, clip_ep
     return {'loss': pol + beta * kl, 'policy_loss': pol, 'kl_loss': kl, 'ratio': {
         'count': len(ratios), 'mean': sum(ratios) / len(ratios), 'min': min(ratios), 'max': max(ratios),
         'max_abs_deviation': max(abs(r - 1) for r in ratios), 'clipped_fraction': sum(abs(r - 1) > clip_epsilon for r in ratios) / len(ratios),
-        'max_abs_logprob_gap_to_reference': dev_ref, 'denominator': 'behavior_policy_teacher_forced'}}
+        'max_abs_logprob_gap_to_reference': dev_ref, 'denominator': 'behavior_policy_teacher_forced',
+        'measured_at': 'before_optimizer_step', 'logprob_distribution': 'raw_policy_without_sampling_warpers'}}
 
 
 class IntegratedGRPOUpdater(GRPOUpdater):
     """One optimizer step per call over one or more same-state groups; GRPOUpdater supplies the optimizer, save and load."""
 
     def __init__(self, policy, cfg: dict):
+        required = cfg['optimizer'].get('require_raw_on_policy_sampling', False)
+        if not isinstance(required, bool):
+            raise ValueError('optimizer.require_raw_on_policy_sampling must be a boolean')
+        if required:
+            validate_raw_sampling(cfg.get('rollout', {}), recorded=False, label='rollout config')
         super().__init__(policy, cfg)
+        self.require_raw_on_policy_sampling = required
         self.mode = cfg['advantage_normalization']['mode']
         if self.mode not in MODES: raise ValueError(f'advantage_normalization.mode must be one of {MODES}, got {self.mode!r}')
 
@@ -141,29 +178,68 @@ class IntegratedGRPOUpdater(GRPOUpdater):
         torch, m = self.policy.torch, self.policy.model
         if {r['rollout_policy_sha256'] for g in groups for r in g} != {adapter_sha256(m)}:
             raise RuntimeError('stale behavior policy: the group was not sampled by the current adapter')
-        usable, adv, skipped = [], [], []
+        require_raw = getattr(self, 'require_raw_on_policy_sampling', False)
+        if require_raw:
+            for group in groups:
+                for record in group:
+                    trace = record['agent_traces'][0]
+                    for i, segment in enumerate(trace.get('segments') or [trace]):
+                        validate_raw_sampling(segment, recorded=True,
+                                              label=f"{record['trajectory_id']} segment {i}")
+        usable, adv, skipped, group_details = [], [], [], []
         for g in groups:
-            u = [r for r in g if r['reward'] is not None]; a = advantages([r['reward'] for r in u], self.mode)
-            if len(u) < 2: skipped.append('fewer_than_two_rewarded_responses')
-            elif all(x == 0 for x in a): skipped.append('zero_advantage_group')
+            rewards = [r['reward'] for r in g]
+            aligned_advantages = advantages(rewards, self.mode)
+            u = [r for r in g if r['reward'] is not None]
+            a = [x for x in aligned_advantages if x is not None]
+            reason = ('fewer_than_two_rewarded_responses' if len(u) < 2
+                      else 'zero_advantage_group' if all(x == 0 for x in a) else None)
+            if reason: skipped.append(reason)
             else: usable += u; adv += a
+            group_details.append({
+                'group': g[0].get('case_id') if g else None,
+                'trajectory_ids': [r['trajectory_id'] for r in g],
+                'rewards': rewards, 'advantages': aligned_advantages,
+                'rewarded_responses': len(u), 'used': reason is None, 'skip_reason': reason,
+            })
+        telemetry = {
+            'groups_total': len(groups), 'groups_used': len(groups) - len(skipped),
+            'groups_skipped': len(skipped),
+            'skip_counts': {reason: skipped.count(reason) for reason in sorted(set(skipped))},
+            'used_agent_completions': len(usable),
+            'optimizer_steps': getattr(self, 'steps', 0),
+            'kl_scope': 'used_nonzero_advantage_groups_only',
+            'sampling_policy_alignment': ('raw_full_support_verified' if require_raw
+                                          else 'legacy_raw_loss_sampling_not_enforced'),
+            'advantage_diagnostics': {
+                'mode': self.mode, 'groups': group_details,
+                'used': {'count': len(adv), 'positive': sum(x > 0 for x in adv),
+                         'negative': sum(x < 0 for x in adv), 'zero': sum(x == 0 for x in adv),
+                         'mean': sum(adv) / len(adv) if adv else None,
+                         'mean_abs': sum(abs(x) for x in adv) / len(adv) if adv else None,
+                         'min': min(adv) if adv else None, 'max': max(adv) if adv else None},
+            },
+        }
         if not usable:
-            if len(groups) == 1: return {'optimizer_step': False, 'skip_reason': skipped[0]}
-            return {'optimizer_step': False, 'skip_reason': 'no_group_with_nonzero_advantage', 'groups_skipped': len(skipped)}
+            return {**telemetry, 'optimizer_step': False,
+                    'skip_reason': skipped[0] if len(groups) == 1 else 'no_group_with_nonzero_advantage'}
         m.train()
         for mod in m.modules():
             if isinstance(mod, torch.nn.Dropout): mod.eval()
+        original_use_cache = m.config.use_cache
         m.config.use_cache = False; self.optimizer.zero_grad(set_to_none=True)
-        out = grpo_loss(m, usable, adv, self.o['beta'], self.o['clip_epsilon'], self.o['logprob_token_chunk_size'])
-        if out['ratio']['max_abs_deviation'] > self.o['pre_update_ratio_tolerance']:
-            self.optimizer.zero_grad(set_to_none=True); m.config.use_cache = True
-            raise RuntimeError(f"on-policy ratio check failed against the behavior policy: {out['ratio']}")
-        g = torch.nn.utils.clip_grad_norm_(self.trainable, self.o['grad_clip'])
-        if not math.isfinite(float(g)): raise RuntimeError('non-finite gradient norm')
-        self.optimizer.step(); self.steps += 1; self.optimizer.zero_grad(set_to_none=True); m.config.use_cache = True
+        try:
+            out = grpo_loss(m, usable, adv, self.o['beta'], self.o['clip_epsilon'], self.o['logprob_token_chunk_size'])
+            if out['ratio']['max_abs_deviation'] > self.o['pre_update_ratio_tolerance']:
+                raise RuntimeError(f"rollout-policy ratio check failed against the behavior policy: {out['ratio']}")
+            g = torch.nn.utils.clip_grad_norm_(self.trainable, self.o['grad_clip'])
+            if not math.isfinite(float(g)): raise RuntimeError('non-finite gradient norm')
+            self.optimizer.step(); self.steps += 1
+        finally:
+            self.optimizer.zero_grad(set_to_none=True)
+            m.config.use_cache = original_use_cache
         getattr(self.policy, 'mark_dirty', lambda: None)()         # Agent replicas re-sync before the next generation
-        return {'optimizer_step': True, **out, 'grad_norm': float(g), 'used_agent_completions': len(usable), 'optimizer_steps': self.steps,
-                'groups_used': len(groups) - len(skipped), 'groups_skipped': len(skipped)}
+        return {**telemetry, 'optimizer_step': True, **out, 'grad_norm': float(g), 'optimizer_steps': self.steps}
 
 
 def make_updater(policy, cfg: dict) -> IntegratedGRPOUpdater:

@@ -22,6 +22,7 @@ def preflight(cfg):
     from src.online_rl.cases import load_cases, file_sha256
     errors = blockers(cfg)
     for section, file, digest in PROMPT_HASHES:
+        if file not in cfg.get(section, {}) or digest not in cfg.get(section, {}): continue
         if cfg[section][digest] != file_sha(cfg[section][file]):
             errors.append(f'Prompt hash differs: {section}.{file}')
     for section, path_key, hash_key in ((cfg['data'],'train','train_sha256'),
@@ -32,10 +33,10 @@ def preflight(cfg):
     fg = cfg['five_gpu']
     from src.online_rl.tree.gpu_pool import MODE as POOL_MODE
     shared = fg.get('execution_mode') == POOL_MODE
-    if cfg['prompt_update'].get('candidate_seed') not in (None,'first_completed_P0_v1'):
+    if cfg['prompt_update'].get('candidate_seed') not in (None,'first_completed_P0_v1','all_completed_P0_v1'):
         errors.append('Unknown common P1 seed mode')
     if cfg['prompt_update'].get('candidate_seed') and not shared:
-        errors.append('First-completed P0 pipeline requires shared five-GPU execution')
+        errors.append('The staged batch P0/P1 workflow requires shared five-GPU execution')
     batch_cases = 5 if shared else 4
     if shared and fg.get('base_evaluation', {}).get('enabled'):
         errors.append('Shared five-GPU checkpoint evaluation cannot run BASE evaluation concurrently')
@@ -101,36 +102,48 @@ def preflight(cfg):
     return errors
 
 
-def prompt_round(batch,jobs,state,collect,store,backend,cache,history,during_proposal=None,pipeline=None):
-    """One common P1; optionally start from the first P0 while remaining P0 cases run."""
+def prompt_round(batch,jobs,state,collect,store,backend,cache,history,batchdir):
+    """Run P0 generation, P0 verification, P1 generation, P1 verification, then union scoring."""
     from src.online_rl.tree.batch_prompt import choose, propose_candidate, MODE
     parent={'text':store.get(state['prompt_sha256']),'sha256':state['prompt_sha256'],'id':state['prompt_id']}
-    print(json.dumps({'stage':'prompt_P0','batch':batch,'prompt_sha256':parent['sha256']}),flush=True)
-    propose=lambda rows:propose_candidate(rows,parent['text'],store,backend,cache,[j['case'] for j in jobs],history)
-    seed=None;records=None
-    if pipeline:
-        result=pipeline(parent,propose)
-        p0,c1,candidate,seed=result[:4]
-        if len(result)==5:records=result[4]
-        p1={'text':candidate['text'],'sha256':candidate['sha256'],'id':candidate['id']}
-    else:
-        p0=collect('P0',parent)
-        fn=lambda:propose(p0)
-        candidate=during_proposal(fn) if during_proposal else fn()
-        p1={'text':candidate['text'],'sha256':candidate['sha256'],'id':f'B{batch}-P1-{candidate["sha256"][:12]}'}
-        print(json.dumps({'stage':'prompt_P1','batch':batch,'prompt_sha256':p1['sha256']}),flush=True)
-        c1=collect('P1',p1)
+    print(json.dumps({'stage':'P0_rubric_generation','batch':batch,'prompt_sha256':parent['sha256']}),flush=True)
+    collect('P0_prepare',parent)
+    print(json.dumps({'stage':'P0_rerun_verification','batch':batch}),flush=True)
+    p0=collect('P0_verify',parent)
+
+    # P1 uses the evidence from the complete five-case P0 verification batch.
+    evidence_sha=sha256_json([{'case_id':r['case_id'],'tree':sha256_json(r['tree']),
+                               'evaluation':r['prompt_evaluation']} for r in p0])
+    candidate_path=batchdir/'prompt_candidate.json'
+    candidate=None
+    if candidate_path.exists():
+        saved=json.loads(candidate_path.read_text())
+        if saved.get('parent_sha256')==parent['sha256'] and saved.get('p0_evidence_sha256')==evidence_sha:
+            candidate=saved['candidate']
+    if candidate is None:
+        candidate=propose_candidate(p0,parent['text'],store,backend,cache,[j['case'] for j in jobs],history)
+        candidate['id']=f'B{batch}-P1-{candidate["sha256"][:12]}'
+        atomic_write_json(candidate_path,{'parent_sha256':parent['sha256'],'p0_evidence_sha256':evidence_sha,
+                                          'candidate':candidate})
+    p1={'text':candidate['text'],'sha256':candidate['sha256'],'id':candidate['id']}
+    print(json.dumps({'stage':'P1_rubric_generation','batch':batch,'prompt_sha256':p1['sha256']}),flush=True)
+    collect('P1_prepare',p1)
+    print(json.dumps({'stage':'P1_rerun_verification','batch':batch}),flush=True)
+    c1=collect('P1_verify',p1)
     decision=choose(p0,c1)
     if not candidate['valid_candidate']:
         decision.update(accepted=False,winner='P0',reason='no_valid_distinct_candidate')
     winner=p1 if decision['accepted'] else parent
-    if records is None:records=collect('union',{**p1,'parent_sha256':parent['sha256']})
+    print(json.dumps({'stage':'final_union_rubric_scoring','batch':batch}),flush=True)
+    records=collect('union',{**p1,'parent_sha256':parent['sha256']})
     next_prompt={'id':winner['id'],'sha256':winner['sha256']}
     event={'mode':store.batch_mode if hasattr(store,'batch_mode') else MODE,'batch':batch,'case_ids':[j['case']['case_id'] for j in jobs],
            'rerun_policy_sha256':state['policy_sha256'],'parent_prompt':{k:parent[k] for k in ('id','sha256')},
            'candidate_prompt':{k:p1[k] for k in ('id','sha256')},'proposal':candidate['proposal'],
            'decision':decision,'next_prompt':next_prompt,'training_pool':'union_both_kept_deduplicated_v1'}
-    if seed: event.update(candidate_seed=seed,selection_scope='all_batch_trajectories_v1')
+    event.update(candidate_evidence='all_P0_verified_cases_v1',p0_evidence_sha256=evidence_sha,
+                 workflow='P0_generate_all_then_verify_all__P1_generate_all_then_verify_all__union_score_once_v1',
+                 selection_scope='all_batch_trajectories_v1')
     return records,event
 
 
@@ -198,16 +211,79 @@ def run(cfg, max_batches=None, eval_only=False):
         backend=sol_backend(key,(ROOT/pu['feedback_prompt_file']).read_text(),(ROOT/pu['refiner_prompt_file']).read_text(),
                             None,None,None,reflection_model=pu['reflection_model'],refiner_model=pu['refiner_model'])
         prompt_cache=CallCache(out/'prompt_calls.jsonl')
-    protocol = sha256_json({'base':protocol_sha256(cfg,ROOT),'D1':fg['opening_identity'],
-                            'mode':fg['opening_mode'],'na':RUBRIC_ONLY_NA_POLICY,
-                            **({'execution_mode':POOL_MODE,'batch_cases':5} if shared else {})})
+    protocol_parts = {'base':protocol_sha256(cfg,ROOT),'D1':fg['opening_identity'],
+                      'mode':fg['opening_mode'],'na':RUBRIC_ONLY_NA_POLICY,
+                      **({'execution_mode':POOL_MODE,'batch_cases':5} if shared else {})}
+    if cfg.get('rubric', {}).get('generation', {}).get('output_contract') == 'trajectory_analysis_candidate_v2_with_intervention':
+        from src.online_rl.tree.member_intervention import MEMBER_INTERVENTION_VERSION
+        # Bind even when the rollout-only protocol has an explicit frozen-tree override.
+        protocol_parts['member_intervention_protocol'] = MEMBER_INTERVENTION_VERSION
+    if cfg.get('feedback', {}).get('protocol') == 'physician_post_final_reflection_v1':
+        # Imported rollout identity can stay frozen while supervision has a new
+        # research identity. Never describe observer and Doctor reflection as the same protocol.
+        protocol_parts['doctor_reflection'] = {k: cfg['feedback'][k]
+            for k in ('protocol', 'model', 'prompt_sha256', 'max_tokens')}
+        protocol_parts['fixed_rubric_prompt_sha256'] = cfg['rubric']['prompt_sha256']
+    if cfg.get('rubric', {}).get('generation', {}).get('feedback_check_protocol') is not None:
+        from src.online_rl.tree.backends import generation_settings
+        # The dialogue policy stays frozen, but a new reflection-output contract
+        # must never share the old supervision protocol identity.
+        protocol_parts['feedback_claim_audit'] = generation_settings(cfg['rubric'])
+    from scripts.online_rl.run_tree import evidence_gate_identity
+    gate_identity = evidence_gate_identity(cfg, ROOT)
+    if gate_identity is not None:
+        protocol_parts['rubric_gate'] = gate_identity
+    protocol = sha256_json({**protocol_parts,
+                            'rubric_pipeline_mode':'phase_barrier_reruns_then_union_score_v1'})
     path = out/'run_state.json'
     theta0 = adapter_sha256(policy.model)
+    imported_rollout = out/'rollout_import.json'
+    if imported_rollout.exists():
+        provenance = json.loads(imported_rollout.read_text())
+        if provenance.get('source_policy_sha256') != theta0:
+            raise RuntimeError('Imported rollout policy differs from the freshly initialized Agent; refusing cached replay')
     experiment.check_pfinal_source(cfg,theta0,protocol)
     if path.exists():
         state = json.loads(path.read_text())
-        if state['config_sha256'] != config_sha or state['protocol_sha256'] != protocol:
+        if state['config_sha256'] != config_sha:
             raise RuntimeError('Run configuration/protocol changed; use a new output directory')
+        if state['protocol_sha256'] != protocol:
+            # One explicit, auditable transition: an old prompt-pipeline run may
+            # adopt the new phase-barrier workflow only at a committed 5-case
+            # batch boundary. Rollout, reward, data and policy identities must
+            # still match; all other protocol mismatches remain fatal.
+            old_pipeline_protocol = sha256_json(protocol_parts)
+            cursor = state.get('case_cursor', -1)
+            batch_cursor = state.get('batch_cursor', -1)
+            checkpoint = Path(state.get('checkpoint', ''))
+            receipt_path = checkpoint/'COMPLETE.json'
+            receipt = json.loads(receipt_path.read_text()) if receipt_path.is_file() else {}
+            approved = (
+                os.environ.get('SHERPA_ALLOW_P0P1_PHASE_RESUME') == '1' and
+                shared and evolving and state.get('protocol_sha256') == old_pipeline_protocol and
+                isinstance(cursor, int) and cursor > 0 and cursor % 5 == 0 and
+                batch_cursor == cursor//5 and
+                receipt.get('protocol_sha256') == old_pipeline_protocol and
+                receipt.get('completed_cases') == cursor and
+                receipt.get('policy_sha256') == state.get('policy_sha256')
+            )
+            if not approved:
+                raise RuntimeError('Run protocol changed. P0/P1 phase-resume is allowed only with '
+                                   'SHERPA_ALLOW_P0P1_PHASE_RESUME=1 at a verified 5-case checkpoint boundary.')
+            previous_protocol = state['protocol_sha256']
+            state['protocol_sha256'] = protocol
+            state.setdefault('protocol_transitions', []).append({
+                'from': previous_protocol, 'to': protocol,
+                'completed_cases': cursor,
+                'transition': 'old_prompt_pipeline_to_phase_barrier_reruns_then_union_score_v1'
+            })
+            atomic_write_json(path, state)
+            manifest_path = out/'run_manifest.json'
+            if manifest_path.exists():
+                run_manifest = json.loads(manifest_path.read_text())
+                run_manifest.setdefault('protocol_transitions', []).append(state['protocol_transitions'][-1])
+                run_manifest['protocol_sha256'] = protocol
+                atomic_write_json(manifest_path, run_manifest)
         experiment.check_resume(cfg,out,state,theta0)
         load_checkpoint(updater,state['checkpoint'])
         if adapter_sha256(policy.model) != state['policy_sha256']: raise RuntimeError('Resume adapter mismatch')
@@ -344,10 +420,6 @@ def run(cfg, max_batches=None, eval_only=False):
                     return sorted([r for result in results for r in result],key=lambda r:r['case_cursor'])
                 next_prompt=None
                 if evolving:
-                    def during_proposal(fn):
-                        from concurrent.futures import ThreadPoolExecutor
-                        with ThreadPoolExecutor(max_workers=1) as pool:
-                            return wait_with_evaluation([pool.submit(fn)],lambda:False if shared else evaluate_one())[0]
                     history=[]
                     for p in sorted((out/'prompt_events').glob('batch_*.json')):
                         if int(p.stem.split('_')[-1])>=batch:continue
@@ -355,27 +427,7 @@ def run(cfg, max_batches=None, eval_only=False):
                         history.append({'batch':past['batch'],'accepted':d['accepted'],'reason':d['reason'],
                                         'parent_J':d['parent']['J'],'candidate_J':d['candidate']['J'],
                                         'winner_sha256':past['next_prompt']['sha256']})
-                    pipeline=None
-                    if cfg['prompt_update'].get('candidate_seed')=='first_completed_P0_v1':
-                        if not shared:raise RuntimeError('First-completed P0 pipeline requires the shared GPU pool')
-                        def pipeline(parent,propose):
-                            from src.online_rl.tree.pipelined_prompt import evaluate
-                            assert_idle(pool_spec)
-                            prepared=[executors[w].submit(worker.prepare,state['checkpoint'],state['policy_sha256']) for w in range(5)]
-                            wait_with_evaluation(prepared,lambda:False)
-                            def submit(phase,job,prompt):
-                                return executors[job['worker']].submit(worker.run_many,[job],state['checkpoint'],state['policy_sha256'],phase,prompt)
-                            # run_many returns a list; adapt without blocking the completion callback.
-                            from concurrent.futures import Future
-                            def submit_one(phase,job,prompt):
-                                result=Future()
-                                def done(f):
-                                    try:result.set_result(f.result()[0])
-                                    except BaseException as exc:result.set_exception(exc)
-                                submit(phase,job,prompt).add_done_callback(done)
-                                return result
-                            return evaluate(jobs,parent,submit_one,propose,batchdir,state['policy_sha256'],eager_union=True)
-                    records,event=prompt_round(batch,jobs,state,collect,store,backend,prompt_cache,history,during_proposal,pipeline)
+                    records,event=prompt_round(batch,jobs,state,collect,store,backend,prompt_cache,history,batchdir)
                     atomic_write_json(out/'prompt_events'/f'batch_{batch:06d}.json',event)
                     next_prompt=event['next_prompt']
                 else:

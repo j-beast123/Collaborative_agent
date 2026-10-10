@@ -20,7 +20,8 @@ from src.online_rl.tree.reward import interaction_diagnostics, sibling_group_dia
 from src.online_rl.tree.effectiveness import RERUN_CONTINUATION_PROTOCOL, RERUN_OUTCOME_POLICY, evaluate_rubric, select
 from src.online_rl.tree.posthoc import doctor_feedback, freeze_trajectory_input, generate_rubric
 from src.online_rl.tree.prompt_search import EvidenceUnit, ScoringDeps, ready, run_event
-from src.online_rl.tree.records import DoctorFeedback, SelectionDecision, Tree, TrajectoryRubricInput
+from src.online_rl.tree.records import (DoctorFeedback, RubricAssignment, SelectionDecision,
+                                        TrajectoryRubric, Tree, TrajectoryRubricInput)
 from src.online_rl.tree.reward import agent_targets
 from src.online_rl.tree.rollout import build_tree, tree_counts
 from src.online_rl.tree.scoring import score_nodes
@@ -89,6 +90,11 @@ class TreeTrainer:
         self.every = (cfg.get('evaluation') or {}).get('checkpoint_every_cases'); self.evaluator = evaluator
         self.rubric_on = cfg['rubric'].get('enabled', True); self.fb_model = (cfg.get('feedback') or {}).get('model')
         self.reuse = cfg['rubric'].get('reuse') == RB.ASSIGNMENT_VERSION
+        from src.online_rl.tree.member_intervention import MEMBER_INTERVENTION_VERSION
+        self.member_intervention_version = (MEMBER_INTERVENTION_VERSION if self.rubric_on and
+            cfg['rubric'].get('generation', {}).get('output_contract') == 'trajectory_analysis_candidate_v2_with_intervention' else None)
+        if self.member_intervention_version and self.reuse and getattr(env.assign_fn, 'member_intervention_version', None) != self.member_intervention_version:
+            raise ValueError('joint rubric reuse requires a matcher that produces per-trajectory intervention instructions')
         ex = cfg.get('execution') or {}                                # execution only: same values, more threads
         self.doctor_workers, self.rerun_workers = int(ex.get('doctor_workers', 1)), int(ex.get('rerun_workers', 1))
         rx = execution or {}                                           # runtime-only concurrency (not in the config; same values)
@@ -103,8 +109,11 @@ class TreeTrainer:
         if self.verification == W.ALL_MEMBERS_PROTOCOL and cfg['verification'].get('max_valid_supports') is not None:
             raise ValueError('all_members_witness_v1 has no max_valid_supports cap')
         if self.verification == W.RANDOM10_PROTOCOL and (cfg['verification'].get('max_valid_supports') != 10 or
-                cfg['verification'].get('support_sampling') != 'uniform_random_without_replacement_v1'):
+                cfg['verification'].get('support_sampling') != W.RANDOM10_SAMPLING):
             raise ValueError('random10_witness_v1 requires a uniform random sample of 10 same-ID trajectories')
+        if self.verification == W.RANDOM5_PROTOCOL and (cfg['verification'].get('max_valid_supports') != 5 or
+                cfg['verification'].get('support_sampling') != W.RANDOM5_SAMPLING):
+            raise ValueError('random5_witness_v1 requires a uniform random sample of 5 same-ID trajectories')
         if self.verification in W.PROTOCOLS and self.rubric_on:
             if not self.reuse: raise ValueError(f'{W.PROTOCOL} verifies consolidated rubrics: it needs rubric.reuse')
             if (cfg.get('agent_reward') or {}).get('r_a_weighting') != 'equal': raise ValueError(f'{W.PROTOCOL} needs agent_reward.r_a_weighting = equal')
@@ -224,9 +233,11 @@ class TreeTrainer:
             self.step(); done += 1
 
     def step(self, *, frozen_record=None, prompt_text=None, prompt_id=None, score_responses=True, commit=True,
-             apply_update=True) -> dict:
+             apply_update=True, defer_verification=False) -> dict:
         if commit and (prompt_text is not None or frozen_record is not None or not score_responses or not apply_update):
             raise ValueError('Batch assessment requires commit=False; the batch coordinator owns inheritance')
+        if defer_verification and (not self.rubric_on or self.verification not in W.PROTOCOLS):
+            raise ValueError('deferred verification requires a rubric-enabled witness protocol')
         t_case = time.time(); rollout_seconds = 0.0
         s, cfg = self.state, self.cfg; ro, iv = cfg['rollout'], cfg['intervention']
         if not self.cfg['schedule'].get('positions') and s.case_cursor in self.calibration_only:
@@ -288,28 +299,30 @@ class TreeTrainer:
                        ) if self.source_consistency else None             # v2.1: source-self-applicability before the quality gate
                 canon, assignments = RB.build_banks(case, ruled, tin_of, prompt, s.prompt_sha256, e.generate_fn,
                                                     e.assign_fn, e.gate_fn, self.cache, parallel_strata=self.parallel_strata, source_stage1_for=ssf)
-                vcfg = cfg['verification']; loci = {f.leaf_id: f.target_reply_id for f in feedback if getattr(f, 'valid', True)}
-                wit = W.verify_witness(case, nodes, {l.leaf_id: l for l in ruled}, canon, assignments, loci, applicability=e.scorer.applicability,
-                                       writer=e.writer, continuation=e.continuation, reruns=iv['reruns_per_intervention'], run_seed=s.run_seed,
-                                       policy_sha256=s.policy_sha256, cache=self.cache, max_valid_supports=vcfg['max_valid_supports'],
-                                       workers=self.member_workers, support_sampling=vcfg.get('support_sampling', 'topology'))
-                rubrics = list(canon.values()); kept = {cid for cid, w in wit.items() if w.decision == 'KEEP'}
-                selection = [SelectionDecision(cid, canon[cid].leaf_id, w.decision == 'KEEP', self.verification,
-                                               f'{w.decision} ({w.stop_reason}); validated_by={w.validated_by_trajectory_id}; '
-                                               f'valid_supports={w.num_valid_supports}; reruns={w.num_reruns_executed}') for cid, w in wit.items()]
-                scores = score_nodes(case, list(tree.nodes), [canon[c] for c in sorted(kept)], e.scorer, self.cache, workers=self.api_workers) if score_responses else []
-                weights = {cid: 1.0 for cid in sorted(kept)}                                  # equal weight: verification is a gate only
-                bank = {'assignments': [to_dict(a) for a in assignments], 'witness': [to_dict(w) for w in wit.values()],
-                        'telemetry': {**RB.assignment_telemetry(canon, assignments), **W.witness_telemetry(wit),
-                                      'protocol': self.verification,
-                                      'locus': dict(__import__('collections').Counter((f.locus or {}).get('status') for f in feedback)),
-                                      'feedback_invalid': invalid_fb,
-                                      'feedback_invalid_by_stratum': {st: sum(1 for f in feedback if not getattr(f, 'valid', True) and f.outcome == o)
-                                                                      for st, o in (('success', 1.0), ('failure', 0.0))},
-                                      'feedback_by_stratum': {st: sum(1 for f in feedback if f.outcome == o) for st, o in (('success', 1.0), ('failure', 0.0))},
-                                      'feedback_leakage_first_try': sum(bool(((f.locus or {}).get('leakage') or {}).get('first')) for f in feedback),
-                                      'source_check': dict(__import__('collections').Counter((r.source_check or {}).get('status') for r in canon.values()
-                                                                                              if r.source_check is not None))}}
+                rubrics = list(canon.values()); assignments_raw = [to_dict(a) for a in assignments]
+                telemetry = {**RB.assignment_telemetry(canon, assignments),
+                             'protocol': self.verification,
+                             'locus': dict(__import__('collections').Counter((f.locus or {}).get('status') for f in feedback)),
+                             'feedback_invalid': invalid_fb,
+                             'feedback_invalid_by_stratum': {st: sum(1 for f in feedback if not getattr(f, 'valid', True) and f.outcome == o)
+                                                             for st, o in (('success', 1.0), ('failure', 0.0))},
+                             'feedback_by_stratum': {st: sum(1 for f in feedback if f.outcome == o) for st, o in (('success', 1.0), ('failure', 0.0))},
+                             'feedback_leakage_first_try': sum(bool(((f.locus or {}).get('leakage') or {}).get('first')) for f in feedback),
+                             'source_check': dict(__import__('collections').Counter((r.source_check or {}).get('status') for r in canon.values()
+                                                                                     if r.source_check is not None))}
+                bank = {'assignments': assignments_raw, 'witness': [], 'telemetry': telemetry,
+                        'member_intervention_version': self.member_intervention_version,
+                        'verification_pending': bool(defer_verification)}
+                if not defer_verification:
+                    wit = self._verify_bounded(case, tree, feedback, ruled, canon, assignments)
+                    kept = {rid for rid, w in wit.items() if w.decision == 'KEEP'}
+                    selection = self._witness_selection(canon, wit)
+                    bank['witness'] = [to_dict(w) for w in wit.values()]
+                    bank['telemetry'].update(W.witness_telemetry(wit))
+                    scores = score_nodes(case, list(tree.nodes), [canon[c] for c in sorted(kept)], e.scorer, self.cache, workers=self.api_workers) if score_responses else []
+                    weights = {rid: 1.0 for rid in sorted(kept)}                 # verification is a gate only
+                else:
+                    selection, scores, weights = [], [], {}
             elif self.reuse:                                         # same-reason REUSE vs NEW (src/online_rl/tree/rubric_bank.py)
                 canon, assignments = RB.build_banks(case, ruled, {t.leaf_id: t for t in tins}, prompt, s.prompt_sha256, e.generate_fn,
                                                     e.assign_fn, e.gate_fn, self.cache)
@@ -326,6 +339,7 @@ class TreeTrainer:
                 scores = score_nodes(case, list(tree.nodes), [canon[c] for c in sorted(kept)], e.scorer, self.cache, workers=self.api_workers) if score_responses else []
                 weights = {cid: support[cid].weight for cid in sorted(kept)}             # R_O(R) = max_j s_j, once per rubric
                 bank = {'assignments': [to_dict(a) for a in assignments], 'rubric_support': [to_dict(v) for v in support.values()],
+                        'member_intervention_version': self.member_intervention_version,
                         'telemetry': RB.bank_telemetry(canon, assignments, support)}
             else:
                 rubrics = [generate_rubric(prompt, s.prompt_sha256, t, e.generate_fn, self.cache, e.gate_fn) for t in tins]
@@ -355,6 +369,93 @@ class TreeTrainer:
         if commit:
             atomic_write_json(self._case_path(s.case_cursor), record)
             self._commit()
+        return record
+
+    def _verify_bounded(self, case, tree, feedback, ruled, canon, assignments):
+        nodes = {n.node_id: n for n in tree.nodes}
+        loci = {f.leaf_id: f.target_reply_id for f in feedback if getattr(f, 'valid', True)}
+        vcfg = self.cfg['verification']
+        return W.verify_witness(case, nodes, {l.leaf_id: l for l in ruled}, canon, assignments, loci,
+                                applicability=self.env.scorer.applicability, writer=self.env.writer,
+                                continuation=self.env.continuation,
+                                reruns=self.cfg['intervention']['reruns_per_intervention'],
+                                run_seed=self.state.run_seed, policy_sha256=tree.policy_sha256,
+                                cache=self.cache, max_valid_supports=vcfg['max_valid_supports'],
+                                workers=self.member_workers,
+                                support_sampling=vcfg.get('support_sampling', 'topology'))
+
+    @staticmethod
+    def _witness_selection(canon, wit):
+        return [SelectionDecision(cid, canon[cid].leaf_id, w.decision == 'KEEP', w.protocol,
+                                  f'{w.decision} ({w.stop_reason}); validated_by={w.validated_by_trajectory_id}; '
+                                  f'valid_supports={w.num_valid_supports}; reruns={w.num_reruns_executed}')
+                for cid, w in wit.items()]
+
+    def validate_member_interventions(self, record: dict) -> None:
+        """Never resume a joint bank/phase with creator-only or missing member instructions."""
+        if not self.member_intervention_version or not self.reuse: return
+        from src.online_rl.tree.member_intervention import resolve_member_intervention
+        bank = record.get('rubric_bank') or {}
+        if bank.get('member_intervention_version') != self.member_intervention_version:
+            raise RuntimeError('saved rubric bank predates per-trajectory intervention instructions; regenerate the bank from the frozen tree')
+        tree = from_dict(Tree, record['tree'])
+        leaves = {leaf.leaf_id: leaf for leaf in tree.leaves}
+        nodes = {node.node_id: node for node in tree.nodes}
+        canon = {raw['rubric_id']: from_dict(TrajectoryRubric, raw) for raw in record['trajectory_rubrics']}
+        decided = {leaf.leaf_id for leaf in tree.leaves if leaf.outcome is not None}
+        feedback = record.get('feedback', [])
+        feedback_ids = [f['leaf_id'] for f in feedback]
+        if len(feedback_ids) != len(set(feedback_ids)) or set(feedback_ids) != decided:
+            raise RuntimeError('saved joint bank feedback does not cover every decided trajectory exactly once')
+        eligible = {f['leaf_id'] for f in feedback if f.get('valid', True)}
+        member_ids = [a['leaf_id'] for a in bank['assignments']]
+        if len(member_ids) != len(set(member_ids)) or set(member_ids) != eligible:
+            raise RuntimeError('saved joint bank assignments do not cover every eligible trajectory exactly once')
+        if (len(canon) != len(record['trajectory_rubrics']) or
+                {a['canonical_rubric_id'] for a in bank['assignments']} != set(canon)):
+            raise RuntimeError('saved joint bank canonical rubrics and assignments differ')
+        for raw in bank['assignments']:
+            assignment = from_dict(RubricAssignment, raw)
+            rubric = canon[assignment.canonical_rubric_id]
+            leaf = leaves[assignment.leaf_id]
+            if assignment.case_id != tree.case_id or assignment.stratum != ('success' if leaf.outcome == 1.0 else 'failure'):
+                raise RuntimeError('saved joint assignment differs from its member case or outcome stratum')
+            if assignment.assignment == 'CREATE_REJECTED' or not rubric.valid: continue
+            if not rubric.intervention_instruction:
+                raise RuntimeError('joint rubric record is missing its generated instruction')
+            spec = resolve_member_intervention(rubric, leaf, member_spec=assignment.intervention_spec)
+            resolve_member_intervention(rubric, leaf, member_spec=spec, node=nodes[leaf.path[spec['selected_agent_turn_id'] - 1]])
+
+    def finish_deferred_verification(self, record: dict) -> dict:
+        """Run a prepared case's witness checks after every case has generated its rubric bank."""
+        bank = record.get('rubric_bank') or {}
+        self.validate_member_interventions(record)
+        if not bank.get('verification_pending'):
+            if bank.get('witness') is not None and 'witness' in bank:
+                return record
+            raise ValueError('record has no deferred witness-verification payload')
+        if self.verification not in W.PROTOCOLS:
+            raise ValueError('deferred witness verification requires a supported witness protocol')
+        tree = from_dict(Tree, record['tree'])
+        if tree.policy_sha256 != self.policy_sha() or tree.case_id != record['case_id']:
+            raise RuntimeError('prepared tree policy or case identity changed before verification')
+        case = self.cases[tree.case_id]
+        feedback = [from_dict(DoctorFeedback, f) for f in record['feedback']]
+        ruled = [leaf for leaf in tree.leaves if leaf.outcome is not None and
+                 any(f.leaf_id == leaf.leaf_id and getattr(f, 'valid', True) for f in feedback)]
+        canon = {r['rubric_id']: from_dict(TrajectoryRubric, r)
+                 for r in record['trajectory_rubrics']}
+        assignments = [from_dict(RubricAssignment, a)
+                       for a in bank['assignments']]
+        wit = self._verify_bounded(case, tree, feedback, ruled, canon, assignments)
+        kept = {rid for rid, w in wit.items() if w.decision == 'KEEP'}
+        bank['witness'] = [to_dict(w) for w in wit.values()]
+        bank['verification_pending'] = False
+        bank['telemetry'].update(W.witness_telemetry(wit))
+        record['selection'] = [to_dict(x) for x in self._witness_selection(canon, wit)]
+        record['rubric_weights'] = {rid: 1.0 for rid in sorted(kept)}
+        record['response_scores'] = []
+        record['rubric_bank'] = bank
         return record
 
     def _commit(self) -> None:

@@ -21,6 +21,24 @@ def flat_rubric(rubric):
             'required_behavior': rubric['required_behavior'], 'scores': {k: v['behavior'] for k, v in rubric['scores'].items()}}
 
 
+def intervention_rubric(rubric, level):
+    """Return only applicability and the selected level's behavior for a guided rerun."""
+    level = str(level)
+    if level not in ('0', '2'):
+        raise ValueError(f'intervention level must be 0 or 2, got {level!r}')
+    applicability = rubric.get('applicability')
+    if applicability is None:
+        applicability = rubric.get('applicability_condition')
+    scores = rubric.get('scores') or {}
+    selected = scores.get(level)
+    behavior = selected.get('behavior') if isinstance(selected, dict) else selected
+    if not isinstance(applicability, (str, dict)) or not applicability:
+        raise ValueError('rubric intervention requires applicability')
+    if not isinstance(behavior, str) or not behavior.strip():
+        raise ValueError(f'rubric intervention requires Score-{level} behavior')
+    return {'applicability': applicability, 'scores': {level: {'behavior': behavior}}}
+
+
 def rubric_problems(rubric):
     from src.judges.rubric_schema import validate_rubric
     from src.judges.rubric_scoring import validate_visible_rubric

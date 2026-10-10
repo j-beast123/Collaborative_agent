@@ -33,7 +33,10 @@ def test_na_siblings_do_not_supply_second_rewarded_response(monkeypatch, assesse
     updater.mode = 'mean_center'
     monkeypatch.setattr(grpo, 'adapter_sha256', lambda m: tree.policy_sha256)
     result = team.sibling_grpo_update(updater)(tree, targets)
-    assert result == {'optimizer_step': False, 'skip_reason': 'fewer_than_two_rewarded_responses'}
+    assert result['optimizer_step'] is False
+    assert result['skip_reason'] == 'fewer_than_two_rewarded_responses'
+    assert result['skip_counts'] == {'fewer_than_two_rewarded_responses': 1}
+    assert result['groups_used'] == 0
 
 
 def test_old_rubric_only_run_cannot_resume_with_new_reward_policy(tmp_path):

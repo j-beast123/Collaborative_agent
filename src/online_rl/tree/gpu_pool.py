@@ -145,6 +145,8 @@ class Actor:
             if request['op'] in ('agent', 'doctor'):
                 row['seed'] = request['args'][2 if request['op']=='agent' else 1]
                 row['input_sha256'] = hashlib.sha256(request['args'][0].encode()).hexdigest()
+                if request['op'] == 'doctor' and len(request['args']) > 3:
+                    row['system_override_sha256'] = hashlib.sha256(request['args'][3].encode()).hexdigest()
             try:
                 with self.lock:
                     with self.audit.open('a') as file:
@@ -180,8 +182,9 @@ def attach(policy, cfg, spec, gpu):
     def generate(prompt, max_new_tokens, seed, segment='agent'):
         return client.call('agent', prompt, max_new_tokens, seed, segment)
     policy._generate = generate
-    def chat(user, seed, max_tokens=None):
-        args = (user, seed) if max_tokens is None else (user, seed, max_tokens)
+    def chat(user, seed, max_tokens=None, system_override=None):
+        args = ((user, seed, max_tokens, system_override) if system_override is not None else
+                ((user, seed) if max_tokens is None else (user, seed, max_tokens)))
         return client.call('doctor', *args)
     policy.doctor._chat = chat
     policy.pool_behavior_logprobs = lambda traces: client.call('teacher', traces)
