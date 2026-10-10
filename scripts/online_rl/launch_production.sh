@@ -40,14 +40,17 @@ json.dump({'extends': cfg, 'five_gpu': {'doctor_urls': [f'http://127.0.0.1:{p}' 
 EOF
 fi
 if [ -n "${SHERPA_RUNTIME_OVERLAY:-}" ]; then
-  # Host runtime overlay: only Doctor placement keys; the research fingerprint must not change.
+  # Host runtime overlay: Doctor placement keys and the Agent generation batch size (execution only: rows are sampled with per-row RNG,
+  # so the batch size is not part of the sampling protocol; 1 fits thinking-length generations on 24 GiB GPUs). The research fingerprint
+  # must not change.
   BASE=$RUNCFG; RUNCFG=outputs/reward_prompt_matrix/runtime/$NAME.runtime.json
   mkdir -p "$(dirname "$RUNCFG")"
   "$PY" - "$BASE" "$SHERPA_RUNTIME_OVERLAY" "$RUNCFG" <<'EOF'
 import json, sys
 base, overlay, out = sys.argv[1], json.load(open(sys.argv[2])), sys.argv[3]
-allowed = {'doctor_urls', 'doctor_servers'}
+allowed = {'doctor_urls', 'doctor_servers', 'agent_batch_size'}
 if set(overlay) != {'five_gpu'} or not set(overlay['five_gpu']) <= allowed: sys.exit(f'runtime overlay may only set five_gpu.{sorted(allowed)}')
+if overlay['five_gpu'].get('agent_batch_size', 4) not in (1, 4): sys.exit('runtime overlay: five_gpu.agent_batch_size must be 1 or 4')
 json.dump({'extends': base, **overlay}, open(out, 'w'), indent=2)
 EOF
 fi
