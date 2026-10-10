@@ -276,3 +276,33 @@ run 이름/LR**로 재개할 수 있습니다. `maintenance/consolidate_repair_c
 원래 실행 명령을 다시 사용하세요. 출력 폴더나 cache를 삭제하지 않습니다.
 
 CPU 회귀 검사: `python -m pytest -q tests/test_rubric_json_repair.py tests/test_rubric_quote_repair.py tests/test_consolidate_repair.py`.
+
+## Consolidate 후보 누락·중복 오류
+
+`Consolidate must partition all candidates exactly once`는 JSON 문법 오류가 아니라
+후보 배정 오류입니다. 클러스터들과 excluded를 합쳤을 때 입력의 모든 후보 ID가 정확히
+한 번씩 있어야 합니다. `candidate_batch_size=8`은 후보 생성 동시성이고, consolidate는
+case 전체 후보를 처리하므로 모델이 ID를 빠뜨리거나 중복할 수 있습니다. 실제 오류의
+유형/개수는 아래 읽기 전용 명령으로 확인합니다.
+
+```bash
+"$SHERPA_PYTHON" maintenance/inspect_consolidation.py \
+  --run outputs/runs/gemma-bf16-v7-rubric-lr5e6-run01
+```
+
+기존 audit에는 요약 메시지만 있어도 `consolidate_input` 성공 cache의 원본 목록과
+실패한 raw partition을 대조합니다. 출력은 `expected_count`, `returned_occurrences`,
+`missing_ids`, `duplicate_ids`(각 등장 위치), `unknown_ids`, 잘못된 타입의 membership을
+포함합니다. 모델/API/GPU를 실행하거나 cache를 수정하지 않습니다. 해당 입력이 이후에
+성공한 기록이 있으면 미해결 오류 목록에서 제외합니다.
+
+재시도에는 이제 전체 ID/stratum 목록(`candidate_inventory`)과 정확한 membership report를
+전달합니다. 기존 첫 요청, 모델·설정, 최대 2회의 수정 요청 수, partition 검사,
+canonical source 선택과 성공 cache key는 유지합니다. 누락 후보를 자동 제외하거나,
+검증하지 않은 singleton으로 채우거나, 중복 중 첫 위치를 임의 채택하지 않습니다.
+수정 후에도 유효하지 않으면 상세 audit를 남기고 중단합니다.
+
+이번 운영 수정은 config가 같은 기존 run에 대해 고정 코드 hash로 호환 재개합니다.
+공유 checkout의 프로세스들을 중단한 뒤 pull하고 동일 train 명령을 다시 실행하면 됩니다.
+저장된 정상 후보 생성·rollout 결과는 재사용하며, 이번 수정만으로 새 run을 만들지 않습니다.
+Doctor 배치 추론으로 전환하는 것은 별도 config/run 선택이며 자동 적용되지 않습니다.

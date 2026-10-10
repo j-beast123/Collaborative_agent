@@ -92,7 +92,7 @@ def validate_resume_identity(state, cfg, source_sha):
     if path.is_file():
         manifest = json.loads(path.read_text())
         for receipt in [manifest, *manifest.get('additional_sources', [])]:
-            if (receipt.get('protocol') in ('consolidate_validation_repair_v1', 'bounded_output_repairs_v2', 'optional_doctor_batch_v1', 'bounded_json_syntax_repair_v1')
+            if (receipt.get('protocol') in ('consolidate_validation_repair_v1', 'bounded_output_repairs_v2', 'optional_doctor_batch_v1', 'bounded_json_syntax_repair_v1', 'consolidate_membership_diagnostics_v1')
                     and receipt.get('old_source_sha256') == state['source_sha256']):
                 files = sorted([*ROOT.glob('src/**/*.py'), *ROOT.glob('scripts/online_rl/*.py')])
                 current = {str(p.relative_to(ROOT)): file_sha(p) for p in files}

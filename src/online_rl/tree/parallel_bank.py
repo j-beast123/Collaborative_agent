@@ -34,6 +34,45 @@ def validation_audit(record):
                 stream.write(json.dumps(record, ensure_ascii=False) + '\n')
 
 
+def membership_report(result, candidates):
+    """Exact ID accounting for model correction; never changes membership."""
+    ids = {c['candidate_id']: c for c in candidates}
+    locations = {}
+    malformed = []
+    def note(value, location):
+        if not isinstance(value, str):
+            malformed.append({'location': location, 'value': value})
+            return
+        locations.setdefault(value, []).append(location)
+    if isinstance(result, dict):
+        clusters = result.get('clusters')
+        if isinstance(clusters, list):
+            for i, cluster in enumerate(clusters):
+                if isinstance(cluster, dict) and isinstance(cluster.get('candidate_ids'), list):
+                    for j, cid in enumerate(cluster['candidate_ids']): note(cid, f'clusters[{i}].candidate_ids[{j}]')
+        excluded = result.get('excluded')
+        if isinstance(excluded, list):
+            for i, item in enumerate(excluded):
+                if isinstance(item, dict): note(item.get('candidate_id'), f'excluded[{i}].candidate_id')
+    return {'expected_count': len(ids), 'returned_occurrences': sum(map(len, locations.values())),
+        'unique_known_count': len(set(locations) & set(ids)),
+        'missing_ids': sorted(set(ids) - set(locations)),
+        'duplicate_ids': {cid: locations[cid] for cid in sorted(locations) if len(locations[cid]) > 1},
+        'unknown_ids': {cid: locations[cid] for cid in sorted(set(locations) - set(ids))},
+        'invalid_memberships': malformed}
+
+
+class PartitionCoverageError(ValueError):
+    def __init__(self, report):
+        self.report = report
+        super().__init__('Consolidate must partition all candidates exactly once: '
+            f"expected={report['expected_count']}, returned={report['returned_occurrences']}, "
+            f"missing={len(report['missing_ids'])}, duplicate_ids={len(report['duplicate_ids'])}, "
+            f"unknown_ids={len(report['unknown_ids'])}. "
+            'Missing IDs: ' + json.dumps(report['missing_ids']) +
+            '; duplicate locations: ' + json.dumps(report['duplicate_ids'], sort_keys=True))
+
+
 def validate_partition(result, candidates):
     """No missing, invented, duplicated, cross-stratum or uncertain membership."""
     if not isinstance(result, dict) or set(result) != {'clusters', 'excluded'}:
@@ -60,7 +99,7 @@ def validate_partition(result, candidates):
             raise ValueError('Every consolidate exclusion needs an original ID and reason')
         seen.append(item['candidate_id'])
     if sorted(seen) != sorted(ids):
-        raise ValueError('Consolidate must partition all candidates exactly once')
+        raise PartitionCoverageError(membership_report(result, candidates))
     return result
 
 
@@ -75,29 +114,43 @@ def api_consolidator(key, cfg):
     # Successful input/output and cache identity stay unchanged. Only invalid
     # output takes the bounded repair path; never split/drop candidates in code.
     def consolidate(candidates):
+        inventory = sorted([{'candidate_id': c['candidate_id'], 'stratum': c['stratum']} for c in candidates], key=lambda c: c['candidate_id'])
+        if len({c['candidate_id'] for c in inventory}) != len(inventory):
+            raise ValueError('Duplicate input candidate IDs; cannot consolidate')
         original = json.dumps(candidates, ensure_ascii=False, sort_keys=True)
         user, attempts = original, []
         for attempt in range(CONSOLIDATE_REPAIR_ATTEMPTS + 1):
             raw, meta = _openrouter_json(key, cfg['model'], text, user,
                                          settings, {}, 'case_consolidation', 'rubric_consolidate')
-            error = None
-            try: result = validate_partition(json.loads(raw), candidates)
+            error = None; result = None
+            try:
+                result = json.loads(raw)
+                validate_partition(result, candidates)
             except (ValueError, TypeError, KeyError) as exc: error = str(exc)
+            coverage = membership_report(result, candidates) if result is not None else None
             record = {'protocol': 'consolidate_validation_repair_v1',
                       'time': datetime.now(timezone.utc).isoformat(),
                       'input_sha256': sha256_json(candidates), 'attempt': attempt + 1,
                       'model': cfg['model'], 'api_provider': settings.get('api_provider', 'openrouter'),
                       'request_sha256': sha256_json(user), 'raw': raw, 'validation_error': error,
-                      'accepted': error is None, 'repair_attempts_limit': CONSOLIDATE_REPAIR_ATTEMPTS}
+                      'accepted': error is None, 'repair_attempts_limit': CONSOLIDATE_REPAIR_ATTEMPTS,
+                      'membership_report': coverage, 'usage': meta.get('usage'),
+                      'returned_model': meta.get('model'), 'candidate_count': len(candidates)}
             attempts.append(record)
             validation_audit(record)
             if error is None: return result
             # Fixed originals, source IDs and strata remain authoritative. No
             # reward/verification outcome is used to choose a replacement source.
             user = json.dumps({'original_candidates': candidates, 'previous_response': raw,
-                'validation_error': error,
+                'validation_error': error, 'membership_report': coverage,
+                'candidate_inventory': inventory,
                 'instruction': 'Correct the JSON partition against the SAME original candidates. '
-                    'Return only clusters and excluded, with every original candidate exactly once. '
+                    'Return the COMPLETE clusters and excluded, with every original candidate exactly once; not a partial patch. '
+                    'Use candidate_inventory as the authoritative checklist. membership_report gives exact missing IDs '
+                    'and duplicate locations in your previous response. Evaluate each missing candidate against its '
+                    'original evidence and existing clusters; do not automatically exclude it or assume singleton checks pass. '
+                    'For duplicates choose membership based on original equivalence/evidence, never just the first occurrence. '
+                    'Before returning, check that the union equals candidate_inventory and all IDs have count one. '
                     'Never merge success and failure strata. A mixed cluster must be reconsidered separately '
                     'within each stratum; merge only when every equivalence check is actually supported. '
                     'Keep distinct criteria separate; singletons are allowed. Do not invent IDs, rewrite criteria, '
