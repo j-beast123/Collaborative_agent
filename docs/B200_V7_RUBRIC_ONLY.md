@@ -213,3 +213,38 @@ B200 shell launcher는 `maintenance/quiet_b200.py`를 거쳐 Transformers의
 학습 코드/config hash를 변경하지 않는 콘솔 변경으로 기존 run을 그대로 재개할 수 있습니다.
 다시 표시하려면 `export SHERPA_SHOW_TOP_K_WARNING=1`을 설정하세요.
 이미 실행 중인 프로세스의 출력에는 적용되지 않으며, 다음 launcher 실행부터 적용됩니다.
+
+## Generator의 원문 인용 검증 실패와 재개
+
+`an evidence span does not exactly match its supplied speaker/turn`은 후보 generator가
+지정한 화자/턴에서 찾을 수 없는 인용을 반환했다는 뜻입니다. Paraphrase, 다른 턴 번호,
+문장부호 차이 등을 실제 raw 응답에서 확인해야 하며 GPU 오류나 consolidate 오류가 아닙니다.
+정확한 원문 부분 문자열이어야 한다는 검증은 유지합니다.
+
+첫 요청과 고정 generator prompt는 그대로 사용합니다. 기존 1회 correction에는
+오류 span의 인덱스, 화자/턴 ID, 잘못된 인용과 해당 턴의 원문을 전달합니다.
+이후에도 evidence span 검증에 실패한 경우에만 원문 catalogue와 함께 quote-only correction을
+최대 1회 추가합니다(최초 포함 최대 3회). 이 추가 요청은 evidence_spans 외의 필드를
+변경할 수 없으며, rubric의 M/C·source score·anchor·intervention instruction 변경은 거부합니다.
+다른 종류의 오류에 대한 재시도 횟수는 늘리지 않습니다. 자동 유사문자열 매칭, 임의 인용
+생성, 실패 후보 누락, 0점 대체는 하지 않습니다. 그래도 유효하지 않으면 중단합니다.
+
+성공 결과에는 실제 raw/usage attempts와 validation errors를, 실패 시에는
+`calls.errors.jsonl`의 audit에 case/leaf/model, 모든 raw 응답·검증 오류·usage를 보존합니다.
+추가 요청도 동일 모델/설정·API limiter와 비용 기록 경로를 사용합니다.
+인증 키는 이 audit에 넣지 않습니다.
+
+기존 V7 코드 및 consolidate 수정 코드의 전체 hash와 이번 수정 파일 hash를 정확히
+대조한 경우에만 같은 run을 재개할 수 있습니다. 성공한 rollout/generator/consolidate
+캐시는 그대로 재사용합니다. 위의 pull 및 동일 run-name/LR 명령을 사용하고 캐시를 지우지
+마세요. `completed_cases: 0`은 아직 5-case 업데이트가 commit되지 않았다는 뜻이며,
+그 전에 성공적으로 저장한 API/rollout 캐시가 없다는 뜻은 아닙니다.
+
+CPU 검증 명령:
+
+```bash
+CUDA_VISIBLE_DEVICES='' HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+  "$SHERPA_PYTHON" -m pytest -q tests/test_rubric_quote_repair.py \
+  tests/test_consolidate_repair.py tests/test_b200_v7.py \
+  tests/test_feedback_claim_grounding.py tests/test_parallel_bank.py tests/test_b200_runner.py
+```

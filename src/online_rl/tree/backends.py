@@ -426,10 +426,15 @@ def normalize_trajectory_analysis_output(parsed: dict | None, err: str | None, t
         return None, (f'analysis.selected_agent_turn_id={selected!r} is not a supplied Agent reply ID; '
                       f'valid integer IDs are {sorted(agent_text)}')
     evidence_spans = analysis.get('evidence_spans')
-    for span in evidence_spans:
+    for index, span in enumerate(evidence_spans):
         source = agent_text if span['speaker'] == 'agent' else doctor_text
         if span['turn_id'] not in source or not span['quote'] or span['quote'] not in source[span['turn_id']]:
-            return None, 'an evidence span does not exactly match its supplied speaker/turn'
+            return None, (f'analysis.evidence_spans[{index}]: quote does not exactly match '
+                          f"speaker={span['speaker']!r}, turn_id={span['turn_id']!r}. "
+                          f"Supplied quote: {json.dumps(span['quote'], ensure_ascii=False)}. "
+                          f'Exact source text: {json.dumps(source.get(span["turn_id"]), ensure_ascii=False)}. '
+                          f'Valid {span["speaker"]} turn IDs: {sorted(source)}. '
+                          'Use a verbatim contiguous substring from this speaker/turn; do not paraphrase.')
     normalized = {**candidate, 'required_behavior': candidate['required_behavior'] if public_criterion_protocol is not None else high['behavior'],
                   'source_provenance': {**{k: parsed[k] for k in ('rubric_id', 'source_case_id', 'source_trajectory_id', 'source_outcome')},
                                         'analysis': normalized_analysis, 'model_reported_analysis': reported_analysis,
@@ -574,7 +579,7 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
         raw, meta = _openrouter_json(key, model, system(prompt_text), user, settings, schema, 'rubric', 'rubric_generator')
         parsed_output, err = H.parse_rubric(raw)
         rubric, err = normalize(raw, parsed_output, err, tin)
-        raw_attempts = [raw]; usages = [meta.get('usage')]
+        raw_attempts = [raw]; usages = [meta.get('usage')]; validation_errors = [err] if err else []
         # Preserve the fixed prompt verbatim. If its output violates deterministic provenance
         # checks, issue one bounded correction call with the same system prompt and explicit
         # field-level feedback; never silently coerce model output into a rubric. This correction
@@ -603,11 +608,48 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
             raw_attempts.append(raw); usages.append(meta.get('usage'))
             parsed_output, err = H.parse_rubric(raw)
             rubric, err = normalize(raw, parsed_output, err, tin)
-        if err and (settings.get('response_format') == 'json_schema_strict' or settings.get('strict_provider_parameters')): raise RubricOutputIncomplete(f'{model}: schema output did not parse after bounded correction: {err}')
+        if err: validation_errors.append(err)
+        # One additional, quote-only correction for the exact provenance failure.
+        # No fuzzy matching, invented evidence, rubric rewriting or silent drop.
+        if err and err.startswith('analysis.evidence_spans[') and isinstance(parsed_output, dict):
+            import copy
+            frozen = copy.deepcopy(parsed_output)
+            catalog, counts = [], {'doctor': 0, 'agent': 0}
+            for speaker, stage, round_, body in tin.dialogue:
+                if speaker not in counts: continue
+                counts[speaker] += 1
+                catalog.append({'speaker': speaker, 'turn_id': counts[speaker], 'stage': stage, 'text': body})
+            correction = (user + '\n\nCorrect ONLY analysis.evidence_spans in the previous JSON below. '
+                'Keep every other field byte-for-byte in value, including candidate rubric, M/C definitions, '
+                'selected Agent turn, source score and intervention_instruction. '
+                'Copy exact contiguous substrings from the authoritative speaker-scoped source catalogue. '
+                'Doctor and Agent IDs are counted separately; do not use global message indices. '
+                'Do not paraphrase, normalize punctuation/whitespace or add ellipses. '
+                'Keep evidence relevant to the unchanged rubric; if it is unsupported do not invent support. '
+                'Return the complete JSON object. Validation error: ' + err +
+                '\nSource catalogue:\n' + json.dumps(catalog, ensure_ascii=False) +
+                '\nPrevious JSON:\n' + raw)
+            raw, meta = _openrouter_json(key, model, system(prompt_text), correction, settings, schema, 'rubric', 'rubric_generator')
+            raw_attempts.append(raw); usages.append(meta.get('usage'))
+            parsed_output, err = H.parse_rubric(raw)
+            rubric, err = normalize(raw, parsed_output, err, tin)
+            if err is None:
+                before, after = copy.deepcopy(frozen), copy.deepcopy(parsed_output)
+                before['analysis'].pop('evidence_spans', None); after['analysis'].pop('evidence_spans', None)
+                if before != after:
+                    rubric, err = None, 'Quote-only correction changed fields outside analysis.evidence_spans'
+            if err: validation_errors.append(err)
+        if err and (settings.get('response_format') == 'json_schema_strict' or settings.get('strict_provider_parameters')):
+            failure = RubricOutputIncomplete(f'{model}: schema output did not parse after bounded correction: {err}')
+            failure.audit = {'protocol': 'rubric_quote_repair_v1', 'case_id': tin.case_id, 'leaf_id': tin.leaf_id,
+                'model': model, 'raw_attempts': raw_attempts, 'validation_errors': validation_errors,
+                'usage_attempts': usages, 'attempts': len(raw_attempts)}
+            raise failure
         return {'raw': raw, 'raw_attempts': raw_attempts, 'rubric': rubric,
                 'intervention_instruction': (parsed_output or {}).get('intervention_instruction') if output_contract == 'trajectory_analysis_candidate_v2_with_intervention' and not err else None,
                 'parse_error': err,
-                'usage': usages[-1], 'usage_attempts': usages}
+                'usage': usages[-1], 'usage_attempts': usages,
+                **({'validation_errors': validation_errors} if validation_errors else {})}
 
     def repair(prompt_text, tin, rubric, stage1):
         """v2.1 source-consistency repair (one call): the same trajectory input (with its behavioral locus), the rubric that was

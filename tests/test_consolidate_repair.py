@@ -83,7 +83,10 @@ def test_actual_pinned_code_allows_only_this_operational_fix():
     current=R.code_identity()
     got=R.validate_resume_identity(state,cfg,current)
     assert got['effective_source_sha256']==current
-    assert set(got['changed_files'])=={'src/online_rl/tree/parallel_bank.py','src/online_rl/tree/b200_runner.py'}
+    assert set(got['changed_files'])=={'src/online_rl/tree/parallel_bank.py','src/online_rl/tree/b200_runner.py','src/online_rl/tree/backends.py'}
+    for source in receipt.get('additional_sources', []):
+        got=R.validate_resume_identity({**state,'source_sha256':source['old_source_sha256']},cfg,current)
+        assert got['effective_source_sha256']==current
     for key in ('config_sha256','source_sha256'):
         with pytest.raises(RuntimeError,match='Config/code changed'):
             R.validate_resume_identity({**state,key:'different'},cfg,current)

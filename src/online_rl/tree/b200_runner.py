@@ -90,19 +90,20 @@ def validate_resume_identity(state, cfg, source_sha):
     # results. Reconstruct the entire old source identity, not a general bypass.
     path = ROOT / 'maintenance/consolidate_repair_compatibility.json'
     if path.is_file():
-        receipt = json.loads(path.read_text())
-        if (receipt.get('protocol') == 'consolidate_validation_repair_v1'
-                and receipt.get('old_source_sha256') == state['source_sha256']):
-            files = sorted([*ROOT.glob('src/**/*.py'), *ROOT.glob('scripts/online_rl/*.py')])
-            current = {str(p.relative_to(ROOT)): file_sha(p) for p in files}
-            old = dict(current)
-            matches = bool(receipt.get('changed_files')) and sha256_json(current) == source_sha
-            for name, hashes in receipt.get('changed_files', {}).items():
-                matches = matches and current.get(name) == hashes.get('new_sha256')
-                old[name] = hashes.get('old_sha256')
-            if matches and sha256_json(old) == state['source_sha256']:
-                return {**receipt, 'effective_source_sha256': source_sha,
-                        'config_sha256': state['config_sha256']}
+        manifest = json.loads(path.read_text())
+        for receipt in [manifest, *manifest.get('additional_sources', [])]:
+            if (receipt.get('protocol') in ('consolidate_validation_repair_v1', 'bounded_output_repairs_v2')
+                    and receipt.get('old_source_sha256') == state['source_sha256']):
+                files = sorted([*ROOT.glob('src/**/*.py'), *ROOT.glob('scripts/online_rl/*.py')])
+                current = {str(p.relative_to(ROOT)): file_sha(p) for p in files}
+                old = dict(current)
+                matches = bool(receipt.get('changed_files')) and sha256_json(current) == source_sha
+                for name, hashes in receipt.get('changed_files', {}).items():
+                    matches = matches and current.get(name) == hashes.get('new_sha256')
+                    old[name] = hashes.get('old_sha256')
+                if matches and sha256_json(old) == state['source_sha256']:
+                    return {**receipt, 'effective_source_sha256': source_sha,
+                            'config_sha256': state['config_sha256']}
     raise RuntimeError(message)
 
 
