@@ -175,6 +175,9 @@ def resolve(raw: dict) -> dict:
     cfg['agent_reward'] = {**cfg['agent_reward'], 'w_outcome': w_o, 'w_rubric': w_r}
     credit = cfg['agent_reward'].get('credit', 'shared')
     if credit not in ('shared', 'decision_only', 'separated'): raise ValueError(f'agent_reward.credit must be shared, decision_only or separated; got {credit!r}')
+    target = cfg['agent_reward'].get('decision_target', 'private_option')
+    if target not in ('private_option', 'outcome') or (target != 'private_option' and credit != 'separated'):
+        raise ValueError('agent_reward.decision_target is private_option or outcome and applies to separated credit only')
     if credit == 'separated' and (w_r <= 0.0 or w_o <= 0.0 or cfg['rollout'].get('agent_protocol') != 'precommit_v1'):
         raise ValueError('separated credit needs both branch coefficients (reward weights) > 0 and precommit_v1')
     if credit == 'decision_only' and (w_r != 0.0 or cfg['rollout'].get('agent_protocol') != 'precommit_v1'):
@@ -214,6 +217,7 @@ def fingerprint(cfg: dict) -> Optional[str]:
     if cfg['rollout'].get('agent_thinking'):                      # absent in every frozen run: their fingerprints are unchanged
         identity['agent_thinking'] = {'enabled': True, 'think_budget': cfg['rollout'].get('agent_think_budget', 2048)}
     if cfg['agent_reward'].get('credit', 'shared') != 'shared': identity['credit'] = cfg['agent_reward']['credit']
+    if cfg['agent_reward'].get('decision_target', 'private_option') != 'private_option': identity['decision_target'] = cfg['agent_reward']['decision_target']
     if cfg.get('judges', {}).get('scorer_request_cache'):        # absent in every frozen run: their fingerprints are unchanged
         identity['scorer_request_cache'] = cfg['judges']['scorer_request_cache']
     return sha256_json(identity)
@@ -269,7 +273,7 @@ def check_batch(cfg: dict, records: list[dict]) -> list[dict]:
         for nid, x in sorted(t['nodes'].items()):
             if not rubric_on and x['R_A'] is not None: raise RuntimeError(f'R_rubric computed with zero rubric weight at {nid}')
             cm = cfg['agent_reward'].get('credit', 'shared')
-            expected = (x.get('R_D') if cm == 'decision_only' else compose_reward(x.get('R_D'), x['R_A'], **w) if cm == 'separated' else
+            expected = (x.get('R_D') if cm == 'decision_only' else compose_reward(x.get('decision_reward'), x['R_A'], **w) if cm == 'separated' else
                         compose_reward(x['outcome_component'], x['R_A'], **w))
             if not _same(x['reward'], expected):
                 raise RuntimeError(f'Reward of {nid} differs from the configured ' + ('decision reward' if t.get('credit') == 'decision_only' else 'mixture'))

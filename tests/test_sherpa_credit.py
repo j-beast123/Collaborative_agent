@@ -240,3 +240,36 @@ def test_e3_config_differs_from_e1_only_in_the_credit_rule():
     assert (e3['agent_reward.w_outcome'], e3['agent_reward.w_rubric']) == (0.5, 0.5) and e3['rubric.enabled'] is True and e3['rollout.agent_thinking'] is True
     assert research_diff(flat(X.load_config(f'{T2}/pilot/smoke_e3.json')), e3) == {'schedule.cases'}
     assert len({X.fingerprint(X.load_config(f'{T2}/pilot/{n}.json')) for n in ('e1_think_shared', 'e2_think_decision', 'e3_think_separated')}) == 3
+
+
+# ---------------------------------------------------------------- E3-outcome: the same separated path, another decision reward
+def test_e3_outcome_differs_from_e3_private_only_in_the_decision_target():
+    priv, out = (flat(X.load_config(f'{T2}/pilot/{n}.json')) for n in ('e3_think_separated', 'e3o_think_separated_outcome'))
+    assert research_diff(priv, out) == {'agent_reward.decision_target'} and out['agent_reward.decision_target'] == 'outcome'
+    assert research_diff(flat(X.load_config(f'{T2}/pilot/smoke_e3o.json')), out) == {'schedule.cases'}
+    assert X.fingerprint(X.load_config(f'{T2}/pilot/e3_think_separated.json')) != X.fingerprint(X.load_config(f'{T2}/pilot/e3o_think_separated_outcome.json'))
+
+
+def test_decision_target_outcome_credits_the_private_segment_with_the_team_outcome():
+    tree = tree_with([1.0, 0.0, None, 1.0], [0.0, 1.0, 1.0, 0.0]); lo = {l.leaf_id: l.outcome for l in tree.leaves}; ra = {'c/0': 1.0, 'c/1': 0.5}
+    priv = node_credit(0.5, 0.5, 'separated')(tree, lo, ra); out = node_credit(0.5, 0.5, 'separated', 'outcome')(tree, lo, ra)
+    assert [out['nodes'][f'c/{j}']['decision_reward'] for j in range(4)] == [0.0, 1.0, 1.0, 0.0]                      # the final team outcome
+    assert [priv['nodes'][f'c/{j}']['decision_reward'] for j in range(4)] == [1.0, 0.0, 0.0, 1.0]                     # private option correctness
+    assert out['decision_target'] == 'outcome' and priv['decision_target'] == 'private_option'
+    for k in ('groups', 'branch_coefficients', 'credit'): assert out[k] == priv[k]                                    # same routing and grouping
+    assert all(out['nodes'][n]['collab_reward'] == priv['nodes'][n]['collab_reward'] and out['nodes'][n]['R_D'] == priv['nodes'][n]['R_D'] for n in out['nodes'])
+    with pytest.raises(ValueError): node_credit(0.5, 0.5, 'shared', 'outcome')
+    with pytest.raises(ValueError): node_credit(0.5, 0.5, 'separated', 'other')
+
+
+def test_main120_configs_are_the_pilot_arms_with_120_cases_and_the_stated_coefficients():
+    pairs = {'e1_shared_5_5': ('e1_think_shared', (0.5, 0.5)), 'e3_outcome_5_5': ('e3o_think_separated_outcome', (0.5, 0.5)), 'e3_private_5_5': ('e3_think_separated', (0.5, 0.5))}
+    for main, (pilot, w) in pairs.items():
+        m, p = flat(X.load_config(f'{T2}/main120/{main}.json')), flat(X.load_config(f'{T2}/pilot/{pilot}.json'))
+        assert research_diff(m, p) == {'schedule.cases'} and m['schedule.cases'] == 120 and (m['agent_reward.w_outcome'], m['agent_reward.w_rubric']) == w
+        assert m['five_gpu.checkpoint_every_cases'] == 30 and m['output_dir'].startswith('outputs/fixed_t2_main120/')
+    base = flat(X.load_config(f'{T2}/main120/e3_private_5_5.json'))
+    for main, w in (('e3_private_7_3', (0.7, 0.3)), ('e3_private_3_7', (0.3, 0.7))):                                  # (decision, collaboration) coefficients
+        m = flat(X.load_config(f'{T2}/main120/{main}.json'))
+        assert research_diff(m, base) == {'agent_reward.w_outcome', 'agent_reward.w_rubric'} and (m['agent_reward.w_outcome'], m['agent_reward.w_rubric']) == w
+    assert len({flat(X.load_config(f'{T2}/main120/{n}.json'))['output_dir'] for n in ('e1_shared_5_5', 'e3_outcome_5_5', 'e3_private_5_5', 'e3_private_7_3', 'e3_private_3_7')}) == 5

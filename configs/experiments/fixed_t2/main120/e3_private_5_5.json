@@ -1,0 +1,17 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "rollout": {
+    "agent_thinking": true,
+    "agent_think_budget": 2048
+  },
+  "agent_reward": {
+    "credit": "separated"
+  },
+  "notes": "MAIN 120 (prepared 2026-10-10; NOT launched until the 60-case pilots are read): E3-private 5:5 (balanced main setting): credit-separated, decision reward = private option correctness, 0.5 L_D + 0.5 L_C. Thinking ON; CLEAN recipe otherwise (original train order, first 120 cases, lr 1e-5, T2, G4, P0_FIXED, scorer cache); checkpoints every 30 cases; selection on repeated held-out DEV only.",
+  "experiment": {
+    "reward_weight_rubric": 0.5,
+    "reward_weight_outcome": 0.5,
+    "output_root": "outputs/fixed_t2_main120",
+    "variant": "t2m_e3priv"
+  }
+}

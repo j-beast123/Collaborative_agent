@@ -40,6 +40,7 @@ def main():
         t = r['agent_targets']; nd = {n['node_id']: n for n in r['tree']['nodes']}
         for nid, v in t['nodes'].items():
             rd = float(nd[nid]['trace']['private_outcome'] or 0.0)
+            if credit == 'separated' and cfg['agent_reward'].get('decision_target', 'private_option') == 'outcome': rd = v['outcome_component']
             exp = rd if credit == 'decision_only' else compose_reward(rd, v['R_A'], **w) if credit == 'separated' else compose_reward(v['outcome_component'], v['R_A'], **w)
             if credit == 'separated': ok_reward &= v['decision_reward'] == rd and v['collab_reward'] == v['R_A']
             ok_reward &= (v['reward'] is None and exp is None) or (v['reward'] is not None and exp is not None and abs(v['reward'] - exp) < EPS)
@@ -47,17 +48,18 @@ def main():
                       (t.get('credit') == 'separated' and t.get('branch_coefficients') == {'decision': w['w_outcome'], 'collaboration': w['w_rubric']} and 'loss_segments' not in t) if credit == 'separated' else ('loss_segments' not in t))
         if credit == 'separated':
             for ids in t['groups'].values():
-                rd = [t['nodes'][i]['decision_reward'] for i in ids]; ra = [t['nodes'][i]['collab_reward'] for i in ids if t['nodes'][i]['collab_reward'] is not None]
-                if len(set(rd)) > 1: exp_tok['decision'] += sum(len(nd[i]['trace']['segments'][0]['completion_ids']) for i in ids); exp_grp['decision'] += 1
+                rd = [t['nodes'][i]['decision_reward'] for i in ids if t['nodes'][i]['decision_reward'] is not None]; ra = [t['nodes'][i]['collab_reward'] for i in ids if t['nodes'][i]['collab_reward'] is not None]
+                if len(rd) >= 2 and max(rd) - min(rd) > EPS: exp_tok['decision'] += sum(len(nd[i]['trace']['segments'][0]['completion_ids']) for i in ids if t['nodes'][i]['decision_reward'] is not None); exp_grp['decision'] += 1
                 if len(ra) >= 2 and max(ra) - min(ra) > EPS: exp_tok['collaboration'] += sum(len(nd[i]['trace']['segments'][1]['completion_ids']) for i in ids if t['nodes'][i]['collab_reward'] is not None); exp_grp['collaboration'] += 1
         for ids in t['groups'].values():
             rew = [t['nodes'][i]['reward'] for i in ids if t['nodes'][i]['reward'] is not None]
             if len(rew) >= 2 and max(rew) - min(rew) > EPS:
                 used += 1; used_tokens += sum(len(s['completion_ids']) for i in ids if t['nodes'][i]['reward'] is not None for k, s in enumerate(nd[i]['trace']['segments']) if credit != 'decision_only' or k == 0)
-    C[f"reward path: {'R_D = private option correct, private segment only' if credit == 'decision_only' else 'separate R_D (private) and R_A (visible) branch rewards' if credit == 'separated' else 'configured Outcome/R_A mixture on both segments'}"] = ok_reward
+    C[f"reward path: {'R_D = private option correct, private segment only' if credit == 'decision_only' else ('separate decision (' + cfg['agent_reward'].get('decision_target', 'private_option') + ') and R_A (visible) branch rewards') if credit == 'separated' else 'configured Outcome/R_A mixture on both segments'}"] = ok_reward
     if credit == 'decision_only': C['E2: rubric pipeline did not run'] = not any(r.get('feedback') or r.get('response_scores') for r in recs)
     bu = recs[-1].get('batch_update') or {}; notes['batch_update'] = {k: bu.get(k) for k in ('optimizer_step', 'skip_reason', 'grad_norm', 'kl_loss', 'used_agent_completions', 'groups_used', 'groups_skipped')}
     notes['groups with nonzero advantage (expected used)'] = used
+    if credit == 'separated': C['separated: decision target recorded on every case'] = all(r['agent_targets'].get('decision_target') == cfg['agent_reward'].get('decision_target', 'private_option') for r in recs)
     if credit == 'separated' and bu.get('optimizer_step'):
         br = bu['branches']; notes['branches'] = {b: {k: br[b].get(k) for k in ('groups', 'rewarded_groups', 'usable_groups', 'nonzero_groups', 'skip_reasons', 'actions', 'var_A', 'mean_abs_A', 'optimized_tokens', 'grad_norm', 'loss', 'coefficient', 'loss_contribution')} for b in br}
         notes['grad_cosine_decision_collaboration'] = bu.get('grad_cosine_decision_collaboration'); notes['combined_grad_norm'] = bu['grad_norm']
