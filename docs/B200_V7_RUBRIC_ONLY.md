@@ -248,3 +248,31 @@ CUDA_VISIBLE_DEVICES='' HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
   tests/test_consolidate_repair.py tests/test_b200_v7.py \
   tests/test_feedback_claim_grounding.py tests/test_parallel_bank.py tests/test_b200_runner.py
 ```
+
+## Generator JSON 문법 오류 복구
+
+`json_error: Expecting ',' delimiter`는 생성된 JSON의 문법 오류입니다. 문법이 정상이어도
+원문 인용·schema·source 일치 검사는 별도로 수행합니다.
+
+- 다음 object key 앞의 공백 경계에 쉼표가 누락된 경우만 로컬에서 최대 4개 삽입합니다.
+  문자열, 점수, 키, 값은 수정하지 않습니다. 복구된 전체 JSON이 정상 파싱되어야 하며
+  중복 키가 생기거나 다른 문법 오류가 남으면 이 로컬 복구를 거부합니다.
+- 복구된 JSON에도 원래 schema/근거/source 검증을 그대로 적용합니다.
+- 원래 raw 응답은 보존하고 성공 cache의 `syntax_repairs`에 시도 번호, 최초 오류,
+  삽입 위치와 복구 JSON을 기록합니다. 로컬 복구에 추가 API 비용은 없습니다.
+- 기존 correction 후에도 JSON 파싱 오류가 남으면 같은 모델·system prompt·설정으로
+  문법 수정 요청을 최대 1회 추가합니다. 모델에는 내용을 보존하도록 지시하고, 결과는
+  다시 모든 로컬 검사를 통과해야 합니다. 인용 재시도를 포함해 논리적 생성 요청은 최대
+  3회입니다. 기존 transport 재시도는 별도이며 실제 HTTP 시도 수는 audit에 기록합니다.
+- API 재시도 비용은 기존 usage/limiter 경로로 기록합니다. 실패 raw/오류/usage는
+  `calls.errors.jsonl`에 남기며, 성공 cache에 0점이나 빈 rubric을 넣지 않습니다.
+
+이 수정은 generator 설정, prompt hash, Doctor 방식, 보상, 기존 성공 cache identity를
+바꾸지 않습니다. 직렬 Doctor 또는 Doctor batch run 모두 **각자 기존 config와 동일한
+run 이름/LR**로 재개할 수 있습니다. `maintenance/consolidate_repair_compatibility.json`의
+전체 코드 hash와 파일별 hash가 정확히 일치해야 하며, config 변경은 계속 거부합니다.
+
+공유 checkout의 두 프로세스를 중단하고 `git pull --ff-only origin sherpa-jh`한 뒤
+원래 실행 명령을 다시 사용하세요. 출력 폴더나 cache를 삭제하지 않습니다.
+
+CPU 회귀 검사: `python -m pytest -q tests/test_rubric_json_repair.py tests/test_rubric_quote_repair.py tests/test_consolidate_repair.py`.

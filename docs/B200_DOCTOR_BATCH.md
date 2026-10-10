@@ -133,5 +133,6 @@ CUDA_VISIBLE_DEVICES='' HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
   tests/test_parallel_bank.py tests/test_rubric_quote_repair.py
 ```
 
-이번 변경은 generator의 JSON 문법 오류를 수정하지 않습니다. 해당 오류로 중단한 run은
-Doctor 동시성을 올리는 것만으로 해결되지 않습니다. 실제 잘못된 응답을 별도로 확인해야 합니다.
+Doctor 동시성과 별도로 generator JSON 문법 오류의 제한된 복구 기능도 제공됩니다.
+[JSON 오류 복구 및 동일 run 재개](B200_V7_RUBRIC_ONLY.md#generator-json-문법-오류-복구)를
+참고하세요. 복구할 수 없는 출력은 오류 기록을 남기고 중단합니다.

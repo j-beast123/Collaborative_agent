@@ -487,6 +487,56 @@ def _openrouter_json(key: str, model: str, system: str, user: str, settings: dic
     return raw, meta
 
 
+def parse_generator_json(raw):
+    """Only insert missing structural commas; never alter a string or field value.
+
+    The decoder must locate a comma boundary directly after a complete JSON
+    value and before a new member/value. Full syntax and schema validation still
+    apply. Ambiguous/unescaped quotes, truncation and other errors fail normally.
+    """
+    from src.prompt_opt import harness as H
+    parsed, error = H.parse_rubric(raw)
+    if not error or not error.startswith('json_error:'): return parsed, error, []
+    import re
+    text = raw.strip()
+    if text.startswith('```'):
+        text = re.sub(r'^```(?:json)?\s*|\s*```$', '', text).strip()
+    match = re.search(r'\{.*\}', text, re.S)
+    if not match: return None, error, []
+    text = match.group(0)
+    def unique_fields(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value: raise ValueError('Duplicate JSON field')
+            value[key] = item
+        return value
+    edits = []
+    original_error = error
+    for _ in range(5):
+        try:
+            json.loads(text, object_pairs_hook=unique_fields)
+            # Re-enter the original parser so its top-level contract remains.
+            parsed, error = H.parse_rubric(text)
+            if error: return None, original_error, []
+            return parsed, None, [{'protocol': 'missing_structural_comma_v1',
+                                   'edits': edits, 'original_error': original_error, 'repaired_json': text}]
+        except json.JSONDecodeError as exc:
+            if exc.msg != "Expecting ',' delimiter" or len(edits) >= 4:
+                return None, original_error, []
+            pos = exc.pos
+            # Only a boundary separated by whitespace is eligible. Never edit
+            # quote/escape characters or try to complete a truncated response.
+            if pos == 0 or not text[pos-1].isspace(): return None, original_error, []
+            # Require a complete next object key, not arbitrary text.
+            if not re.match(r'"(?:[^"\\]|\\.)*"\s*:', text[pos:]):
+                return None, original_error, []
+            edits.append({'offset': pos, 'insert': ','})
+            text = text[:pos] + ',' + text[pos:]
+        except ValueError:
+            return None, original_error, []
+    return None, original_error, []
+
+
 def api_rubric_generator(key: str, model: str, settings: dict | None = None, context_addendum: str | None = None):
     """CREATE: trajectory + feedback -> one rubric. With strict-schema settings a non-parsing output is an operational error."""
     from src.prompt_opt import harness as H
@@ -577,8 +627,9 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
         from dataclasses import replace
         user = trajectory_message(replace(tin, target_reply_id=None) if turn_policy == 'generator_v1' else tin)
         raw, meta = _openrouter_json(key, model, system(prompt_text), user, settings, schema, 'rubric', 'rubric_generator')
-        parsed_output, err = H.parse_rubric(raw)
+        parsed_output, err, syntax_fix = parse_generator_json(raw)
         rubric, err = normalize(raw, parsed_output, err, tin)
+        syntax_repairs = ([{'attempt': 1, **fix} for fix in syntax_fix])
         raw_attempts = [raw]; usages = [meta.get('usage')]; validation_errors = [err] if err else []
         # Preserve the fixed prompt verbatim. If its output violates deterministic provenance
         # checks, issue one bounded correction call with the same system prompt and explicit
@@ -606,12 +657,29 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
                           'Previous JSON:\n' + raw)
             raw, meta = _openrouter_json(key, model, system(prompt_text), correction, settings, schema, 'rubric', 'rubric_generator')
             raw_attempts.append(raw); usages.append(meta.get('usage'))
-            parsed_output, err = H.parse_rubric(raw)
+            parsed_output, err, syntax_fix = parse_generator_json(raw)
+            syntax_repairs.extend({'attempt': len(raw_attempts), **fix} for fix in syntax_fix)
             rubric, err = normalize(raw, parsed_output, err, tin)
         if err: validation_errors.append(err)
+        # Spend the existing third-request allowance on syntax OR quotation,
+        # never an unbounded retry loop. Local schema/provenance checks still run.
+        if err and err.startswith('json_error:') and len(raw_attempts) < 3:
+            correction = (user + '\n\nYour previous response is not valid JSON: ' + err +
+                '. Return the complete required JSON object, fixing JSON syntax only. '
+                'Separate object members and array items with commas; escape quotes inside strings; '
+                'do not include comments, markdown, trailing commas or ellipses. '
+                'Preserve the rubric content, source IDs, score boundaries, evidence quotes and '
+                'intervention instruction; do not add criteria or replace missing material with guesses. '
+                'The original schema and all grounding checks still apply.\nPrevious response:\n' + raw)
+            raw, meta = _openrouter_json(key, model, system(prompt_text), correction, settings, schema, 'rubric', 'rubric_generator')
+            raw_attempts.append(raw); usages.append(meta.get('usage'))
+            parsed_output, err, syntax_fix = parse_generator_json(raw)
+            syntax_repairs.extend({'attempt': len(raw_attempts), **fix} for fix in syntax_fix)
+            rubric, err = normalize(raw, parsed_output, err, tin)
+            if err: validation_errors.append(err)
         # One additional, quote-only correction for the exact provenance failure.
         # No fuzzy matching, invented evidence, rubric rewriting or silent drop.
-        if err and err.startswith('analysis.evidence_spans[') and isinstance(parsed_output, dict):
+        if err and err.startswith('analysis.evidence_spans[') and isinstance(parsed_output, dict) and len(raw_attempts) < 3:
             import copy
             frozen = copy.deepcopy(parsed_output)
             catalog, counts = [], {'doctor': 0, 'agent': 0}
@@ -631,7 +699,8 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
                 '\nPrevious JSON:\n' + raw)
             raw, meta = _openrouter_json(key, model, system(prompt_text), correction, settings, schema, 'rubric', 'rubric_generator')
             raw_attempts.append(raw); usages.append(meta.get('usage'))
-            parsed_output, err = H.parse_rubric(raw)
+            parsed_output, err, syntax_fix = parse_generator_json(raw)
+            syntax_repairs.extend({'attempt': len(raw_attempts), **fix} for fix in syntax_fix)
             rubric, err = normalize(raw, parsed_output, err, tin)
             if err is None:
                 before, after = copy.deepcopy(frozen), copy.deepcopy(parsed_output)
@@ -643,13 +712,14 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
             failure = RubricOutputIncomplete(f'{model}: schema output did not parse after bounded correction: {err}')
             failure.audit = {'protocol': 'rubric_quote_repair_v1', 'case_id': tin.case_id, 'leaf_id': tin.leaf_id,
                 'model': model, 'raw_attempts': raw_attempts, 'validation_errors': validation_errors,
-                'usage_attempts': usages, 'attempts': len(raw_attempts)}
+                'usage_attempts': usages, 'attempts': len(raw_attempts), 'syntax_repairs': syntax_repairs}
             raise failure
         return {'raw': raw, 'raw_attempts': raw_attempts, 'rubric': rubric,
                 'intervention_instruction': (parsed_output or {}).get('intervention_instruction') if output_contract == 'trajectory_analysis_candidate_v2_with_intervention' and not err else None,
                 'parse_error': err,
                 'usage': usages[-1], 'usage_attempts': usages,
-                **({'validation_errors': validation_errors} if validation_errors else {})}
+                **({'validation_errors': validation_errors} if validation_errors else {}),
+                **({'syntax_repairs': syntax_repairs} if syntax_repairs else {})}
 
     def repair(prompt_text, tin, rubric, stage1):
         """v2.1 source-consistency repair (one call): the same trajectory input (with its behavioral locus), the rubric that was

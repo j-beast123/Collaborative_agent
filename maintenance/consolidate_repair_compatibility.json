@@ -1,5 +1,5 @@
 {
-  "protocol": "optional_doctor_batch_v1",
+  "protocol": "bounded_json_syntax_repair_v1",
   "old_commit": "44ded5af09822a47ef9632fd5429556d5c772175",
   "old_source_sha256": "a6d75face559b65bbd5306b3cc8180c0cdc53372778f9d805246e62567553489",
   "changed_files": {
@@ -13,11 +13,11 @@
     },
     "src/online_rl/tree/b200_runner.py": {
       "old_sha256": "181862e1599a60c13f5c8347db8357a96c4460619f1476f217ddd7abd177d4b3",
-      "new_sha256": "fc9f799851cec157fa56d482acfa814f214cb60e04b79f86204ec9f8f1ddfced"
+      "new_sha256": "9efebb7b1ed643a89405cb96eb79b51f8102002b245f231e3eab61b4c85958e8"
     },
     "src/online_rl/tree/backends.py": {
       "old_sha256": "c35cf57d216bb1d8d7a208e14fa2ed373e1d5cf7b176c31bf66a7c278beffaf9",
-      "new_sha256": "da33b4f68d22ebf0cf0d1cb236243b0d516d135e9571b69658e7fd0a587fb6ea"
+      "new_sha256": "1cdee9ed7108726c63faa83b53ecf6037e29a75cba5fe7995ddc0a4ba08d7b88"
     },
     "src/online_rl/tree/hf_doctor_setup.py": {
       "old_sha256": "ba109b9decf296615cb67cf5ef0e58e20f1a28377372e363acc8ed271ac8e9d4",
@@ -28,11 +28,11 @@
       "new_sha256": "7639b7fd9705ac9d23801c8b3a2d432252d5faf0deb6657d84f7ce494f44fac4"
     }
   },
-  "reason": "Exact-code compatibility for unchanged legacy config only: previous bounded output repairs plus opt-in Doctor batching. Batched Doctor config has a different config/protocol/cache identity and cannot resume a serial run.",
+  "reason": "Exact-code compatible bounded JSON syntax correction; original request/model/settings/schema and successful cache keys unchanged. Works only with unchanged config, including the serial versus batched Doctor choice.",
   "source_identity_note": "Original state/checkpoint source_sha256 retained for pending update proofs; effective code hash saved in diagnostics/code_compatibility_<hash>.json and execution_source_sha256.",
   "additional_sources": [
     {
-      "protocol": "optional_doctor_batch_v1",
+      "protocol": "bounded_json_syntax_repair_v1",
       "old_commit": "79d22e0c485b83d91ba2edb8fc8c36e1d44c1cf0",
       "old_source_sha256": "642f8942e579add08e8df97b1ce635135c5ccde6bdde339b2d7bf8cf7641f55f",
       "changed_files": {
@@ -46,22 +46,22 @@
         },
         "src/online_rl/tree/b200_runner.py": {
           "old_sha256": "dec8d293bbbaae89fbecd4a25ef52c282e941a80ff628b983c9b66f514f37072",
-          "new_sha256": "fc9f799851cec157fa56d482acfa814f214cb60e04b79f86204ec9f8f1ddfced"
+          "new_sha256": "9efebb7b1ed643a89405cb96eb79b51f8102002b245f231e3eab61b4c85958e8"
         },
         "src/online_rl/tree/backends.py": {
           "old_sha256": "c35cf57d216bb1d8d7a208e14fa2ed373e1d5cf7b176c31bf66a7c278beffaf9",
-          "new_sha256": "da33b4f68d22ebf0cf0d1cb236243b0d516d135e9571b69658e7fd0a587fb6ea"
+          "new_sha256": "1cdee9ed7108726c63faa83b53ecf6037e29a75cba5fe7995ddc0a4ba08d7b88"
         },
         "src/online_rl/tree/hf_doctor_setup.py": {
           "old_sha256": "ba109b9decf296615cb67cf5ef0e58e20f1a28377372e363acc8ed271ac8e9d4",
           "new_sha256": "ee7617313650b68152f0a1ff72606668771c5c664cbb810e8fb8c878c7e45fe8"
         }
       },
-      "reason": "Exact-code compatibility for unchanged legacy config only: previous bounded output repairs plus opt-in Doctor batching. Batched Doctor config has a different config/protocol/cache identity and cannot resume a serial run.",
+      "reason": "Exact-code compatible bounded JSON syntax correction; original request/model/settings/schema and successful cache keys unchanged. Works only with unchanged config, including the serial versus batched Doctor choice.",
       "source_identity_note": "Original state/checkpoint source_sha256 retained for pending update proofs; effective code hash saved in diagnostics/code_compatibility_<hash>.json and execution_source_sha256."
     },
     {
-      "protocol": "optional_doctor_batch_v1",
+      "protocol": "bounded_json_syntax_repair_v1",
       "old_commit": "f51d465da92ced2b10f2ec03b9c7be140c3ffaf1",
       "old_source_sha256": "bc906c73323e5a20519ba1550099ab75d83ede75824bcc22a8b0ed2bdcafc95d",
       "changed_files": {
@@ -75,14 +75,35 @@
         },
         "src/online_rl/tree/b200_runner.py": {
           "old_sha256": "11d5779256a8da3923192718cbbd57d39be6d99c1850b117d46eae6ea462a3c8",
-          "new_sha256": "fc9f799851cec157fa56d482acfa814f214cb60e04b79f86204ec9f8f1ddfced"
+          "new_sha256": "9efebb7b1ed643a89405cb96eb79b51f8102002b245f231e3eab61b4c85958e8"
+        },
+        "src/online_rl/tree/backends.py": {
+          "old_sha256": "da33b4f68d22ebf0cf0d1cb236243b0d516d135e9571b69658e7fd0a587fb6ea",
+          "new_sha256": "1cdee9ed7108726c63faa83b53ecf6037e29a75cba5fe7995ddc0a4ba08d7b88"
         },
         "src/online_rl/tree/hf_doctor_setup.py": {
           "old_sha256": "ba109b9decf296615cb67cf5ef0e58e20f1a28377372e363acc8ed271ac8e9d4",
           "new_sha256": "ee7617313650b68152f0a1ff72606668771c5c664cbb810e8fb8c878c7e45fe8"
         }
       },
-      "reason": "Exact-code compatibility for unchanged legacy config only: previous bounded output repairs plus opt-in Doctor batching. Batched Doctor config has a different config/protocol/cache identity and cannot resume a serial run.",
+      "reason": "Exact-code compatible bounded JSON syntax correction; original request/model/settings/schema and successful cache keys unchanged. Works only with unchanged config, including the serial versus batched Doctor choice.",
+      "source_identity_note": "Original state/checkpoint source_sha256 retained for pending update proofs; effective code hash saved in diagnostics/code_compatibility_<hash>.json and execution_source_sha256."
+    },
+    {
+      "protocol": "bounded_json_syntax_repair_v1",
+      "old_commit": "f7e2d40e0eb5d35ed314c8a2ecb6f40525727e98",
+      "old_source_sha256": "e35a5a49ba5ca84b6bd1da8f27c414ef87c49b27475a46c2f907828ccced2b20",
+      "changed_files": {
+        "src/online_rl/tree/b200_runner.py": {
+          "old_sha256": "fc9f799851cec157fa56d482acfa814f214cb60e04b79f86204ec9f8f1ddfced",
+          "new_sha256": "9efebb7b1ed643a89405cb96eb79b51f8102002b245f231e3eab61b4c85958e8"
+        },
+        "src/online_rl/tree/backends.py": {
+          "old_sha256": "da33b4f68d22ebf0cf0d1cb236243b0d516d135e9571b69658e7fd0a587fb6ea",
+          "new_sha256": "1cdee9ed7108726c63faa83b53ecf6037e29a75cba5fe7995ddc0a4ba08d7b88"
+        }
+      },
+      "reason": "Exact-code compatible bounded JSON syntax correction; original request/model/settings/schema and successful cache keys unchanged. Works only with unchanged config, including the serial versus batched Doctor choice.",
       "source_identity_note": "Original state/checkpoint source_sha256 retained for pending update proofs; effective code hash saved in diagnostics/code_compatibility_<hash>.json and execution_source_sha256."
     }
   ]
