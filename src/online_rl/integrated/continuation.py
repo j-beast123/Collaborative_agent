@@ -64,8 +64,8 @@ def protocol_sha256(cfg: dict, root: Path) -> str:
         if ro['agent_sampling_protocol']!=PROTOCOL:raise ValueError('Unknown Agent batch sampling protocol')
         out['agent_sampling_protocol']=PROTOCOL
     if ro.get('doctor_backend'):                       # local Doctor protocol v2 (src/online_rl/doctor.py): backend, prompts, seeds, halting
-        from src.online_rl.doctor import OllamaDoctor
-        out['doctor'] = OllamaDoctor(ro['doctor_backend'], ro.get('halting'), doctor_system, ro['max_tokens_doctor']).protocol
+        from src.online_rl.doctor import make_doctor
+        out['doctor'] = make_doctor(ro, doctor_system).protocol
     method = {k: v for k, v in (('verification', cfg.get('verification')),
                                 ('r_a_weighting', (cfg.get('agent_reward') or {}).get('r_a_weighting')),
                                 ('feedback_behavioral_locus', (cfg.get('feedback') or {}).get('behavioral_locus')),

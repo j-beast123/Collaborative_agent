@@ -26,7 +26,7 @@ DATA = {
 }
 DIRECTORIES = {'checkpoints', 'batches', 'cases', 'diagnostics', 'evaluation', 'openings'}
 TOP_FILES = {'run_state.json', 'run_manifest.json', 'final_evaluation_selection.json', 'final_accuracy.json',
-             'api_usage.jsonl', 'api_usage_summary.json', 'retry_audit.jsonl', 'http_attempts.jsonl'}
+             'api_usage.jsonl', 'api_usage_summary.json', 'retry_audit.jsonl', 'http_attempts.jsonl', 'hf_doctor_calls.jsonl'}
 
 
 def sha(path):

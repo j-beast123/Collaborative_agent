@@ -37,7 +37,7 @@ def identity(split: str, case: dict, doctor, rounds: int, seed: int) -> dict:
     d = doctor.identity
     return {'schema': SCHEMA, 'mode': MODE, 'split': split, 'case_id': case['case_id'], 'case_sha256': case_sha256(case),
             'input_sha256': sha256_text(opening_input(doctor, case, rounds)), 'doctor_protocol_sha256': doctor.protocol,
-            'model': d['model'], 'model_digest': d['model_digest'], 'ollama_version': d['ollama_version'],
+            'model': d['model'], 'model_digest': d['model_digest'], 'ollama_version': d.get('ollama_version'),
             'system_sha256': d['system_sha256'], 'turn_prompt_sha256': d['turn_prompt_sha256'], 'options_sha256': sha256_json(d['options']),
             'rounds': rounds, 'seed': int(seed)}
 

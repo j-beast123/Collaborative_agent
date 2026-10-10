@@ -276,6 +276,9 @@ class OllamaDoctor:
 def make_doctor(rollout: dict, system: str):
     """The protocol-v2 Doctor for a config with rollout.doctor_backend, else None (legacy OpenRouter Doctor)."""
     b = rollout.get('doctor_backend')
+    if b and b.get('engine') == 'hf_local':
+        from src.online_rl.hf_doctor import HFDoctor
+        return HFDoctor(b, rollout.get('halting'), system, rollout['max_tokens_doctor'])
     return OllamaDoctor(b, rollout.get('halting'), system, rollout['max_tokens_doctor']) if b else None
 
 

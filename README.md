@@ -12,6 +12,8 @@ consolidation fixes the bank and source mappings before gate/verification.
 All API roles and retries share a global100 in-flight limit. Gate/scorer,
 Doctor, rubric-only reward and the five-case update barrier remain unchanged.
 
+**현재 Doctor: 기존 로컬 HF Gemma, BF16 (비양자화).** `SHERPA_DOCTOR_BACKEND=hf_local`로 사용하며 Ollama는 필요 없습니다. [모델 pin·실행 명령](docs/B200_CLONE_RUN.md#로컬-hf-gemma-3-12b-비양자화-doctor-사용-현재-선택).
+
 **공유 파일시스템에서 두 B200 실험:** `--run-name NAME`으로 로컬 `outputs/runs/NAME/`과 HF `runs/NAME/`을 함께 분리합니다. [이름 입력·LR 비교·재개 명령](docs/B200_CLONE_RUN.md#공유-파일시스템의-b200-두-서버-실험-이름-하나로-분리).
 
 **새 서버 clone → 환경 준비 → 학습/재개/평가:** [한국어 실행 명령](docs/B200_CLONE_RUN.md).

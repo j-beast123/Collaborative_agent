@@ -113,6 +113,7 @@ def test_data_uses_exact_revision_and_rejects_changed_bytes(tmp_path):
 def test_enabled_backup_only_and_offline_mode_restored(monkeypatch,tmp_path):
     import huggingface_hub.constants as constants
     monkeypatch.delenv('SHERPA_HF_RUN_ID',raising=False)
+    monkeypatch.delenv('SHERPA_RUN_NAME',raising=False)
     assert H.sync_barrier(tmp_path) is None
     monkeypatch.setenv('SHERPA_HF_RUN_ID','test-run')
     monkeypatch.setattr(constants,'HF_HUB_OFFLINE',True)

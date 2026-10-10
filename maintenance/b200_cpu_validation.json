@@ -110,5 +110,29 @@
     ],
     "scope": "Named local/HF run isolation, LR/Doctor resume identity, host-specific Doctor process ownership, bounded concurrent Hub commit retry with fake APIs, existing five-case/need/verification regressions",
     "live_gpu_training_evaluation_api_calls_downloads_uploads": false
+  },
+  "local_hf_doctor": {
+    "checked_at_utc": "2026-10-10T14:47:19.109826+00:00",
+    "backend": "hf_local",
+    "dtype": "bfloat16",
+    "quantization": "none",
+    "doctor_device": "cuda:0",
+    "pinned_target_transformers": "4.53.3",
+    "new_hf_doctor_tests": 12,
+    "active_suite_command": "SHERPA_PYTHON=.venv/bin/python PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 bash scripts/online_rl/test_b200.sh",
+    "active_suite_in_sandbox": {
+      "passed": 788,
+      "skipped": 12,
+      "deselected": 9,
+      "local_socket_permission_failures_or_errors": 8
+    },
+    "socket_recheck_outside_sandbox": {
+      "passed": 10,
+      "deselected": 1,
+      "note": "All eight socket-blocked active tests passed; two additional pool tests also passed."
+    },
+    "test_runtime_note": "Editing-server CPU/fake-model tests use the existing local Transformers 4.51.1 environment. Target GPU loader enforces 4.53.3; real Gemma/target GPU execution has not been performed.",
+    "scope": "Local byte pin/integrity, unquantized BF16 loader arguments, shared Doctor protocol factory, explicit decoding and no model-default overrides, GPU0-only RNG isolation, need privacy/cache, changed-backend resume rejection, existing CPU regressions.",
+    "real_model_loading_training_evaluation_llm_calls_downloads": false
   }
 }

@@ -1,9 +1,104 @@
 # B200 새 서버: clone부터 학습·재개·평가까지
 
-이 문서는 `sherpa-jh` 브랜치의 B200 2장 실행용입니다. Doctor는 GPU0와
-`127.0.0.1:11985`, Assistant rollout/학습은 GPU1을 사용합니다.
+이 문서는 `sherpa-jh` 브랜치의 B200 2장 실행용입니다. Doctor는 GPU0, Assistant rollout/학습은 GPU1을 사용합니다.
+현재 선택한 HF Doctor는 별도 포트가 없으며, 기존 Ollama 모드만 `127.0.0.1:11985`를 사용합니다.
 이 서버에서 다른 작업이 해당 GPU/포트를 사용한다면 먼저 별도 자원을 정해야 합니다.
 아래 명령은 사용자가 실행합니다. 구현 과정에서는 설치·다운로드·API·GPU 실행을 하지 않았습니다.
+
+## 로컬 HF Gemma-3-12B 비양자화 Doctor 사용 (현재 선택)
+
+현재 서버의 기존 모델을 다운로드/변환 없이 사용합니다.
+
+- Assistant: `/NHNHOME/shkim/SHERPA/vllm/qwen3`, GPU1, 기존 LoRA/seed/GRPO.
+- Doctor: `/NHNHOME/shkim/SHERPA/vllm/gemma3`, GPU0, **BF16, quantization 없음**.
+- Transformers `4.53.3`, `Gemma3ForConditionalGeneration`, SDPA, `local_files_only=True`.
+- Doctor는 학습/evaluate 프로세스 안에서 1개만 로드하고 고정합니다. 모든 Doctor 요청은
+  직렬 처리하며 Assistant는 별도 GPU에서 진행합니다. **이 모드에서는 Ollama 설치·pull·serve·포트가 필요 없습니다.**
+- 두 서버는 같은 model 파일과 HF Doctor receipt를 공유하지만 모델 인스턴스는 각 서버의 GPU0에 따로 로드합니다.
+
+설정 JSON의 구조 확인은 다운로드한 upstream revision이나 instruction tuning의 증명이 아닙니다.
+기존 로컬 파일을 사용자 선택 모델로 사용하고 모든 safetensors·config·tokenizer·template의
+SHA256을 `.local/b200_hf_doctor.json`에 고정합니다. 실제 HF revision은 폴더 이름에서 추정하지 않습니다.
+Preflight와 학습/평가 시작 시 해시 및 Transformers 버전을 확인하고, 재개 시 config/모델
+identity 불일치를 거부합니다. Qwen의 기존 base model 파일 hash 및 초기 adapter hash 검사도 유지합니다.
+
+**공유 폴더에서 한 서버만 실행:**
+
+```bash
+cd /NHNHOME/shkim/SHERPA/Collaborative_agent-sherpa
+git pull --ff-only
+cat >> .local/b200.env <<'ENV'
+export SHERPA_DOCTOR_BACKEND=hf_local
+export SHERPA_DOCTOR_MODEL="/NHNHOME/shkim/SHERPA/vllm/gemma3"
+export SHERPA_HF_DOCTOR_RECEIPT="$SHERPA_PROJECT/.local/b200_hf_doctor.json"
+ENV
+source .local/b200.env
+"$SHERPA_PYTHON" -m src.online_rl.tree.hf_doctor_setup pin
+"$SHERPA_PYTHON" -m src.online_rl.tree.b200_hub data
+```
+
+Pin은 CPU 파일 읽기만 수행하며 수십 GB의 해시 계산으로 시간이 걸릴 수 있습니다.
+다시 실행하면 기존 receipt를 검증하고 모델/receipt를 덮어쓰지 않습니다. `verify`는 같은 검사를
+명시적으로 다시 수행하는 명령입니다. 위 `data`는 고정 데이터/hash/order를 준비하며 평가하지 않습니다.
+
+**각 서버의 학습 tmux 안에서:**
+
+```bash
+cd /NHNHOME/shkim/SHERPA/Collaborative_agent-sherpa
+source .local/b200.env
+read -rp 'Experiment name: ' SHERPA_RUN_NAME
+read -rp 'Learning rate: ' SHERPA_LEARNING_RATE
+export SHERPA_RUN_NAME SHERPA_LEARNING_RATE
+set +x
+read -rsp 'OPENROUTER_API_KEY: ' OPENROUTER_API_KEY; printf '\n'
+read -rsp 'HF_TOKEN (model repo write access): ' HF_TOKEN; printf '\n'
+export OPENROUTER_API_KEY HF_TOKEN
+bash scripts/online_rl/launch_b200.sh --action preflight
+```
+
+서버 A는 `gemma-bf16-lr1e5-run01`, `1e-5`; 서버 B는 `gemma-bf16-lr5e6-run01`, `5e-6`을 입력합니다.
+둘 다 train120 전체를 같은 순서로 학습합니다. 모델 교체 전 run의 이름/cache를 재사용하지 않습니다.
+
+```bash
+# 첫 정규 5-case 배치
+bash scripts/online_rl/launch_b200.sh --action train --max-batches 1
+"$SHERPA_PYTHON" scripts/online_rl/report_b200.py
+# 같은 이름/LR로 전체 학습 및 중단 후 재개
+bash scripts/online_rl/launch_b200.sh --action train
+# train120 완료 후 최종 checkpoint의 test622 1회 평가
+bash scripts/online_rl/launch_b200.sh --action evaluate
+```
+
+재개는 같은 env/name/LR/코드/모델을 사용합니다. 최종 평가도 같은 HF Doctor입니다.
+실제 GPU 로딩·학습·평가는 구현 서버에서 실행하지 않았으므로 첫 배치에서 VRAM/실행 호환성을 확인합니다.
+
+### Q8_0/Ollama에서 달라진 점과 보존한 점
+
+Doctor 가중치와 수치 실행 방식은 승인된 변경입니다. BF16은 비양자화 16-bit 실행이며 FP32 실행은 아닙니다.
+이 두 LR 실험끼리는 같은 Doctor이지만, 이전 Q8_0/Ollama baseline과 Doctor 조건이 같다고 보고하지 않습니다.
+`doctor_backend_change`에 이전 backend와 변경 사유를 기록하며 opening/tree/verification cache identity도 분리합니다.
+
+공개 대화·private need·사후 reflection·continuation verification·FINAL은 모두 동일 HF Doctor를 사용합니다.
+기존 prompt, max4, branching4, 종료/FINAL 파싱, rubric-only, 5-case frozen-policy 업데이트는 유지합니다.
+Private need는 기존대로 공개 history/Agent/scorer에 노출하지 않습니다.
+
+Temperature0.4/top_p1/top_k0/min_p0/repetition_penalty1과 중립 presence/frequency penalty를 유지합니다.
+모델 자체의 generation_config가 이 값을 다시 바꾸지 않도록 `use_model_defaults=False`를 명시합니다.
+Tokenizer의 model token boundary와 chat template은 hash로 고정합니다. 단일 user 메시지에
+기존처럼 `system + blank line + user`를 담아 Gemma template을 적용합니다.
+기존 need640/논의256/reflection1024/FINAL32 budget을 호출별로 그대로 전달합니다.
+Ollama num_batch64는 HF에 대응하는 동일 실행 파라미터가 아니므로 적용하지 않습니다.
+8192 context를 유지하고 입력+요청 budget 초과 시 truncation 없이 명시적으로 실패합니다.
+
+Doctor per-call seed derivation은 유지하지만 HF GPU0 RNG로 샘플링하므로 Ollama 응답과 같다고 가정하지 않습니다.
+호출 lock 안에서 GPU0 RNG만 seed/복원하고 GPU1 Assistant RNG는 변경하지 않습니다.
+HF runtime/OOM/빈 응답/길이 오류는 즉시 실패하며 0점·오답으로 바꾸지 않습니다. 네트워크 transport retry는
+없고 기존 need JSON 1회 repair/reflection 1회 repair/verification 실패·재개 규칙은 유지합니다.
+`hf_doctor_calls.jsonl`에 실제 seed·prompt hash·budget·토큰·대기/생성 시간·오류를 기록하여 HF에도 백업합니다.
+로컬 생성의 API 비용은 0이지만 GPU 시간은 별도입니다.
+
+구현 참고: [Transformers 4.53.3 Gemma 3](https://huggingface.co/docs/transformers/v4.53.3/en/model_doc/gemma3).
+아래의 Ollama 설치/serve 절은 **기존 Ollama 모드를 선택할 때만** 적용됩니다.
 
 ## 공유 파일시스템의 B200 두 서버: 실험 이름 하나로 분리
 

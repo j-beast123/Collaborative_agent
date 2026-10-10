@@ -51,13 +51,23 @@ def load_config(path=CONFIG, *, learning_rate=None, run_name=None):
         cfg['output_dir'] += '/lr_' + repr(rate)
         cfg['experiment']['output_root'] = cfg['output_dir']
         cfg['notes']['changes'].append(f'Run-start learning rate override: {baseline} -> {rate}; separate output/cache/checkpoints')
-    from src.online_rl.tree.b200_doctor_setup import receipt_path, apply_receipt
-    receipt = receipt_path()
-    if receipt.is_file():
-        cfg = apply_receipt(cfg, receipt)
-    elif os.environ.get('SHERPA_DOCTOR_RECEIPT'):
-        raise ValueError(f'Doctor receipt is missing: {receipt}; run the Doctor setup pull command first')
+    engine = os.environ.get('SHERPA_DOCTOR_BACKEND', 'ollama')
+    if engine == 'hf_local':
+        from src.online_rl.tree.hf_doctor_setup import apply_receipt
+        try: cfg = apply_receipt(cfg)
+        except FileNotFoundError as exc:
+            raise ValueError('HF Doctor receipt/files missing; run python -m src.online_rl.tree.hf_doctor_setup pin --model PATH') from exc
+    elif engine == 'ollama':
+        from src.online_rl.tree.b200_doctor_setup import receipt_path, apply_receipt
+        receipt = receipt_path()
+        if receipt.is_file():
+            cfg = apply_receipt(cfg, receipt)
+        elif os.environ.get('SHERPA_DOCTOR_RECEIPT'):
+            raise ValueError(f'Doctor receipt is missing: {receipt}; run the Doctor setup pull command first')
+    else:
+        raise ValueError('SHERPA_DOCTOR_BACKEND must be ollama or hf_local')
     for env, (section, key) in ENV_PATHS.items():
+        if engine == 'hf_local' and env in ('SHERPA_OLLAMA_BINARY', 'SHERPA_OLLAMA_MODELS'): continue
         if os.environ.get(env):
             cfg[section][key] = str(Path(os.environ[env]).expanduser().resolve())
     name = run_name if run_name is not None else os.environ.get('SHERPA_RUN_NAME')
@@ -131,7 +141,9 @@ def preflight(cfg, *, resources=True):
     fg = cfg['five_gpu']
     if fg['checkpoint_evaluation_enabled'] or fg['base_evaluation']['enabled'] or cfg.get('evaluation'):
         errors.append('Training evaluation must be disabled; use the evaluate action')
-    if fg['doctor_urls'] != [cfg['rollout']['doctor_backend']['endpoint']] or fg['doctor_gpu_ids'] != [0]:
+    db = cfg['rollout']['doctor_backend']
+    expected_urls = [] if db['engine'] == 'hf_local' else [db['endpoint']]
+    if fg['doctor_urls'] != expected_urls or fg['doctor_gpu_ids'] != [0]:
         errors.append('Dedicated Doctor endpoint/GPU mapping differs')
     if fg['opening_identity'].get('private_need') != cfg.get('doctor_need'):
         errors.append('D1 cache identity must include the prospective need protocol')
@@ -169,28 +181,37 @@ def preflight(cfg, *, resources=True):
                 shards = set(json.loads(index.read_text())['weight_map'].values())
                 if any(not (model / s).is_file() for s in shards): errors.append('Local Qwen weight shards are incomplete')
             elif not (model / 'model.safetensors').is_file(): errors.append('Local Qwen weights missing')
-        binary = fg.get('ollama_binary')
-        if not binary or not Path(binary).is_file(): errors.append('Set SHERPA_OLLAMA_BINARY to Ollama 0.12.5')
+        if db['engine'] == 'hf_local':
+            from src.online_rl.tree.hf_doctor_setup import verify_receipt
+            from importlib.metadata import version
+            try:
+                verify_receipt(cfg['hf_doctor_receipt'])
+                if version('transformers') != db['transformers_version']:
+                    errors.append('Install requirements-b200.txt: Transformers version differs from HF Doctor pin')
+            except (ValueError, OSError, KeyError) as exc: errors.append(str(exc))
         else:
-            import subprocess
-            result = subprocess.run([binary, '--version'], capture_output=True, text=True, timeout=15)
-            if '0.12.5' not in result.stdout + result.stderr: errors.append('Ollama executable version must be 0.12.5')
-        models = fg.get('ollama_models_dir')
-        manifest = Path(models or '/__unset__') / 'manifests/registry.ollama.ai/library/gemma3/12b-it-q8_0'
-        if not manifest.is_file(): errors.append('Set SHERPA_OLLAMA_MODELS to a store containing gemma3:12b-it-q8_0')
-        elif file_sha(manifest) != cfg['rollout']['doctor_backend']['model_digest']:
-            errors.append('Doctor manifest digest differs from the effective pinned configuration; refusing model substitution')
-        else:
-            m = json.loads(manifest.read_text())
-            for blob in [m['config'], *m['layers']]:
-                p = Path(models) / 'blobs' / blob['digest'].replace(':', '-')
-                if not p.is_file() or p.stat().st_size != blob['size']: errors.append(f'Missing/incomplete Doctor blob: {p.name}')
-        receipt = cfg.get('doctor_download_receipt')
-        if receipt:
-            if binary != receipt['binary'] or models != receipt['models']:
-                errors.append('Environment paths differ from the downloaded Doctor receipt')
-            if binary and Path(binary).is_file() and file_sha(binary) != receipt['binary_sha256']:
-                errors.append('Pinned Ollama executable changed')
+            binary = fg.get('ollama_binary')
+            if not binary or not Path(binary).is_file(): errors.append('Set SHERPA_OLLAMA_BINARY to Ollama 0.12.5')
+            else:
+                import subprocess
+                result = subprocess.run([binary, '--version'], capture_output=True, text=True, timeout=15)
+                if '0.12.5' not in result.stdout + result.stderr: errors.append('Ollama executable version must be 0.12.5')
+            models = fg.get('ollama_models_dir')
+            manifest = Path(models or '/__unset__') / 'manifests/registry.ollama.ai/library/gemma3/12b-it-q8_0'
+            if not manifest.is_file(): errors.append('Set SHERPA_OLLAMA_MODELS to a store containing gemma3:12b-it-q8_0')
+            elif file_sha(manifest) != cfg['rollout']['doctor_backend']['model_digest']:
+                errors.append('Doctor manifest digest differs from the effective pinned configuration; refusing model substitution')
+            else:
+                m = json.loads(manifest.read_text())
+                for blob in [m['config'], *m['layers']]:
+                    p = Path(models) / 'blobs' / blob['digest'].replace(':', '-')
+                    if not p.is_file() or p.stat().st_size != blob['size']: errors.append(f'Missing/incomplete Doctor blob: {p.name}')
+            receipt = cfg.get('doctor_download_receipt')
+            if receipt:
+                if binary != receipt['binary'] or models != receipt['models']:
+                    errors.append('Environment paths differ from the downloaded Doctor receipt')
+                if binary and Path(binary).is_file() and file_sha(binary) != receipt['binary_sha256']:
+                    errors.append('Pinned Ollama executable changed')
         if not os.environ.get('OPENROUTER_API_KEY', '').strip(): errors.append('OPENROUTER_API_KEY is missing in this terminal')
     return errors
 
@@ -209,6 +230,7 @@ def configure_execution(cfg, out):
     os.environ['API_USAGE_LOG'] = str(out / 'api_usage.jsonl')
     os.environ['SHERPA_RETRY_AUDIT'] = str(out / 'retry_audit.jsonl')
     os.environ['SHERPA_HTTP_AUDIT'] = str(out / 'http_attempts.jsonl')
+    os.environ['SHERPA_HF_DOCTOR_AUDIT'] = str(out / 'hf_doctor_calls.jsonl')
     os.environ['HF_HUB_OFFLINE'] = '1'
     os.environ['TOKENIZERS_PARALLELISM'] = 'false'
     os.environ.pop('SHERPA_DOCTOR_ENDPOINTS', None)
@@ -308,7 +330,7 @@ def run(cfg, *, max_batches=None, evaluate=False):
         if state and state['base_model_identity'] != base_identity: raise RuntimeError('Local base model changed')
         torch.manual_seed(cfg['schedule']['seed'])
         policy = SharedPolicy(cfg, os.environ['OPENROUTER_API_KEY'], device='cuda:1')
-        if policy.doctor.verify()['problems']: raise RuntimeError('Running Doctor does not match pinned identity')
+        if policy.doctor.verify(require_loaded=cfg['rollout']['doctor_backend']['engine'] == 'hf_local')['problems']: raise RuntimeError('Running Doctor does not match pinned identity')
         policy.seed_all = lambda seed: None
         initial = adapter_sha256(policy.model)
         expected_initial = cfg.get('expected_initial_adapter_sha256')

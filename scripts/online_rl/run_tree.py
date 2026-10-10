@@ -69,8 +69,8 @@ def blockers(cfg: dict) -> list[str]:
             out.append('Visible-context rubric requires a checked behavioral locus')
     if cfg.get('feedback', {}).get('protocol') == 'physician_post_final_reflection_v1':
         backend = cfg.get('rollout', {}).get('doctor_backend') or {}
-        expected = f"ollama/{backend.get('model')}@{str(backend.get('model_digest', ''))[:12]}"
-        if backend.get('engine') != 'ollama' or cfg['feedback'].get('model') != expected:
+        expected = f"{backend.get('engine')}/{backend.get('model')}@{str(backend.get('model_digest', ''))[:12]}"
+        if backend.get('engine') not in ('ollama', 'hf_local') or cfg['feedback'].get('model') != expected:
             out.append('Post-FINAL reflection must use the same pinned local Doctor as the dialogue')
     return out + joint_protocol_problems(cfg) + gate_protocol_problems(cfg)
 
@@ -222,9 +222,12 @@ def setup_problems(cfg: dict, config_path: str) -> list[str]:
         out.append('rollout.doctor_system_prompt_file differs from rollout.doctor_system_prompt_sha256')
     if ro.get('doctor_backend'):
         b = ro['doctor_backend']
-        for k in ('engine', 'endpoint', 'model', 'model_digest', 'quantization', 'ollama_version', 'source_model', 'options'):
+        runtime_keys = ('model', 'model_digest', 'quantization', 'source_model', 'options')
+        runtime_keys += ('transformers_version', 'device', 'file_manifest') if b.get('engine') == 'hf_local' else ('endpoint', 'ollama_version')
+        for k in ('engine', *runtime_keys):
             if not b.get(k): out.append(f'missing rollout.doctor_backend.{k}')
-        if not str(ro.get('doctor_model', '')).startswith('ollama/'): out.append('rollout.doctor_model must name the local Doctor (ollama/<tag>@<digest>)')
+        if b.get('engine') not in ('ollama', 'hf_local') or not str(ro.get('doctor_model', '')).startswith(str(b.get('engine')) + '/'):
+            out.append('rollout.doctor_model must name the selected local Doctor backend')
         if not isinstance((ro.get('halting') or {}).get('enabled'), bool) or (ro.get('halting') or {}).get('min_agent_turns') not in (2, 3):
             out.append('rollout.halting needs enabled (true/false) and min_agent_turns = 2 or 3')
     rb = cfg.get('rubric') or {}

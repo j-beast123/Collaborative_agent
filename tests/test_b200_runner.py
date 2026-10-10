@@ -257,6 +257,7 @@ def test_named_runs_isolate_all_output_and_preserve_science(lr_environment, monk
 def test_run_name_cli_applies_to_hub_train_and_report(lr_environment, monkeypatch, capsys):
     import runpy, sys
     from scripts.online_rl import run_b200
+    monkeypatch.setenv('SHERPA_RUN_NAME', 'before-cli-override')
     monkeypatch.setattr(R, 'preflight', lambda cfg, **kw: [])
     monkeypatch.setattr(R, 'physical_devices', lambda: ['0', '1'])
     captured = []

@@ -35,7 +35,7 @@ def model_roles(cfg: dict) -> dict:
     """Provider model id of every pipeline role (provenance)."""
     r, j, pu = cfg.get('rubric', {}), cfg.get('judges', {}), cfg.get('prompt_update', {})
     b = cfg.get('rollout', {}).get('doctor_backend')
-    doctor = cfg.get('rollout', {}).get('doctor_model') if not b else f"{b['model']} ({b['engine']} {b['ollama_version']}, {b['quantization']}, digest {b['model_digest']}; source {b.get('source_model')})"
+    doctor = cfg.get('rollout', {}).get('doctor_model') if not b else f"{b['model']} ({b['engine']} {b.get('ollama_version', b.get('transformers_version'))}, {b['quantization']}, digest {b['model_digest']}; source {b.get('source_model')})"
     return {'doctor': doctor, 'agent': f"{cfg.get('policy', {}).get('base_model')} + LoRA (local)",
             'feedback_generator': (cfg.get('feedback') or {}).get('model'), 'rubric_generator': r.get('generator_model'),
             'rubric_consolidate': (r.get('consolidate') or {}).get('model'),
