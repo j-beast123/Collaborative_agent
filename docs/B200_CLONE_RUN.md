@@ -5,6 +5,101 @@
 이 서버에서 다른 작업이 해당 GPU/포트를 사용한다면 먼저 별도 자원을 정해야 합니다.
 아래 명령은 사용자가 실행합니다. 구현 과정에서는 설치·다운로드·API·GPU 실행을 하지 않았습니다.
 
+## 공유 파일시스템의 B200 두 서버: 실험 이름 하나로 분리
+
+이 절은 `/NHNHOME/shkim/SHERPA/Collaborative_agent-sherpa`를 두 서버가 공유할 때의
+실행 절차입니다. 코드·venv·원본 데이터·Qwen·Ollama 설치/모델·Doctor digest receipt는
+공유하고, **서로 다른 실험 이름**을 입력하여 checkpoint·tree·rubric/verification cache·
+진행 상태·API 사용량·평가 결과를 모두 분리합니다. 데이터 준비/설치는 한 번만 합니다.
+공유 코드/venv는 두 실험을 시작하기 전에 갱신하고 실행 중에는 변경하지 않습니다.
+
+| 서버 | 입력 예시 | Learning rate | 로컬 출력 | HF 모델 저장소 경로 |
+| --- | --- | --- | --- | --- |
+| A | `lr1e5-run01` | `1e-5` | `outputs/runs/lr1e5-run01/` | `zzu819/SHERPA`의 `runs/lr1e5-run01/` |
+| B | `lr5e6-run01` | `5e-6` | `outputs/runs/lr5e6-run01/` | `zzu819/SHERPA`의 `runs/lr5e6-run01/` |
+
+실험 이름은 영문/숫자로 시작하는 1~96자의 영문·숫자·`_`·`-`·`.` 조합입니다.
+`--run-name NAME` 또는 `SHERPA_RUN_NAME`을 사용합니다. CLI가 우선하며 새 이름은
+기존 `SHERPA_HF_RUN_ID`보다 우선합니다. 기존 이름 없는 실행은 옛 경로를 그대로 사용합니다.
+**기존 run을 이름만 바꿔 재개하는 기능은 아닙니다.** 새 이름은 새 실험을 만듭니다.
+같은 이름에 LR·Doctor·코드 등 다른 설정을 넣으면 재개 시 거부합니다.
+
+HF는 실행 파일시스템이 아닙니다. 계산은 로컬 폴더에서 진행하고 완료된 5-case 배치마다
+`runs/<name>/artifacts/` 및 `snapshot.json`을 함께 백업합니다. HF 폴더는 첫 성공한
+백업 때 생성되므로 첫 배치 전에는 보이지 않을 수 있습니다. 동시에 다른 실험이 HF에
+commit하면 최신 head를 다시 확인해 최대 5회 시도하며, 다른 실험 폴더는 수정하지 않습니다.
+인증 오류는 이 재시도의 대상이 아닙니다. 백업 실패로 중단해도 완료된 로컬 업데이트는 보존됩니다.
+
+**시작 전 공유 checkout에서 한 번만:**
+
+```bash
+cd /NHNHOME/shkim/SHERPA/Collaborative_agent-sherpa
+git pull --ff-only
+```
+
+아래는 이전에 준비한 `.local/b200.env`와 모델·데이터를 재사용합니다. 아직 준비하지
+않았다면 아래 1~5절의 준비 절차부터 수행하고 모든 경로를 공유 프로젝트 아래로 지정하세요.
+각 서버의 Doctor는 별도 tmux에서 `source .local/b200.env` 후 다음 명령으로 시작합니다.
+이미 이 서버에서 정상 실행 중이면 다시 시작하지 않습니다.
+
+```bash
+"$SHERPA_PYTHON" -m src.online_rl.tree.b200_doctor_setup serve
+```
+
+최초 모델 pull/pin은 **서버 A에서만** 기존 `pull` 명령으로 완료한 후 서버 B를 시작합니다.
+두 서버는 같은 binary/models/receipt를 읽으며 `server.json`만
+`$SHERPA_OLLAMA_HOME/servers/<hostname>-<hash>/`에 각각 저장합니다.
+서로 다른 실제 서버이면 각각 GPU0/1과 localhost:11985를 사용해도 충돌하지 않습니다.
+공유 receipt를 삭제하거나 양쪽에서 별도로 새 모델을 pin하지 마세요.
+
+**각 서버의 학습 tmux에서 입력:**
+
+```bash
+cd /NHNHOME/shkim/SHERPA/Collaborative_agent-sherpa
+source .local/b200.env
+read -rp 'Experiment name (A: lr1e5-run01 / B: lr5e6-run01): ' SHERPA_RUN_NAME
+read -rp 'Learning rate (A: 1e-5 / B: 5e-6): ' SHERPA_LEARNING_RATE
+export SHERPA_RUN_NAME SHERPA_LEARNING_RATE
+export SHERPA_HF_MODEL_REPO=zzu819/SHERPA
+export CUDA_VISIBLE_DEVICES=0,1
+set +x
+read -rsp 'OPENROUTER_API_KEY: ' OPENROUTER_API_KEY; printf '\n'
+read -rsp 'HF_TOKEN (model repo write access): ' HF_TOKEN; printf '\n'
+export OPENROUTER_API_KEY HF_TOKEN
+"$SHERPA_PYTHON" -m src.online_rl.tree.b200_doctor_setup verify
+bash scripts/online_rl/launch_b200.sh --action preflight
+```
+
+환경변수는 각 터미널에만 설정합니다. 실험마다 공유 `.local/b200.env`를 덮어쓰지 않습니다.
+Preflight에서 `blockers: []`, LR, `output`, `hf_storage.run_id`를 확인합니다.
+각 run의 API 상한은 100이므로 두 서버 합계는 최대 200 in-flight일 수 있습니다.
+각각 같은 train120 전체를 학습하며 5-case 업데이트/최대24배치와 나머지 과학적 조건은 유지됩니다.
+
+**각 서버에서 첫 배치 → 확인 → 전체 학습:**
+
+```bash
+bash scripts/online_rl/launch_b200.sh --action train --max-batches 1
+"$SHERPA_PYTHON" scripts/online_rl/report_b200.py
+bash scripts/online_rl/launch_b200.sh --action train
+```
+
+동일 터미널에서 실험 이름/LR을 유지합니다. 중단 후 새 터미널에서는 위 입력 블록을
+**같은 이름·LR**로 실행한 뒤 `--action train`만 다시 실행합니다. `--max-batches 1`을
+다시 주면 추가 1배치를 수행합니다. 완료 checkpoint·optimizer·진행 상태·cache를 복원합니다.
+공유 filesystem의 동일 run 이름은 `runner.lock`으로 동시 실행을 막습니다.
+
+**각 실험 train120 완료 후 최종 checkpoint의 test622 1회 평가:**
+
+```bash
+bash scripts/online_rl/launch_b200.sh --action evaluate
+"$SHERPA_PYTHON" scripts/online_rl/report_b200.py
+```
+
+결과는 `outputs/runs/$SHERPA_RUN_NAME/final_accuracy.json`과 같은 HF run에 저장합니다.
+학습 중 test는 실행하지 않으며 test 결과로 LR이나 checkpoint를 고르지 않습니다.
+모든 train/evaluate 명령에 `--run-name lr1e5-run01 --learning-rate 1e-5`처럼
+명시적으로 전달하는 방식도 가능합니다. 이름에는 LR이 자동 해석되지 않으므로 둘 다 맞춰주세요.
+
 ## 1. 새 폴더에 clone하고 Python 환경 준비
 
 ```bash
@@ -289,6 +384,7 @@ receipt·모델·데이터 경로가 필요합니다. 현재 trainer는 절대 �
 이 도구에서 자동 수행하지 않습니다. Doctor receipt(`.local/b200_doctor.json`)와
 원본 모델·설치 경로도 별도로 보존하세요.
 
-HF 동기화를 사용하지 않으려면 시작 전 `unset SHERPA_HF_RUN_ID`를 실행합니다.
+이름 없는 기존 실행에서 HF 동기화를 사용하지 않으려면 시작 전 `unset SHERPA_HF_RUN_ID`를 실행합니다.
+새 `SHERPA_RUN_NAME`/`--run-name` 방식은 로컬/HF 이름을 함께 지정하며 HF 백업을 활성화합니다.
 스토리지 옵션은 GRPO 학습 설정을 바꾸지 않습니다. Local checkpoint가 먼저 저장되므로
 HF 저장을 비활성화하고도 같은 로컬 run을 재개할 수 있습니다.

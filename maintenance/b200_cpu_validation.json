@@ -89,5 +89,26 @@
     "model_repo": "zzu819/SHERPA",
     "model_repo_initial_revision": "89dbe11dc215edade15884da6d99ff7f7be3d056",
     "live_operations": "Only public repository metadata and in-memory dataset-byte verification; no GPU, model download, LLM calls or Hub uploads."
+  },
+  "named_shared_filesystem_runs": {
+    "checked_at_utc": "2026-10-10T14:26:05.754382+00:00",
+    "command": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 CUDA_VISIBLE_DEVICES='' .venv/bin/python -m pytest -q tests/test_b200_hub.py tests/test_b200_runner.py tests/test_b200_doctor_setup.py tests/test_b200_partner.py tests/test_b200_need_accuracy.py tests/test_parallel_bank.py",
+    "passed": 116,
+    "seconds": 7.51,
+    "new_tests": 15,
+    "cpu_preflight": [
+      {
+        "run_name": "lr1e5-run01",
+        "learning_rate": 1e-05,
+        "blockers": []
+      },
+      {
+        "run_name": "lr5e6-run01",
+        "learning_rate": 5e-06,
+        "blockers": []
+      }
+    ],
+    "scope": "Named local/HF run isolation, LR/Doctor resume identity, host-specific Doctor process ownership, bounded concurrent Hub commit retry with fake APIs, existing five-case/need/verification regressions",
+    "live_gpu_training_evaluation_api_calls_downloads_uploads": false
   }
 }

@@ -1,6 +1,7 @@
 """Explicit CPU preflight, train/resume or final-only evaluation. No service management."""
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -16,9 +17,11 @@ def main():
     parser.add_argument('--cpu-only', action='store_true', help='Validate scientific config/data/prompts; omit server resources and credentials')
     parser.add_argument('--max-batches', type=int)
     parser.add_argument('--learning-rate', help='Positive run-start LR; overrides SHERPA_LEARNING_RATE, then optimizer.learning_rate')
+    parser.add_argument('--run-name', help='Local outputs/runs/NAME and HF runs/NAME; overrides SHERPA_RUN_NAME')
     args = parser.parse_args()
     if args.cpu_only and args.action != 'preflight': parser.error('--cpu-only is for preflight only')
     if args.max_batches is not None and (args.action != 'train' or args.max_batches < 1): parser.error('--max-batches is positive and train-only')
+    if args.run_name is not None: os.environ['SHERPA_RUN_NAME'] = args.run_name
     try: cfg = load_config(args.config, learning_rate=args.learning_rate)
     except ValueError as exc: parser.error(str(exc))
     errors = preflight(cfg, resources=not args.cpu_only)

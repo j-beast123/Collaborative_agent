@@ -11,8 +11,9 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', help='Explicit existing run directory; bypass config/env path selection')
 parser.add_argument('--config', default=CONFIG)
 parser.add_argument('--learning-rate', help='Same LR as train; defaults to SHERPA_LEARNING_RATE or config')
+parser.add_argument('--run-name', help='Same name as train; defaults to SHERPA_RUN_NAME')
 args = parser.parse_args()
-try: root = Path(args.output or load_config(args.config, learning_rate=args.learning_rate)['output_dir'])
+try: root = Path(args.output or load_config(args.config, learning_rate=args.learning_rate, run_name=args.run_name)['output_dir'])
 except ValueError as exc: parser.error(str(exc))
 def read(path):
     return json.loads(path.read_text()) if path.is_file() else None

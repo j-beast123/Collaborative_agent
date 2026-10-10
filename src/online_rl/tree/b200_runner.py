@@ -39,7 +39,7 @@ def positive_learning_rate(value):
     return rate
 
 
-def load_config(path=CONFIG, *, learning_rate=None):
+def load_config(path=CONFIG, *, learning_rate=None, run_name=None):
     cfg = json.loads((ROOT / path).read_text())
     # Explicit CLI > environment > config. Equivalent numeric forms have the
     # same configuration identity; a changed LR starts a separate experiment.
@@ -60,6 +60,14 @@ def load_config(path=CONFIG, *, learning_rate=None):
     for env, (section, key) in ENV_PATHS.items():
         if os.environ.get(env):
             cfg[section][key] = str(Path(os.environ[env]).expanduser().resolve())
+    name = run_name if run_name is not None else os.environ.get('SHERPA_RUN_NAME')
+    if name is not None:
+        from src.online_rl.tree.b200_hub import run_id
+        cfg['output_dir'] = 'outputs/runs/' + run_id(name)
+        cfg['experiment']['output_root'] = cfg['output_dir']
+        cfg['experiment']['run_name'] = name
+        # LR and Doctor identity remain in cfg and are checked before resume.
+        # A name selects the whole run, including its caches, not just HF backup.
     return cfg
 
 
@@ -147,9 +155,9 @@ def preflight(cfg, *, resources=True):
             if {norm(c) for c in train} & {norm(c) for c in test}: errors.append('Train/test question overlap')
         except (ValueError, RuntimeError, OSError) as exc: errors.append(str(exc))
     if resources:
-        if os.environ.get('SHERPA_HF_RUN_ID'):
-            from src.online_rl.tree.b200_hub import run_id
-            try: run_id(os.environ['SHERPA_HF_RUN_ID'])
+        from src.online_rl.tree.b200_hub import run_id, storage_settings
+        if storage_settings()['enabled']:
+            try: run_id(storage_settings()['run_id'])
             except ValueError as exc: errors.append(str(exc))
             if not os.environ.get('HF_TOKEN', '').strip(): errors.append('HF_TOKEN is required for enabled HF backups (write access to the model repo)')
         model = Path(cfg['policy']['base_model'])

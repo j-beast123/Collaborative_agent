@@ -45,7 +45,7 @@ def safe_path(value):
 
 def run_id(value):
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,95}', value or ''):
-        raise ValueError('SHERPA_HF_RUN_ID must be 1..96 letters/digits/dots/underscores/hyphens')
+        raise ValueError('Run name must be 1..96 letters/digits/dots/underscores/hyphens')
     return value
 
 
@@ -115,38 +115,53 @@ def inventory(out):
             'base_model_identity': state['base_model_identity'], 'files': files}
 
 
-def upload_run(out, name, *, repo=REPO, api=None, download=None):
+def upload_run(out, name, *, repo=REPO, api=None, download=None, max_commit_attempts=5, sleep=time.sleep):
     """Caller owns runner.lock or is the parent at a committed batch barrier."""
     from huggingface_hub import HfApi, CommitOperationAdd, CommitOperationDelete, hf_hub_download
+    from huggingface_hub.errors import HfHubHTTPError
     name = run_id(name); out = Path(out).resolve(); prefix = f'runs/{name}'
     api = api or HfApi(); download = download or hf_hub_download
     snapshot = inventory(out); digest = sha256_json(snapshot)
-    head = api.repo_info(repo_id=repo, repo_type='model').sha
-    remote = set(api.list_repo_files(repo_id=repo, repo_type='model', revision=head))
-    marker = prefix+'/snapshot.json'
-    if marker in remote:
-        old = json.loads(Path(download(repo_id=repo, repo_type='model', revision=head, filename=marker)).read_text())
-        if sha256_json(old['snapshot']) != old['sha256']: raise ValueError('Corrupt existing HF snapshot identity')
-        for key in ('config_sha256', 'source_sha256', 'original_output'):
-            if old['snapshot'][key] != snapshot[key]: raise ValueError('HF run ID belongs to another configuration/path; choose a new run ID')
-        if old['snapshot']['completed_cases'] > snapshot['completed_cases']:
-            raise ValueError('Refusing to overwrite newer HF progress')
-        if old['sha256'] == digest:
-            return {'repo': repo, 'run_id': name, 'revision': head, 'unchanged': True}
-    elif any(p.startswith(prefix+'/') for p in remote):
-        raise ValueError('Existing HF run lacks snapshot identity')
+    if type(max_commit_attempts) is not int or max_commit_attempts < 1:
+        raise ValueError('max_commit_attempts must be a positive integer')
     started = time.monotonic()
-    desired = {prefix+'/artifacts/'+f for f in snapshot['files']}
-    operations = [CommitOperationAdd(path_in_repo=prefix+'/artifacts/'+f, path_or_fileobj=str(out/f))
-                  for f in snapshot['files']]
-    operations += [CommitOperationDelete(path_in_repo=p) for p in sorted(remote)
-                   if p.startswith(prefix+'/artifacts/') and p not in desired]
-    operations.append(CommitOperationAdd(path_in_repo=marker,
-        path_or_fileobj=json.dumps({'sha256': digest, 'snapshot': snapshot}, sort_keys=True).encode()))
-    commit = api.create_commit(repo_id=repo, repo_type='model', operations=operations,
-        parent_commit=head, commit_message=f'SHERPA {name}: {snapshot["completed_cases"]}/120 cases')
+    for attempt in range(max_commit_attempts):
+        # Another run may commit to the same repository, even under a different
+        # prefix. Re-read/revalidate and rebuild operations against the new head.
+        head = api.repo_info(repo_id=repo, repo_type='model').sha
+        remote = set(api.list_repo_files(repo_id=repo, repo_type='model', revision=head))
+        marker = prefix+'/snapshot.json'
+        if marker in remote:
+            old = json.loads(Path(download(repo_id=repo, repo_type='model', revision=head, filename=marker)).read_text())
+            if sha256_json(old['snapshot']) != old['sha256']: raise ValueError('Corrupt existing HF snapshot identity')
+            for key in ('config_sha256', 'source_sha256', 'original_output'):
+                if old['snapshot'][key] != snapshot[key]: raise ValueError('HF run ID belongs to another configuration/path; choose a new run ID')
+            if old['snapshot']['completed_cases'] > snapshot['completed_cases']:
+                raise ValueError('Refusing to overwrite newer HF progress')
+            if old['sha256'] == digest:
+                return {'repo': repo, 'run_id': name, 'revision': head, 'unchanged': True}
+        elif any(p.startswith(prefix+'/') for p in remote):
+            raise ValueError('Existing HF run lacks snapshot identity')
+        desired = {prefix+'/artifacts/'+f for f in snapshot['files']}
+        operations = [CommitOperationAdd(path_in_repo=prefix+'/artifacts/'+f, path_or_fileobj=str(out/f))
+                      for f in snapshot['files']]
+        operations += [CommitOperationDelete(path_in_repo=p) for p in sorted(remote)
+                       if p.startswith(prefix+'/artifacts/') and p not in desired]
+        operations.append(CommitOperationAdd(path_in_repo=marker,
+            path_or_fileobj=json.dumps({'sha256': digest, 'snapshot': snapshot}, sort_keys=True).encode()))
+        try:
+            commit = api.create_commit(repo_id=repo, repo_type='model', operations=operations,
+                parent_commit=head, commit_message=f'SHERPA {name}: {snapshot["completed_cases"]}/120 cases')
+        except HfHubHTTPError as exc:
+            status = getattr(exc.response, 'status_code', None)
+            if status not in (409, 412) or attempt + 1 >= max_commit_attempts:
+                raise
+            sleep(min(2 ** attempt, 8))
+            continue
+        break
     receipt = {'repo': repo, 'run_id': name, 'revision': commit.oid, 'snapshot_sha256': digest,
                'files': len(snapshot['files']), 'seconds': time.monotonic()-started,
+               'commit_conflict_retries': attempt,
                'completed_cases': snapshot['completed_cases']}
     # Storage receipt is excluded from the next inventory, so identical snapshots
     # are idempotent. HF history retains previous commits and deleted files.
@@ -182,7 +197,7 @@ def download_run(name, revision, destination, *, repo=REPO, download=None):
 
 
 def sync_barrier(out):
-    name = os.environ.get('SHERPA_HF_RUN_ID')
+    name = os.environ.get('SHERPA_RUN_NAME', os.environ.get('SHERPA_HF_RUN_ID'))
     if not name: return None
     out = Path(out)
     if (out/'api_usage.jsonl').exists():
@@ -198,7 +213,7 @@ def sync_barrier(out):
 
 
 def storage_settings():
-    name = os.environ.get('SHERPA_HF_RUN_ID')
+    name = os.environ.get('SHERPA_RUN_NAME', os.environ.get('SHERPA_HF_RUN_ID'))
     return {'enabled': bool(name), 'model_repo': os.environ.get('SHERPA_HF_MODEL_REPO', REPO),
             'run_id': name, 'dataset_repo': REPO, 'dataset_revision': DATA_REVISION,
             'backup_boundary': 'synchronous after each committed five-case batch and final evaluation'}

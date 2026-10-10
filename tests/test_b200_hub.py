@@ -132,3 +132,66 @@ def test_unsafe_ids_rejected(value):
 def test_only_pinned_commit_can_be_loaded(tmp_path):
     with pytest.raises(ValueError,match='immutable'):
         H.download_run('experiment1','main',tmp_path/'out')
+
+
+def http_error(status):
+    from requests import Response
+    from huggingface_hub.errors import HfHubHTTPError
+    response = Response(); response.status_code = status
+    return HfHubHTTPError('synthetic commit error', response=response)
+
+
+def test_concurrent_other_run_commit_retries_without_overwriting(tmp_path):
+    out = run_fixture(tmp_path); hub = Hub(tmp_path); calls = []; waits = []
+    commit = hub.create_commit
+    def concurrent_commit(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            hub.files['runs/other/artifacts/cache.json'] = b'other run must survive'
+            hub.commits += 1
+            raise http_error(409)
+        return commit(**kwargs)
+    hub.create_commit = concurrent_commit
+    result = H.upload_run(out, 'experiment1', api=hub, download=hub.download, sleep=waits.append)
+    assert result['commit_conflict_retries'] == 1 and waits == [1]
+    assert hub.files['runs/other/artifacts/cache.json'] == b'other run must survive'
+    assert calls[0]['parent_commit'] != calls[1]['parent_commit']
+    assert calls[0]['operations'][0] is not calls[1]['operations'][0]
+    assert H.upload_run(out, 'experiment1', api=hub, download=hub.download)['unchanged']
+
+
+@pytest.mark.parametrize('status,expected', [(409, 3), (412, 3), (401, 1), (403, 1)])
+def test_commit_retries_are_bounded_and_auth_errors_not_retried(tmp_path, status, expected):
+    out = run_fixture(tmp_path); hub = Hub(tmp_path); calls = []; waits = []
+    before = H.inventory(out)
+    def fail(**kwargs): calls.append(kwargs); raise http_error(status)
+    hub.create_commit = fail
+    with pytest.raises(Exception, match='synthetic commit error'):
+        H.upload_run(out, 'experiment1', api=hub, download=hub.download,
+                     max_commit_attempts=3, sleep=waits.append)
+    assert len(calls) == expected and len(waits) == expected - 1
+    assert H.inventory(out) == before
+
+
+def test_conflict_retry_revalidates_same_run_identity(tmp_path):
+    out = run_fixture(tmp_path); hub = Hub(tmp_path)
+    def conflicting_commit(**kwargs):
+        snapshot = H.inventory(out); snapshot['config_sha256'] = 'someone-else'
+        hub.files['runs/experiment1/snapshot.json'] = json.dumps(
+            {'snapshot': snapshot, 'sha256': sha256_json(snapshot)}).encode()
+        hub.commits += 1
+        raise http_error(409)
+    hub.create_commit = conflicting_commit
+    with pytest.raises(ValueError, match='another configuration'):
+        H.upload_run(out, 'experiment1', api=hub, download=hub.download, sleep=lambda _: None)
+    assert hub.commits == 1
+
+
+def test_run_name_controls_backup_even_with_legacy_hf_name(monkeypatch, tmp_path):
+    monkeypatch.setenv('SHERPA_RUN_NAME', 'new-experiment')
+    monkeypatch.setenv('SHERPA_HF_RUN_ID', 'legacy')
+    calls = []
+    monkeypatch.setattr(H, 'upload_run', lambda out, name, **kw: calls.append(name) or {})
+    H.sync_barrier(tmp_path)
+    assert calls == ['new-experiment']
+    assert H.storage_settings()['run_id'] == 'new-experiment'

@@ -174,6 +174,7 @@ def test_http_attempt_audit_keeps_usage_but_never_credentials_or_prompt(tmp_path
 @pytest.fixture
 def lr_environment(monkeypatch):
     monkeypatch.delenv('SHERPA_LEARNING_RATE', raising=False)
+    monkeypatch.delenv('SHERPA_RUN_NAME', raising=False)
     monkeypatch.delenv('SHERPA_DOCTOR_RECEIPT', raising=False)
     monkeypatch.setattr('src.online_rl.tree.b200_doctor_setup.receipt_path', lambda: R.ROOT / '__no_test_receipt__')
 
@@ -232,3 +233,46 @@ def test_lr_cli_preflight_and_progress_report(lr_environment, monkeypatch, capsy
     monkeypatch.setattr(sys, 'argv', ['report_b200.py', '--learning-rate', '5e-6'])
     runpy.run_path(str(R.ROOT / 'scripts/online_rl/report_b200.py'), run_name='__main__')
     assert json.loads(capsys.readouterr().out)['output'] == report['output']
+
+
+def test_named_runs_isolate_all_output_and_preserve_science(lr_environment, monkeypatch):
+    from src.online_rl.tree.b200_hub import storage_settings
+    monkeypatch.setenv('SHERPA_RUN_NAME', 'lr1e5-run01')
+    monkeypatch.setenv('SHERPA_HF_RUN_ID', 'old-backup-name')
+    default = R.load_config()
+    assert default['output_dir'] == 'outputs/runs/lr1e5-run01'
+    assert storage_settings()['run_id'] == 'lr1e5-run01'
+    half = R.load_config(run_name='lr5e6-run01', learning_rate='5e-6')
+    assert half['output_dir'] == half['experiment']['output_root'] == 'outputs/runs/lr5e6-run01'
+    for key in default:
+        if key not in ('output_dir', 'experiment', 'optimizer', 'notes'):
+            assert default[key] == half[key]
+    assert half['optimizer'] == {**default['optimizer'], 'learning_rate': 5e-6}
+    saved = {'config_sha256': R.sha256_json(default), 'source_sha256': 'code'}
+    R.validate_resume_identity(saved, R.load_config(), 'code')
+    with pytest.raises(RuntimeError, match='Config/code changed'):
+        R.validate_resume_identity(saved, R.load_config(learning_rate='5e-6'), 'code')
+
+
+def test_run_name_cli_applies_to_hub_train_and_report(lr_environment, monkeypatch, capsys):
+    import runpy, sys
+    from scripts.online_rl import run_b200
+    monkeypatch.setattr(R, 'preflight', lambda cfg, **kw: [])
+    monkeypatch.setattr(R, 'physical_devices', lambda: ['0', '1'])
+    captured = []
+    monkeypatch.setattr(R, 'run', lambda cfg, **kw: captured.append((cfg, kw)))
+    monkeypatch.setattr(sys, 'argv', ['run_b200.py', '--action', 'train', '--run-name', 'half', '--learning-rate', '5e-6', '--max-batches', '1'])
+    run_b200.main()
+    report = json.loads(capsys.readouterr().out)
+    assert report['hf_storage']['run_id'] == 'half' and report['output'] == 'outputs/runs/half'
+    assert captured[0][0]['output_dir'] == report['output']
+    assert captured[0][1] == {'max_batches': 1, 'evaluate': False}
+    monkeypatch.setattr(sys, 'argv', ['report_b200.py', '--run-name', 'half', '--learning-rate', '5e-6'])
+    runpy.run_path(str(R.ROOT / 'scripts/online_rl/report_b200.py'), run_name='__main__')
+    assert json.loads(capsys.readouterr().out)['output'] == report['output']
+
+
+@pytest.mark.parametrize('name', ['../outside', '/tmp/run', '', 'bad/name'])
+def test_invalid_name_never_selects_output(lr_environment, name):
+    with pytest.raises(ValueError, match='Run name'):
+        R.load_config(run_name=name)

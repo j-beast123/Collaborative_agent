@@ -122,8 +122,16 @@ def install(root):
     return binary
 
 
+def server_state_dir(root):
+    # Shared binaries/models/receipt; process IDs belong to a particular host.
+    host = socket.gethostname()
+    label = re.sub(r'[^A-Za-z0-9_.-]', '_', host)[:64]
+    return Path(root) / 'servers' / (label + '-' + hashlib.sha256(host.encode()).hexdigest()[:12])
+
+
 def require_owned_server(root, binary, models):
-    owner = json.loads((root / 'server.json').read_text())
+    owner = json.loads((server_state_dir(root) / 'server.json').read_text())
+    if owner.get('hostname') != socket.gethostname(): raise ValueError('Doctor process belongs to another host')
     proc = Path('/proc') / str(owner['pid'])
     if Path(os.readlink(proc / 'exe')).resolve() != binary.resolve(): raise ValueError('Server PID does not refer to this private Ollama')
     env = dict(item.split(b'=', 1) for item in (proc / 'environ').read_bytes().split(b'\0') if b'=' in item)
@@ -176,7 +184,9 @@ def main():
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 11985))  # Fail on occupied port; never stop another process.
         models.mkdir(exist_ok=True)
-        (root / 'server.json').write_text(json.dumps({'pid': os.getpid(), 'binary': str(binary), 'models': str(models)}))
+        state_dir = server_state_dir(root); state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / 'server.json').write_text(json.dumps({'pid': os.getpid(), 'hostname': socket.gethostname(),
+            'binary': str(binary), 'models': str(models)}))
         env = {**os.environ, 'CUDA_VISIBLE_DEVICES': '0', 'OLLAMA_HOST': HOST, 'OLLAMA_MODELS': str(models),
                'OLLAMA_NUM_PARALLEL': '1', 'OLLAMA_MAX_LOADED_MODELS': '1', 'OLLAMA_KEEP_ALIVE': '-1'}
         os.execve(binary, [str(binary), 'serve'], env)

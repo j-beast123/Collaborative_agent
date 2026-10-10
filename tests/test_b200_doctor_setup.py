@@ -122,3 +122,32 @@ def test_wrong_archive_hash_never_installs(tmp_path, monkeypatch):
     monkeypatch.setattr(S.subprocess, 'run', lambda cmd, **kw: Path(cmd[cmd.index('--output') + 1]).write_bytes(b'corrupt'))
     with pytest.raises(ValueError, match='SHA256 mismatch'): S.install(tmp_path)
     assert not (tmp_path / ('ollama-' + S.VERSION)).exists()
+
+
+def test_shared_store_has_host_specific_process_ownership(tmp_path, monkeypatch):
+    monkeypatch.setattr(S.socket, 'gethostname', lambda: 'b200-a')
+    first = S.server_state_dir(tmp_path)
+    first.mkdir(parents=True)
+    (first / 'server.json').write_text(json.dumps({'hostname': 'b200-a', 'pid': 42}))
+    monkeypatch.setattr(S.socket, 'gethostname', lambda: 'b200-b')
+    assert S.server_state_dir(tmp_path) != first
+    with pytest.raises(FileNotFoundError):
+        S.require_owned_server(tmp_path, tmp_path/'ollama', tmp_path/'models')
+    assert json.loads((first / 'server.json').read_text())['pid'] == 42
+
+
+def test_named_run_still_pins_doctor_and_rejects_changed_digest(tmp_path, monkeypatch):
+    binary, models, digest = files(tmp_path); mock_service(monkeypatch, digest)
+    monkeypatch.setattr(S, 'require_owned_server', lambda *a: None)
+    monkeypatch.setattr(S.subprocess, 'run', lambda *a, **k: None)
+    receipt = tmp_path / 'receipt.json'
+    S.pull_and_pin(tmp_path, binary, models, receipt)
+    monkeypatch.setenv('SHERPA_DOCTOR_RECEIPT', str(receipt))
+    cfg = R.load_config(run_name='named-doctor')
+    assert cfg['output_dir'] == 'outputs/runs/named-doctor'
+    assert cfg['rollout']['doctor_backend']['model_digest'] == digest
+    saved = {'config_sha256': R.sha256_json(cfg), 'source_sha256': 'code'}
+    row = json.loads(receipt.read_text()); row.pop('receipt_sha256'); row['digest'] = 'a'*64
+    receipt.write_text(json.dumps({**row, 'receipt_sha256': S.identity(row)}))
+    with pytest.raises(RuntimeError, match='Config/code changed'):
+        R.validate_resume_identity(saved, R.load_config(run_name='named-doctor'), 'code')
