@@ -1,0 +1,120 @@
+{
+  "utc": "2026-10-09T21:18:34.822232+00:00",
+  "scope": "Same server and account; read-only inspection repeated outside sandbox",
+  "ollama_binary": {
+    "found": false,
+    "version_verified": false,
+    "path_lookup": null,
+    "configured_source_path": "/home/kai/.local/opt/ollama-0.12.5/bin/ollama",
+    "configured_source_path_exists": false
+  },
+  "doctor_model": {
+    "tag": "gemma3:12b-it-q8_0",
+    "expected_digest": "997a7c2c09753e9011ec18a3fcb498e27c0ba330599dfb26a2e05b58cfbdc1bc",
+    "manifest_found": false,
+    "digest_verified": false,
+    "configured_original_store": "/home/kai/.ollama/models",
+    "original_store_exists": false
+  },
+  "searched": [
+    "PATH",
+    "/usr/bin",
+    "/usr/local/bin",
+    "/usr/local/lib",
+    "/usr/local/share",
+    "/usr/share",
+    "/opt",
+    "/var/lib (accessible entries)",
+    "/home/zzuhyun/.local",
+    "/home/zzuhyun/.cache",
+    "/convei_nas2/zzuhyun",
+    "/convei_nas/zzuhyun",
+    "/home/kai/.local",
+    "/home/kai/projects",
+    "/convei_nas2/kai",
+    "/convei_nas/kai",
+    "/convei_nas2/common",
+    "/convei_nas2/var",
+    "/home/common/pkgs",
+    "/home/common/miniconda3/bin",
+    "/tmp",
+    "conventional Ollama paths immediately beneath /home, /convei_nas and /convei_nas2 user roots"
+  ],
+  "limitations": [
+    "Docker containers and protected paths remain inaccessible under actual account permissions; cannot assert server-wide absence",
+    "Search did not find a usable Ollama install or pinned model in accessible account/shared/standard paths"
+  ],
+  "visible_ollama_processes_found": 0,
+  "ports_at_check": {
+    "11731": "no LISTEN entry in /proc/net/tcp or tcp6",
+    "11732": "no LISTEN entry in /proc/net/tcp or tcp6",
+    "11831": "no LISTEN entry in /proc/net/tcp or tcp6",
+    "11832": "no LISTEN entry in /proc/net/tcp or tcp6"
+  },
+  "gpu_read_only_probe": {
+    "outside_sandbox": true,
+    "exit_code": 0,
+    "devices": 8,
+    "model": "NVIDIA GeForce RTX 3090",
+    "memory_MiB_each": 24576,
+    "used_MiB_each_at_check": 2,
+    "previous_driver_error_was_sandbox_restriction": true
+  },
+  "runtime_paths_changed": true,
+  "runtime_key_mode": "terminal environment only; env_file=null",
+  "installed_or_downloaded": false,
+  "processes_started_stopped_or_reconfigured": false,
+  "live_training_or_evaluation": false,
+  "needed": [
+    "User-run account-only Ollama0.12.5 installation or a readable existing installation",
+    "Copy of original pinned manifest and referenced blobs from a server/archive holding digest 997a7c2c...",
+    "User-provided terminal OPENROUTER_API_KEY"
+  ],
+  "superseded_sandbox_only_gpu_observation": {
+    "command": "nvidia-smi --query-gpu=index,name,memory.total,memory.used --format=csv,noheader",
+    "exit_code": 9,
+    "result": "Could not communicate with NVIDIA driver"
+  },
+  "host": "convei-rack5-55",
+  "account": "zzuhyun (uid 8040)",
+  "containers": {
+    "docker_cli_present": true,
+    "endpoint": "unix:///var/run/docker.sock",
+    "sandbox_error": "operation not permitted",
+    "outside_sandbox_error": "permission denied",
+    "socket_uid": 0,
+    "socket_gid": 999,
+    "socket_mode": "0660",
+    "account_groups_outside_sandbox": [
+      1002,
+      27
+    ],
+    "container_inventory": "unverified; no daemon socket permission",
+    "rootless_docker_podman_socket_found": false
+  },
+  "original_other_server_paths_not_required": true,
+  "planned_paths": {
+    "ollama_binary": "/convei_nas2/zzuhyun/ollama_baselines/opt/ollama-0.12.5/bin/ollama",
+    "ollama_models_dir": "/convei_nas2/zzuhyun/ollama_baselines/models",
+    "installed": false
+  },
+  "registry_read_only_metadata": {
+    "tag": "gemma3:12b-it-q8_0",
+    "actual_tag_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00",
+    "expected_digest_matches": false,
+    "expected_digest_lookup_http_status": 404,
+    "current_tag_blob_bytes": 13373415378,
+    "model_blobs_downloaded": false
+  },
+  "preparation_guide": "../DOCTOR_SETUP.md",
+  "preparation_checks": {
+    "shell_syntax": "passed for all 3 scripts",
+    "synthetic_offline_asset_tests": 3,
+    "installation_copy_download_scripts_executed": false
+  },
+  "subsequent_authorized_doctor_change": {
+    "record": "baselines/common/doctor_change.json",
+    "new_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00",
+    "prior_doctor_expectations_are_historical": true
+  }
+}

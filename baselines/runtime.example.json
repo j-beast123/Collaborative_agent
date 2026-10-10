@@ -1,0 +1,22 @@
+{
+  "schema": "comparison_runtime_local_v4",
+  "base_model_path": "/convei_nas2/huggingface_cache/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218",
+  "train_file": "data/splits/train120_excluding_calibration_seed20261008.jsonl",
+  "train_order_file": "baselines/common/train120_order.json",
+  "test_file": "data/interim/casimedicos/all_en_622.jsonl",
+  "ollama_binary": "/convei_nas2/zzuhyun/ollama_baselines/opt/ollama-0.12.5/bin/ollama",
+  "ollama_models_dir": "/convei_nas2/zzuhyun/ollama_baselines/models_gemma3_88c2e99b4a44",
+  "training_physical_gpus": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4"
+  ],
+  "api_key_env": "OPENROUTER_API_KEY",
+  "env_file": null,
+  "api_base_url": "https://openrouter.ai/api/v1",
+  "initialization_registry": "outputs/common_initialization_v4",
+  "initial_policy_sha256": "9018ce3bbacd319049576e8ace88afb4777621a8769919bf46676fca8a85b17c",
+  "doctor_model_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00"
+}

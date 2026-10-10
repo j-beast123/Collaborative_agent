@@ -1,0 +1,17 @@
+{
+  "utc": "2026-10-09T21:31:40.678966+00:00",
+  "source_sha256": "30b74d95119b039d3d7445232d50cd994b94484be3a33bb589b28b9695885804",
+  "cpu_tests_passed": 24,
+  "cpu_tests_failed": 0,
+  "command": "CUDA_VISIBLE_DEVICES='' python -m unittest baselines.common.test_methods baselines.common.test_four_gpu baselines.common.test_doctor_assets -v",
+  "verified": [
+    "Approved Doctor digest used by rollout, D1, evaluation config and asset checker",
+    "Old Doctor binding rejected on resume",
+    "Separate output and shared-rubric paths for new Doctor",
+    "Existing GRPO, frozen reference, batch and evaluator CPU integration tests",
+    "Full blob checksum corruption rejection"
+  ],
+  "gpu_training_evaluation_performed": false,
+  "model_assets_downloaded_by_agent": false,
+  "shell_syntax": "download script passed bash -n"
+}

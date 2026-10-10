@@ -1,0 +1,18 @@
+{
+  "schema": "direct_candidate_comparison_v2",
+  "method": "outcome_only",
+  "label": "Outcome-only GRPO",
+  "output_dir": "outputs/outcome_only_train120_d88c2e99b4a44_v5",
+  "doctor_port_start": 11631,
+  "reward_weights_source": "outcome_only_1_0",
+  "initial_rubric_source": null,
+  "reference_physical_gpu": null,
+  "current_reference_pairs": 0,
+  "rubric_credit": null,
+  "partner_reflection": false,
+  "verification": false,
+  "prompt_optimization": false,
+  "evaluation": "final_checkpoint_once_after_120_cases",
+  "doctor_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00",
+  "cache_namespace": "d88c2e99b4a44_v5"
+}

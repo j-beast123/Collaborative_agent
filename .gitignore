@@ -48,6 +48,9 @@ data/interim/
 data/pilot/
 data/splits/prompt_opt_v1/
 data/splits/online_rl_v1/
+# Local train120 source text; baseline audits publish hashes and ordered IDs.
+data/train120_excluding_calibration_seed20261008.jsonl
+data/splits/train120_excluding_calibration_seed20261008.jsonl
 metadata/medmcqa_*
 
 # Generated analysis (strata, prompt-optimisation histories, snapshots, reports)

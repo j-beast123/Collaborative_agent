@@ -1,0 +1,4 @@
+*.local.json
+# Publish baseline setup/run instructions alongside the README files.
+!DOCTOR_SETUP.md
+!RUN_COMMANDS.md

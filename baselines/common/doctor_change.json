@@ -1,0 +1,33 @@
+{
+  "utc": "2026-10-09T21:31:12.924881+00:00",
+  "authorization": "User explicitly approved replacing the previous Doctor with currently downloadable gemma3:12b-it-q8_0; skip original-server copy",
+  "previous_digest": "997a7c2c09753e9011ec18a3fcb498e27c0ba330599dfb26a2e05b58cfbdc1bc",
+  "new_pinned_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00",
+  "model": "gemma3:12b-it-q8_0",
+  "registry_manifest_url": "https://registry.ollama.ai/v2/library/gemma3/manifests/12b-it-q8_0",
+  "digest_verification": "SHA256 of actual registry manifest response bytes; reconfirmed after approval",
+  "blob_bytes": 13373415378,
+  "ollama_version": "0.12.5",
+  "runtime_models_dir": "/convei_nas2/zzuhyun/ollama_baselines/models_gemma3_88c2e99b4a44",
+  "cache_namespace": "d88c2e99b4a44_v5",
+  "changed": [
+    "Doctor artifact identity for training and final evaluation",
+    "rollout Doctor label and backend digest",
+    "immutable D1 opening identity and its derived seed/cache key",
+    "method output/checkpoint/caches including shared initial rubric registry",
+    "runtime and offline verifier expected digest"
+  ],
+  "unchanged": [
+    "Agent initial model/adapter pin and LoRA settings",
+    "train120 and test622 bytes/order",
+    "Doctor prompt and explicitly configured generation options",
+    "tree/GRPO and rubric-only reward",
+    "GPU placement and Doctor ports",
+    "Ollama binary path and version"
+  ],
+  "cache_policy": "No import/replay/resume from previous Doctor-dependent run/cache roots; assistant-only initial tensor registry can be shared",
+  "resume_policy": "New digest bound to method identity, full config, protocol and D1 key; mismatches abort, no automatic update",
+  "comparison_note": "Old-Doctor SHERPA/Base/outcome results have a different Doctor condition; preserve this authorized deviation in reporting",
+  "local_model_download_or_verification_performed": false,
+  "live_training_or_evaluation": false
+}

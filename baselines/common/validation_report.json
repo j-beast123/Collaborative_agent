@@ -1,0 +1,139 @@
+{
+  "record_status": "superseded historical record; NOT a current execution prerequisite",
+  "current_records": [
+    "resolved_common.json",
+    "local_preflight.json",
+    "validation_v4.json"
+  ],
+  "checked_at_utc": "2026-10-09T20:01:20.689168+00:00",
+  "branch": "method-comparisons",
+  "source_sha256": "f78aadcb6242a3b39078f0f5ecb9869655d6da83da9d7a237cf08e6f0cdceeff",
+  "original_src_scripts_configs_unchanged": true,
+  "collabllm_files_preserved": 15,
+  "collabllm_excluded": true,
+  "cpu_tests": {
+    "command": "CUDA_VISIBLE_DEVICES='' python -m unittest baselines.common.test_methods -v",
+    "passed": 11,
+    "failed": 0,
+    "scope": "synthetic CPU original batch hook + real GRPO backward/optimizer, frozen initial reference fake policy, cache/identity, final evaluator synthetic rows"
+  },
+  "data_files": {
+    "train": {
+      "path": "/convei_nas2/zzuhyun/Collaborative_agent/data/splits/train120_excluding_calibration_seed20261008.jsonl",
+      "expected_sha256": "3d34929094925c822062d03839b49de8f6fb43afba71fb573de409471bb5b8ab",
+      "actual_sha256": "3d34929094925c822062d03839b49de8f6fb43afba71fb573de409471bb5b8ab",
+      "status": "match"
+    },
+    "train_order": {
+      "path": "/convei_nas2/zzuhyun/Collaborative_agent/baselines/common/train120_order.json",
+      "expected_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
+      "actual_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
+      "status": "match"
+    },
+    "test": {
+      "path": "/convei_nas2/zzuhyun/Collaborative_agent/data/interim/casimedicos/all_en_622.jsonl",
+      "expected_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+      "actual_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+      "status": "match"
+    }
+  },
+  "train120_order_verified": true,
+  "test622_order_verified": true,
+  "unfilled_runtime_preflight": {
+    "outcome_only": {
+      "method": "Outcome-only GRPO",
+      "action": "preflight",
+      "cpu_only": true,
+      "blockers": [
+        "Missing/invalid initial_policy_sha256",
+        "Missing/invalid base_model_revision",
+        "Missing actual SHERPA identity manifest",
+        "Pin SHERPA package version: torch",
+        "Pin SHERPA package version: transformers",
+        "Pin SHERPA package version: peft",
+        "Pin SHERPA package version: accelerate",
+        "Pin SHERPA package version: safetensors",
+        "Pin SHERPA package version: huggingface-hub",
+        "Set ollama_binary to the Ollama 0.12.5 executable",
+        "Pinned Doctor model manifest missing/different",
+        "API credentials missing (original outcome-only bootstrap also reads a key)",
+        "Cached Qwen main revision differs/missing; run baselines.common.model_cache after setting SHERPA revision"
+      ],
+      "data_verified": true,
+      "reward_weights": {
+        "w_outcome": 1.0,
+        "w_rubric": 0.0
+      },
+      "output": "/convei_nas2/zzuhyun/Collaborative_agent/outputs/outcome_only_train120_direct_v2",
+      "training_cases": 120,
+      "live_work_started": false
+    },
+    "rar": {
+      "method": "RaR-Explicit (adapted)",
+      "action": "preflight",
+      "cpu_only": true,
+      "blockers": [
+        "Missing/invalid initial_policy_sha256",
+        "Missing/invalid base_model_revision",
+        "Missing actual SHERPA identity manifest",
+        "Pin SHERPA package version: torch",
+        "Pin SHERPA package version: transformers",
+        "Pin SHERPA package version: peft",
+        "Pin SHERPA package version: accelerate",
+        "Pin SHERPA package version: safetensors",
+        "Pin SHERPA package version: huggingface-hub",
+        "Set ollama_binary to the Ollama 0.12.5 executable",
+        "Pinned Doctor model manifest missing/different",
+        "API credentials missing (original outcome-only bootstrap also reads a key)",
+        "Cached Qwen main revision differs/missing; run baselines.common.model_cache after setting SHERPA revision"
+      ],
+      "data_verified": true,
+      "reward_weights": null,
+      "output": "/convei_nas2/zzuhyun/Collaborative_agent/outputs/rar_train120_direct_v2",
+      "training_cases": 120,
+      "live_work_started": false
+    },
+    "online_rubrics": {
+      "method": "OnlineRubrics (adapted)",
+      "action": "preflight",
+      "cpu_only": true,
+      "blockers": [
+        "Missing/invalid initial_policy_sha256",
+        "Missing/invalid base_model_revision",
+        "Missing actual SHERPA identity manifest",
+        "Pin SHERPA package version: torch",
+        "Pin SHERPA package version: transformers",
+        "Pin SHERPA package version: peft",
+        "Pin SHERPA package version: accelerate",
+        "Pin SHERPA package version: safetensors",
+        "Pin SHERPA package version: huggingface-hub",
+        "Set ollama_binary to the Ollama 0.12.5 executable",
+        "Pinned Doctor model manifest missing/different",
+        "API credentials missing (original outcome-only bootstrap also reads a key)",
+        "Cached Qwen main revision differs/missing; run baselines.common.model_cache after setting SHERPA revision"
+      ],
+      "data_verified": true,
+      "reward_weights": null,
+      "output": "/convei_nas2/zzuhyun/Collaborative_agent/outputs/online_rubrics_train120_direct_v2",
+      "training_cases": 120,
+      "live_work_started": false
+    }
+  },
+  "live_pilot_started": false,
+  "gpu_training_started": false,
+  "test_evaluation_started": false,
+  "provider_calls": 0,
+  "missing_actual_evidence": [
+    "SHERPA resolved config and mixture weights",
+    "base model revision and initial adapter tensor hash/artifact",
+    "SHERPA package versions",
+    "Qwen snapshot",
+    "Ollama 0.12.5 binary and pinned Gemma model",
+    "generator/grader routable and returned model IDs plus authentication"
+  ],
+  "notes": [
+    "No existing outcome-only result found locally; read-only audit command provided.",
+    "Shared recipe still awaits actual external SHERPA manifest comparison.",
+    "No provider support or Qwen GPU-memory smoke was performed."
+  ]
+}

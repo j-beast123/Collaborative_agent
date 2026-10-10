@@ -1,0 +1,18 @@
+{
+  "scope": "current_checkout_not_a_remote_latest_claim",
+  "reference_commit": "257dc8d2ea2678301f520cd87a6c8f383bf25305",
+  "fixed_sherpa_config": "configs/experiments/reward_prompt_matrix/prompt_ablation/r05_o05_p0_fixed.json",
+  "outcome_config": "configs/experiments/reward_prompt_matrix/reward_sweep/r0_o1_outcome_only.json",
+  "common_sections": [
+    "policy",
+    "data",
+    "rollout",
+    "schedule",
+    "optimizer",
+    "advantage_normalization",
+    "five_gpu"
+  ],
+  "differences": [],
+  "common_sha256": "8b25d0cdf5858d65d017b69e53743726618541da24fdb86403fd801b702ca2c9",
+  "prompt_optimization": false
+}

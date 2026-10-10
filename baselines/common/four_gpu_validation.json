@@ -1,0 +1,189 @@
+{
+  "record_status": "superseded historical record; NOT a current execution prerequisite",
+  "current_records": [
+    "resolved_common.json",
+    "local_preflight.json",
+    "validation_v4.json"
+  ],
+  "checked_at_utc": "2026-10-09T20:22:09.437318+00:00",
+  "source_sha256": "42eb8676092d508021596372582861c0156a5a5e321aae0fd92284417324e35d",
+  "cpu_validation": {
+    "passed": 16,
+    "failed": 0,
+    "command": "CUDA_VISIBLE_DEVICES='' python -m unittest baselines.common.test_methods baselines.common.test_four_gpu -v",
+    "scope": "CPU synthetic models; new actual runner loop with hardware/model/checkpoint IO mocked, original GRPO backward/optimizer, final evaluator synthetic rows; no CUDA model execution"
+  },
+  "execution": {
+    "live_gpu_smoke": false,
+    "live_training": false,
+    "clinical_test_evaluation": false,
+    "provider_requests": 0
+  },
+  "preservation": {
+    "original_src_scripts_configs_unchanged": true,
+    "collabllm_files_unchanged": 15
+  },
+  "topology": {
+    "rar": {
+      "schema": "direct_candidate_comparison_v2",
+      "method": "rar",
+      "label": "RaR-Explicit (adapted)",
+      "output_dir": "outputs/rar_train120_4gpu_v3",
+      "doctor_port_start": 11731,
+      "reward_weights_source": "exact_sherpa_manifest_agent_reward",
+      "initial_rubric_source": "outputs/online_rubrics_train120_4gpu_v3/rewards/cache/initial_rubrics.jsonl",
+      "reference_physical_gpu": null,
+      "current_reference_pairs": 0,
+      "rubric_credit": "direct_candidate_response",
+      "partner_reflection": false,
+      "verification": false,
+      "prompt_optimization": false,
+      "evaluation": "final_checkpoint_once_after_120_cases",
+      "execution_topology": "doctor2_assistant2_v1",
+      "doctor_physical_gpus": [
+        "0",
+        "1"
+      ],
+      "assistant_physical_gpus": [
+        "2",
+        "3"
+      ],
+      "initial_rubric_registry": "outputs/shared_initial_rubrics_v3",
+      "eval_workers": 10
+    },
+    "online_rubrics": {
+      "schema": "direct_candidate_comparison_v2",
+      "method": "online_rubrics",
+      "label": "OnlineRubrics (adapted)",
+      "output_dir": "outputs/online_rubrics_train120_4gpu_v3",
+      "doctor_port_start": 11831,
+      "reward_weights_source": "exact_sherpa_manifest_agent_reward",
+      "initial_rubric_source": "outputs/rar_train120_4gpu_v3/rewards/cache/initial_rubrics.jsonl",
+      "reference_physical_gpu": null,
+      "current_reference_pairs": 1,
+      "rubric_credit": "direct_candidate_response",
+      "partner_reflection": false,
+      "verification": false,
+      "prompt_optimization": false,
+      "evaluation": "final_checkpoint_once_after_120_cases",
+      "execution_topology": "doctor2_assistant2_v1",
+      "doctor_physical_gpus": [
+        "4",
+        "5"
+      ],
+      "assistant_physical_gpus": [
+        "6",
+        "7"
+      ],
+      "initial_rubric_registry": "outputs/shared_initial_rubrics_v3",
+      "eval_workers": 10
+    }
+  },
+  "preflight_with_unfilled_example": {
+    "rar": {
+      "method": "RaR-Explicit (adapted)",
+      "action": "preflight",
+      "cpu_only": true,
+      "blockers": [
+        "Missing/invalid initial_policy_sha256",
+        "Missing/invalid base_model_revision",
+        "Missing actual SHERPA identity manifest",
+        "Pin SHERPA package version: torch",
+        "Pin SHERPA package version: transformers",
+        "Pin SHERPA package version: peft",
+        "Pin SHERPA package version: accelerate",
+        "Pin SHERPA package version: safetensors",
+        "Pin SHERPA package version: huggingface-hub",
+        "Set ollama_binary to the Ollama 0.12.5 executable",
+        "Pinned Doctor model manifest missing/different",
+        "API credentials missing (original outcome-only bootstrap also reads a key)",
+        "Cached Qwen main revision differs/missing; run baselines.common.model_cache after setting SHERPA revision"
+      ],
+      "data_verified": true,
+      "reward_weights": null,
+      "output": "/convei_nas2/zzuhyun/Collaborative_agent/outputs/rar_train120_4gpu_v3",
+      "training_cases": 120,
+      "live_work_started": false,
+      "physical_gpu_roles": {
+        "doctor_physical_gpus": [
+          "0",
+          "1"
+        ],
+        "assistant_physical_gpus": [
+          "2",
+          "3"
+        ],
+        "eval_workers": 10,
+        "execution": "doctor2_assistant2_v1"
+      },
+      "memory_note": "No GPU memory smoke performed. BF16 base fits only if KV/cache/activations also fit; no automatic quantization or batch reduction."
+    },
+    "online_rubrics": {
+      "method": "OnlineRubrics (adapted)",
+      "action": "preflight",
+      "cpu_only": true,
+      "blockers": [
+        "Missing/invalid initial_policy_sha256",
+        "Missing/invalid base_model_revision",
+        "Missing actual SHERPA identity manifest",
+        "Pin SHERPA package version: torch",
+        "Pin SHERPA package version: transformers",
+        "Pin SHERPA package version: peft",
+        "Pin SHERPA package version: accelerate",
+        "Pin SHERPA package version: safetensors",
+        "Pin SHERPA package version: huggingface-hub",
+        "Set ollama_binary to the Ollama 0.12.5 executable",
+        "Pinned Doctor model manifest missing/different",
+        "API credentials missing (original outcome-only bootstrap also reads a key)",
+        "Cached Qwen main revision differs/missing; run baselines.common.model_cache after setting SHERPA revision"
+      ],
+      "data_verified": true,
+      "reward_weights": null,
+      "output": "/convei_nas2/zzuhyun/Collaborative_agent/outputs/online_rubrics_train120_4gpu_v3",
+      "training_cases": 120,
+      "live_work_started": false,
+      "physical_gpu_roles": {
+        "doctor_physical_gpus": [
+          "4",
+          "5"
+        ],
+        "assistant_physical_gpus": [
+          "6",
+          "7"
+        ],
+        "eval_workers": 10,
+        "execution": "doctor2_assistant2_v1"
+      },
+      "memory_note": "No GPU memory smoke performed. BF16 base fits only if KV/cache/activations also fit; no automatic quantization or batch reduction."
+    }
+  },
+  "data_files": {
+    "train": {
+      "path": "/convei_nas2/zzuhyun/Collaborative_agent/data/splits/train120_excluding_calibration_seed20261008.jsonl",
+      "expected_sha256": "3d34929094925c822062d03839b49de8f6fb43afba71fb573de409471bb5b8ab",
+      "actual_sha256": "3d34929094925c822062d03839b49de8f6fb43afba71fb573de409471bb5b8ab",
+      "status": "match"
+    },
+    "train_order": {
+      "path": "/convei_nas2/zzuhyun/Collaborative_agent/baselines/common/train120_order.json",
+      "expected_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
+      "actual_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
+      "status": "match"
+    },
+    "test": {
+      "path": "/convei_nas2/zzuhyun/Collaborative_agent/data/interim/casimedicos/all_en_622.jsonl",
+      "expected_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+      "actual_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+      "status": "match"
+    }
+  },
+  "important_limits": [
+    "External actual SHERPA manifest, lambda, base/initial adapter identity and matching packages still required.",
+    "Qwen snapshot, Ollama 0.12.5 / pinned Doctor weights and provider configuration/auth still required.",
+    "Peak GPU memory on 24GB devices and real multiprocessing/CUDA/Ollama behavior not verified by CPU tests.",
+    "Same scientific recipe and seeds do not imply bit-identical conversations after changing actor count/dynamic batching.",
+    "Reference uses immutable initial LoRA CPU copy, swaps only on idle non-updater Assistant, restores current tensor hash on success/failure."
+  ],
+  "data_rechecked_at_utc": "2026-10-09T20:38:16.430964+00:00",
+  "data_prepared": true
+}

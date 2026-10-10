@@ -1,0 +1,36 @@
+{
+  "schema": "rubric_only_comparison_validation_v4",
+  "utc": "2026-10-09T21:04:20.635357+00:00",
+  "source_sha256": "1d9911a303c8d8b30dffff469998b802d0c58b7b3e1c4220c5d2c63dd4c6d362",
+  "cpu_tests": {
+    "command": "CUDA_VISIBLE_DEVICES='' python -m unittest baselines.common.test_methods baselines.common.test_four_gpu -v",
+    "passed": 20,
+    "failed": 0,
+    "scope": "Synthetic CPU tests; no Qwen model loaded, no live API, GPU training or clinical test evaluation"
+  },
+  "verified": [
+    "RaR and OnlineRubrics rubric-only rewards reach original GRPO loss and update",
+    "Outcome value changes do not change valid-node rubric reward; original invalid FINAL exclusion preserved",
+    "Five-case frozen-policy batches and original order retained with two Assistant workers",
+    "Same initial adapter recorded across methods; mismatch rejected; resume identity checked",
+    "Initial reference adapter swap and failure restoration; reference cache at idle barrier",
+    "Single shared initial rubric generation under concurrent callers",
+    "Original final evaluator denominator and resume without repeated synthetic cases",
+    "Installed legacy Transformers BF16 keyword adaptation and restoration",
+    "Local setup needs no external SHERPA manifest or pre-recorded initial adapter hash",
+    "Existing Doctor listening port rejected without signaling any process",
+    "Existing Doctor PID rejected without adoption or termination"
+  ],
+  "resources": "local_preflight.json",
+  "common_config": "resolved_common.json",
+  "original_src_scripts_configs_unchanged": true,
+  "collabllm_files_preserved": 15,
+  "live_training_started": false,
+  "live_evaluation_started": false,
+  "limitations": [
+    "GPU memory and full 8B loading untested",
+    "Doctor binary/weights and API credentials must be supplied",
+    "Provider model availability and immutable alias identity not verified by a live request",
+    "Local initial tensor hash will be measured on first user-run startup; remote SHERPA tensors not measured here"
+  ]
+}

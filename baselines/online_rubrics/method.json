@@ -1,0 +1,33 @@
+{
+  "schema": "direct_candidate_comparison_v2",
+  "method": "online_rubrics",
+  "label": "OnlineRubrics (adapted)",
+  "output_dir": "outputs/online_rubrics_train120_d88c2e99b4a44_v5",
+  "doctor_port_start": 11831,
+  "reward_weights_source": "method_rubric_only_no_outcome",
+  "initial_rubric_source": "outputs/rar_train120_d88c2e99b4a44_v5/rewards/cache/initial_rubrics.jsonl",
+  "reference_physical_gpu": null,
+  "current_reference_pairs": 1,
+  "rubric_credit": "direct_candidate_response",
+  "partner_reflection": false,
+  "verification": false,
+  "prompt_optimization": false,
+  "evaluation": "final_checkpoint_once_after_120_cases",
+  "execution_topology": "doctor2_assistant2_v1",
+  "doctor_physical_gpus": [
+    "4",
+    "5"
+  ],
+  "assistant_physical_gpus": [
+    "6",
+    "7"
+  ],
+  "initial_rubric_registry": "outputs/shared_initial_rubrics_d88c2e99b4a44_v5",
+  "eval_workers": 10,
+  "reward_weights": {
+    "w_outcome": 0.0,
+    "w_rubric": 1.0
+  },
+  "doctor_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00",
+  "cache_namespace": "d88c2e99b4a44_v5"
+}

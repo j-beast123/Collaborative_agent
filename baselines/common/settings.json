@@ -1,0 +1,28 @@
+{
+  "schema": "method_comparison_train120_v1",
+  "train_file": "data/splits/train120_excluding_calibration_seed20261008.jsonl",
+  "train_sha256": "3d34929094925c822062d03839b49de8f6fb43afba71fb573de409471bb5b8ab",
+  "train_order_file": "baselines/common/train120_order.json",
+  "train_order_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
+  "order_rule": "source file row order, no reshuffling",
+  "train_cases": 120,
+  "epochs": 1,
+  "batches": 24,
+  "max_optimizer_steps": 24,
+  "checkpoint_every_cases": 30,
+  "evaluation": "final_checkpoint_once_after_training",
+  "test_file": "data/interim/casimedicos/all_en_622.jsonl",
+  "test_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+  "test_cases": 622,
+  "test_seed": 0,
+  "comparison_status": "Reuse existing repository common config and code with user-confirmed train120 and no prompt optimization; no external SHERPA manifest prerequisite",
+  "doctor": {
+    "model": "gemma3:12b-it-q8_0",
+    "model_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00",
+    "previous_model_digest": "997a7c2c09753e9011ec18a3fcb498e27c0ba330599dfb26a2e05b58cfbdc1bc",
+    "cache_namespace": "d88c2e99b4a44_v5",
+    "change_reason": "Explicit user approval to use the currently downloadable Doctor model instead of copying the previous pinned model",
+    "change_record": "baselines/common/doctor_change.json"
+  },
+  "rubric_generator_model": "google/gemini-3.8-flash"
+}

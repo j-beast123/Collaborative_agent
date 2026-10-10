@@ -1,0 +1,75 @@
+{
+  "scope": "synthetic CPU; original launcher hook and GRPO backward/optimizer, not Qwen/GPU training",
+  "outcome_only": {
+    "optimizer_step": false,
+    "skip_reason": "no_group_with_nonzero_advantage",
+    "groups_skipped": 5
+  },
+  "collabllm": {
+    "optimizer_step": true,
+    "loss": 3.469446951953614e-18,
+    "policy_loss": 3.469446951953614e-18,
+    "kl_loss": 0.0,
+    "ratio": {
+      "count": 40,
+      "mean": 1.0,
+      "min": 1.0,
+      "max": 1.0,
+      "max_abs_deviation": 0.0,
+      "clipped_fraction": 0.0,
+      "max_abs_logprob_gap_to_reference": 0.0,
+      "denominator": "behavior_policy_teacher_forced"
+    },
+    "grad_norm": 0.18633896112442017,
+    "used_agent_completions": 20,
+    "optimizer_steps": 1,
+    "groups_used": 5,
+    "groups_skipped": 0
+  },
+  "first_group_advantages": [
+    -0.4999999999999999,
+    -0.16666666666666674,
+    0.16666666666666652,
+    0.5
+  ],
+  "adapter_changed": true,
+  "resume_same_identity_accepted": true,
+  "resume_changed_fields_rejected": [
+    "weights_sha256",
+    "judge",
+    "tokenizer",
+    "initial_policy_sha256",
+    "base_model_revision"
+  ],
+  "common_settings": {
+    "scope": "current_checkout_not_a_remote_latest_claim",
+    "reference_commit": "257dc8d2ea2678301f520cd87a6c8f383bf25305",
+    "fixed_sherpa_config": "configs/experiments/reward_prompt_matrix/prompt_ablation/r05_o05_p0_fixed.json",
+    "outcome_config": "configs/experiments/reward_prompt_matrix/reward_sweep/r0_o1_outcome_only.json",
+    "common_sections": [
+      "policy",
+      "data",
+      "rollout",
+      "schedule",
+      "optimizer",
+      "advantage_normalization",
+      "five_gpu"
+    ],
+    "differences": [],
+    "common_sha256": "8b25d0cdf5858d65d017b69e53743726618541da24fdb86403fd801b702ca2c9",
+    "prompt_optimization": false
+  },
+  "checked_at_utc": "2026-10-09T19:19:23.377124+00:00",
+  "test_suite_count": 20,
+  "production_length_weight": null,
+  "live_pilot_completed": false,
+  "live_training_completed": false,
+  "test_evaluation_completed": false,
+  "additional_checks": [
+    "RaR/OnlineRubrics original GRPO backward",
+    "final checkpoint only",
+    "evaluation resume no repeated saved cases",
+    "unparsed retained in accuracy denominator",
+    "provider revision requested and mismatch cost audited"
+  ]
+}

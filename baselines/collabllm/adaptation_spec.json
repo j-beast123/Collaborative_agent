@@ -1,0 +1,107 @@
+{
+  "schema": "collabllm_existing_tree_adaptation_v2",
+  "status": "train120_configuration_ready_live_identity_and_resources_pending",
+  "method_label": "CollabLLM (adapted, GRPO)",
+  "upstream": {
+    "url": "https://github.com/Wuyxin/collabllm",
+    "commit": "7378aab4efb1168557e72699cc51aebb5b8bc656"
+  },
+  "reference_commit": "257dc8d2ea2678301f520cd87a6c8f383bf25305",
+  "reference_config": "configs/online_rl/tree_v21_five_gpu_shared5_random10_promptv7.json",
+  "reference_outcome_only_config": "configs/experiments/reward_prompt_matrix/reward_sweep/r0_o1_outcome_only.json",
+  "preserve": [
+    "data_files_and_order",
+    "policy_and_initial_adapter",
+    "doctor_model_and_protocol",
+    "precommit_v1",
+    "halting",
+    "original_training_tree",
+    "grpo_optimizer_and_batch_schedule",
+    "checkpoint_evaluation"
+  ],
+  "disabled": [
+    "sherpa_feedback",
+    "sherpa_rubrics",
+    "sherpa_witness_interventions",
+    "rubric_prompt_evolution"
+  ],
+  "preconditions": [
+    "original_data_hashes_and_order_verified",
+    "initial_model_and_adapter_identity_verified",
+    "judge_model_revision_and_prompt_pinned",
+    "train_pilot_and_length_weight_freeze",
+    "dependency_environment_verified"
+  ],
+  "implementation_status": "Isolated original-runner launcher connected to reward hook; synthetic CPU original GRPO backward/optimizer verified. No live pilot, API scoring, Qwen/GPU training or test evaluation.",
+  "reference_config_sha256": "4fb08ebe6500fb62507cf3f1e24696cb336c7bb4633d0c30f1b535cd591469aa",
+  "reward": {
+    "formula": "mean_existing_valid_descendant_leaves(task_success + interactivity - lambda_length * agent_visible_ktokens)",
+    "weights": {
+      "task_success": 1.0,
+      "interactivity": 1.0,
+      "lambda_length": null
+    },
+    "length_weight_status": "unset_until_train_pilot_then_freeze_before_test_results",
+    "tokenizer": "cl100k_base",
+    "token_scope": "space-joined visible Agent replies in the complete existing terminal conversation; excludes private assessment and Doctor messages",
+    "interactivity_scope": "visible Doctor-Agent discussion excluding FINAL, private assessment, hidden status, system prompts, gold and outcome",
+    "interactivity_range": [
+      0,
+      1
+    ],
+    "interactivity_prompt_file": "baselines/collabllm/interactivity.txt",
+    "interactivity_prompt_sha256": "6af03c4034e3a786c3fd607fbe4dfce3a890556266f8f898f0edc4df8752a21b",
+    "interactivity_judge_proposal": "openai/gpt-5.6-luna",
+    "judge_revision_status": "must be pinned before pilot",
+    "unparsed_final_policy": "exclude from all training reward components exactly like outcome-only; no valid descendants => reward null",
+    "judge_failure_policy": "record attempt; bounded transport retries; invalid score aborts and is not cached or zero-filled",
+    "normalization_or_clipping": null,
+    "tokenizer_pin": {
+      "encoding": "cl100k_base",
+      "tiktoken_version": "0.12.0",
+      "definition_sha256": "331760a2998668f996aed27d08581e9c058c11044ed4823ebbe2ae30fbd69f48"
+    }
+  },
+  "future_reward_estimator": {
+    "mode": "reuse_existing_conversation_tree",
+    "additional_future_samples": 0,
+    "terminal_set": "exact original leaves with non-null outcome",
+    "aggregation": "equal weight per existing valid descendant leaf, no depth/path-probability reweighting",
+    "interactivity_cache": "one judgment per identical visible input and pinned judge/prompt/params identity, reused across leaves/ancestors/resume; do not deduplicate leaves in reward denominator",
+    "additional_training_targets": 0,
+    "reuse_scope": "current frozen on-policy batch trees; never replay another trained policy tree for an on-policy update"
+  },
+  "length_weight_pilot": {
+    "cases": "predeclared original-order prefixes 5 (smoke), 20 (minimum review), 50 (if unstable)",
+    "policy": "verified initial adapter, no optimizer updates",
+    "reports": [
+      "terminal component distributions",
+      "per-node component distributions",
+      "within-sibling centered component distributions"
+    ],
+    "selection": "inspect train distributions; record chosen nonnegative lambda and rationale; no automatic default",
+    "freeze": "immutable artifact containing full pilot, hashes, model/prompt identity, lambda and timestamp before viewing test results",
+    "pilot_tree_reuse": "reuse same initial batch tree and cached judgments for first training update",
+    "test_results_used": false,
+    "expansion_cost": "15 or 45 additional initial-policy case trees relative to reusing first batch only; audit separately, never replay expansion trees after policy update"
+  },
+  "pilot_plan": {
+    "schema": "collabllm_pilot_plan_v1",
+    "stage_sizes": [
+      5,
+      20,
+      50
+    ],
+    "minimum_freeze_cases": 20,
+    "maximum_cases": 50,
+    "selection": "prefix_of_original_verified_train_order",
+    "policy": "initial_adapter_no_updates",
+    "stability_reference_cases": 5,
+    "relative_std_change_threshold": 0.25,
+    "absolute_mean_shift_threshold": 0.1,
+    "at_maximum_if_unstable": "report_and_do_not_freeze"
+  },
+  "reference_sherpa_no_prompt_opt_config": "configs/experiments/reward_prompt_matrix/prompt_ablation/r05_o05_p0_fixed.json",
+  "common_settings": "baselines/common/settings.json",
+  "final_evaluation": "only final checkpoint after 120 cases; no intermediate test jobs or test-driven selection"
+}

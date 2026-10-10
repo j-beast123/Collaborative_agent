@@ -1,0 +1,63 @@
+{
+  "utc": "2026-10-09T21:10:50.261806+00:00",
+  "source": "user-supplied policy/dialogue/evaluation identity in conversation",
+  "matched_configuration_fields": [
+    "LoRA settings and initialization seed",
+    "agent and Doctor system prompt hashes",
+    "private assessment system/hidden block hashes and max_tokens",
+    "agent protocol and sampling settings",
+    "Doctor model/digest/quantization/version declarations and generation options",
+    "training branching and dialogue halt settings",
+    "test622 file bytes, case count and seed"
+  ],
+  "initial_adapter": {
+    "expected_parameter_sha256": "9018ce3bbacd319049576e8ace88afb4777621a8769919bf46676fca8a85b17c",
+    "hash_algorithm_used_here": "src.online_rl.integrated.continuation.adapter_sha256: sorted trainable parameter names + float32 CPU tensor bytes",
+    "startup_check_configured_for": [
+      "outcome_only",
+      "rar",
+      "online_rubrics"
+    ],
+    "actual_local_parameter_hash": "not measured; no model load performed",
+    "reported_safetensors_sha256": "0a08536a3879c3df375e1745e4f6bd166c8e040c16af5bcd7d97528c73e7ce06",
+    "reported_adapter_config_sha256": "9e580f11d9f0cf524c9aa8abbe4667baeee7412c1afb8f68e3d92c13f3a01884",
+    "artifact_byte_hashes_verified": false
+  },
+  "base_model": {
+    "reported_revision": null,
+    "local_snapshot_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "same_remote_base_weights_proven": false,
+    "needed_for_strict_base_identity": "Actual SHERPA resolved snapshot commit or base model shard identity; LoRA hash does not prove base weights"
+  },
+  "sampling": {
+    "configured_top_k": null,
+    "local_effective_top_k": 20,
+    "note": "Original runtime resolves null from model.generation_config; retain behavior, do not change null to zero"
+  },
+  "evaluation_protocol": {
+    "reported_sha256": "e294e035ccddcd15b5c4275e8756bea3e1fa866bd4e364d35610640056ca959b",
+    "local_computations": {
+      "rar": {
+        "current_run_protocol_sha256": "35f4a3d7d87cc410b87099324b4ce7bd641b8e3c8e744b09b26fe2ec367ea7d5",
+        "with_hub_model_name_instead_of_local_path": "44c723768f66a7f220c269a5d8f8cdc31444f3e6da9cc6b4e88df8a3447b57bc"
+      },
+      "online_rubrics": {
+        "current_run_protocol_sha256": "35f4a3d7d87cc410b87099324b4ce7bd641b8e3c8e744b09b26fe2ec367ea7d5",
+        "with_hub_model_name_instead_of_local_path": "44c723768f66a7f220c269a5d8f8cdc31444f3e6da9cc6b4e88df8a3447b57bc"
+      },
+      "outcome_only": {
+        "current_run_protocol_sha256": "35f4a3d7d87cc410b87099324b4ce7bd641b8e3c8e744b09b26fe2ec367ea7d5",
+        "with_hub_model_name_instead_of_local_path": "44c723768f66a7f220c269a5d8f8cdc31444f3e6da9cc6b4e88df8a3447b57bc"
+      }
+    },
+    "reported_hash_reproduced": false,
+    "note": "Current protocol hash includes model path/name and training-method metadata, not only evaluation settings. Need source hash function/input or evaluation manifest to attribute the mismatch; no hash override applied."
+  },
+  "doctor_installed_identity_verified": false,
+  "live_model_load_training_or_evaluation": false,
+  "subsequent_authorized_doctor_change": {
+    "record": "baselines/common/doctor_change.json",
+    "new_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00",
+    "prior_doctor_expectations_are_historical": true
+  }
+}

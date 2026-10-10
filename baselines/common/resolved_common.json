@@ -1,0 +1,195 @@
+{
+  "authority": "existing_repository_config_and_code; no external SHERPA manifest required",
+  "source_config": "configs/online_rl/tree_v21_five_gpu_shared5_random10_promptv7.json",
+  "source_config_sha256": "4fb08ebe6500fb62507cf3f1e24696cb336c7bb4633d0c30f1b535cd591469aa",
+  "policy": {
+    "base_model": "Qwen/Qwen3-8B",
+    "init_adapter": null,
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.0,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "use_rslora": true,
+      "init_seed": 20261006
+    }
+  },
+  "rollout": {
+    "branching": 4,
+    "rounds": 4,
+    "budget": "full_tree",
+    "doctor_model": "ollama/gemma3:12b-it-q8_0@88c2e99b4a44",
+    "max_tokens_doctor": 256,
+    "max_completion_length": 400,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": null,
+    "doctor_backend": {
+      "engine": "ollama",
+      "endpoint": "http://127.0.0.1:11535",
+      "model": "gemma3:12b-it-q8_0",
+      "model_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00",
+      "quantization": "Q8_0",
+      "ollama_version": "0.12.5",
+      "source_model": "google/gemma-3-12b-it",
+      "gpu": "one pinned server per physical GPU 0..4 (five_gpu.doctor_urls)",
+      "options": {
+        "temperature": 0.4,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "num_ctx": 8192,
+        "num_batch": 64
+      },
+      "final_response": {
+        "mode": "label_only_v1",
+        "max_tokens": 32
+      }
+    },
+    "halting": {
+      "enabled": true,
+      "min_agent_turns": 2,
+      "repeat_agent_reply_after_turns": 4
+    },
+    "doctor_system_prompt_file": "prompts/user_simulator_v4_final_label.txt",
+    "doctor_system_prompt_sha256": "026f3771659f97b16f7d8985169478bd0b9eb5c141316a982eb49f3f60cff3a2",
+    "agent_protocol": "precommit_v1",
+    "agent_sampling_protocol": "per_row_rng_batch_v1"
+  },
+  "optimizer": {
+    "learning_rate": 1e-05,
+    "beta": 0.04,
+    "clip_epsilon": 0.2,
+    "grad_clip": 1.0,
+    "logprob_token_chunk_size": 16,
+    "pre_update_ratio_tolerance": 0.001
+  },
+  "advantage_normalization": {
+    "mode": "mean_center"
+  },
+  "schedule": {
+    "seed": 0,
+    "cases": 120,
+    "calibration_only_cursors": []
+  },
+  "batch_cases": 5,
+  "test": {
+    "eval_file": "data/interim/casimedicos/all_en_622.jsonl",
+    "eval_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+    "eval_seed": 0,
+    "eval_cases": 622
+  },
+  "prompt_sha256": {
+    "prompts/agent.txt": "5ef5bb764ee955f067e66d1cb8e51950e40c3e7e021994fc8b561cfeaa22942f",
+    "prompts/user_simulator_v4_final_label.txt": "026f3771659f97b16f7d8985169478bd0b9eb5c141316a982eb49f3f60cff3a2"
+  },
+  "private_assessment_protocol": {
+    "version": "precommit_v1",
+    "assess_system_sha256": "be2a33ff32edaa02780cc4201541c0789de38b3652745a6ce32134dd2b98b1e3",
+    "hidden_block_sha256": "e464c4900153102b6a7166427bfd3b6309a5b16935724fed34e9b79152ce39b3",
+    "assess_max_tokens": 120,
+    "seeds": "derive_seed(sibling_seed, case_id, private_assessment | visible_reply, 0)"
+  },
+  "local_model": {
+    "path": "/convei_nas2/huggingface_cache/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218",
+    "snapshot_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "json_sha256": {
+      "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+      "tokenizer_config.json": "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101",
+      "tokenizer.json": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+      "config.json": "f7c4eadfbbf522470667b797a3c89be2524832d2d599797248dc304fff447c30",
+      "model.safetensors.index.json": "f9fdbcb91c23971c13ec5d5f2573d2349e8f61f2f049371ec699281748fdb1bc",
+      "generation_config.json": "2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2"
+    },
+    "shards": {
+      "model-00001-of-00005.safetensors": {
+        "bytes": 3996250744,
+        "blob": "31d6a825ae35f11fb85b195b4c42c146c051e446433125a215336abdf95cbf5f",
+        "mtime_ns": 1768459625718848248
+      },
+      "model-00002-of-00005.safetensors": {
+        "bytes": 3993160032,
+        "blob": "5991236cea6fe21f3d43cab0f0e84448734fbbe0789816202989f2ddc9d18282",
+        "mtime_ns": 1768459623339848472
+      },
+      "model-00003-of-00005.safetensors": {
+        "bytes": 3959604768,
+        "blob": "c5185c4794be2d8a9784d5753c9922db38df478ce11f9ed0b415b7304d896836",
+        "mtime_ns": 1768459629324847909
+      },
+      "model-00004-of-00005.safetensors": {
+        "bytes": 3187841392,
+        "blob": "b5ee7de71fbf17db3d5704e0c8f2bc7d005ca9e1d7ca2aeb19827b0cfcaa917a",
+        "mtime_ns": 1768459628698847968
+      },
+      "model-00005-of-00005.safetensors": {
+        "bytes": 1244659840,
+        "blob": "20c2d6366ab85c90786ccdd829cd2b9e7d30ef3b2ebbb998280e7e4014b542ff",
+        "mtime_ns": 1768458870703919302
+      }
+    },
+    "identity_sha256": "0365b331cb3cbf9bd45633fa8ffe11545c36f1c8395ebb614a326057b13de28a",
+    "weight_verification": "Existing HF blob identifiers, sizes and mtimes recorded; full shard bytes not rehashed."
+  },
+  "effective_agent_top_k": 20,
+  "packages": {
+    "torch": "2.9.1",
+    "transformers": "4.51.1",
+    "peft": "0.20.0",
+    "accelerate": "1.12.0",
+    "safetensors": "0.7.0",
+    "huggingface-hub": "0.36.0"
+  },
+  "initial_adapter_hash": "measured at user-run startup; compared across methods and on resume",
+  "reward_weights_are_method_specific": true,
+  "rar_weights": {
+    "w_outcome": 0.0,
+    "w_rubric": 1.0
+  },
+  "online_rubrics_weights": {
+    "w_outcome": 0.0,
+    "w_rubric": 1.0
+  },
+  "model_loader_compatibility": "For Transformers <4.56, translate dtype=bfloat16 to torch_dtype=bfloat16; same model and dtype.",
+  "approved_doctor_change": {
+    "utc": "2026-10-09T21:31:12.924881+00:00",
+    "authorization": "User explicitly approved replacing the previous Doctor with currently downloadable gemma3:12b-it-q8_0; skip original-server copy",
+    "previous_digest": "997a7c2c09753e9011ec18a3fcb498e27c0ba330599dfb26a2e05b58cfbdc1bc",
+    "new_pinned_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00",
+    "model": "gemma3:12b-it-q8_0",
+    "registry_manifest_url": "https://registry.ollama.ai/v2/library/gemma3/manifests/12b-it-q8_0",
+    "digest_verification": "SHA256 of actual registry manifest response bytes; reconfirmed after approval",
+    "blob_bytes": 13373415378,
+    "ollama_version": "0.12.5",
+    "runtime_models_dir": "/convei_nas2/zzuhyun/ollama_baselines/models_gemma3_88c2e99b4a44",
+    "cache_namespace": "d88c2e99b4a44_v5",
+    "changed": [
+      "Doctor artifact identity for training and final evaluation",
+      "rollout Doctor label and backend digest",
+      "immutable D1 opening identity and its derived seed/cache key",
+      "method output/checkpoint/caches including shared initial rubric registry",
+      "runtime and offline verifier expected digest"
+    ],
+    "unchanged": [
+      "Agent initial model/adapter pin and LoRA settings",
+      "train120 and test622 bytes/order",
+      "Doctor prompt and explicitly configured generation options",
+      "tree/GRPO and rubric-only reward",
+      "GPU placement and Doctor ports",
+      "Ollama binary path and version"
+    ],
+    "cache_policy": "No import/replay/resume from previous Doctor-dependent run/cache roots; assistant-only initial tensor registry can be shared",
+    "resume_policy": "New digest bound to method identity, full config, protocol and D1 key; mismatches abort, no automatic update",
+    "comparison_note": "Old-Doctor SHERPA/Base/outcome results have a different Doctor condition; preserve this authorized deviation in reporting",
+    "local_model_download_or_verification_performed": false,
+    "live_training_or_evaluation": false
+  }
+}

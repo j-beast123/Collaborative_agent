@@ -1,0 +1,45 @@
+{
+  "comparison": [
+    "Base",
+    "Outcome-only GRPO",
+    "RaR-Explicit (adapted)",
+    "OnlineRubrics (adapted)",
+    "SHERPA"
+  ],
+  "collabllm": {
+    "included": false,
+    "code_preserved": true,
+    "execution": "not_requested"
+  },
+  "sherpa": "external_server_do_not_launch",
+  "base": "existing_same_protocol_initial_policy_result; no local run in this preparation",
+  "current_turn_execution": "CPU verification only; no live pilot, GPU training or test evaluation",
+  "execution_topology": {
+    "rar": {
+      "doctor": [
+        0,
+        1
+      ],
+      "assistant": [
+        2,
+        3
+      ],
+      "updater": 3
+    },
+    "online_rubrics": {
+      "doctor": [
+        4,
+        5
+      ],
+      "assistant": [
+        6,
+        7
+      ],
+      "updater": 7,
+      "reference": "initial adapter swap on 6"
+    },
+    "batch_cases": 5,
+    "batches": 24,
+    "concurrent_methods": true
+  }
+}

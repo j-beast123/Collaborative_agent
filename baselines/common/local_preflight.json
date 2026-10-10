@@ -1,0 +1,46 @@
+{
+  "live_gpu_or_api_work_started": false,
+  "source": "existing config plus user-approved Doctor replacement",
+  "doctor_change": "doctor_change.json",
+  "methods": {
+    "rar": {
+      "data_verified": true,
+      "doctor_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00",
+      "weights": {
+        "w_outcome": 0.0,
+        "w_rubric": 1.0
+      },
+      "output": "outputs/rar_train120_d88c2e99b4a44_v5",
+      "remaining_resources": [
+        "Pinned Doctor model manifest missing/different",
+        "API credentials missing (original outcome-only bootstrap also reads a key)"
+      ]
+    },
+    "online_rubrics": {
+      "data_verified": true,
+      "doctor_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00",
+      "weights": {
+        "w_outcome": 0.0,
+        "w_rubric": 1.0
+      },
+      "output": "outputs/online_rubrics_train120_d88c2e99b4a44_v5",
+      "remaining_resources": [
+        "Pinned Doctor model manifest missing/different",
+        "API credentials missing (original outcome-only bootstrap also reads a key)"
+      ]
+    },
+    "outcome_only": {
+      "data_verified": true,
+      "doctor_digest": "88c2e99b4a44ef8a4c855315927ae99f6ea77a06f4ec24ad2d08929f818f5f00",
+      "weights": {
+        "w_outcome": 1.0,
+        "w_rubric": 0.0
+      },
+      "output": "outputs/outcome_only_train120_d88c2e99b4a44_v5",
+      "remaining_resources": [
+        "Pinned Doctor model manifest missing/different",
+        "API credentials missing (original outcome-only bootstrap also reads a key)"
+      ]
+    }
+  }
+}

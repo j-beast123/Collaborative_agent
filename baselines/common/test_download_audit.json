@@ -1,0 +1,50 @@
+{
+  "checked_at_utc": "2026-10-09T19:42:00.886025+00:00",
+  "requested_dataset": "HiTZ/casimedicos-arg",
+  "arg_revision": "54a07ccf2993afc42a368e04682125b6f7b13be4",
+  "companion_dataset": "HiTZ/casimedicos-exp",
+  "companion_revision": "771c0d7ab77881fda4c30631183ef242a8425445",
+  "splits": {
+    "train": {
+      "source_rows": 434,
+      "companion_rows": 434,
+      "output_rows": 434,
+      "argument_annotated_rows": 381,
+      "rows_without_argument_annotations": 53,
+      "raw_files": {
+        "/convei_nas2/zzuhyun/Collaborative_agent/data/raw/casimedicos_arg/casimedicos_arg_en_train_ordered.json": "f187d53fcd5a478585dd10edc2cd679bafdf92e746175ecf441aaba4e5206794",
+        "/convei_nas2/zzuhyun/Collaborative_agent/data/raw/casimedicos_arg/casimedicos_exp_en_train.jsonl": "592082fcea35269f89e3880ccfc96e07a3452eab9a7ef77b5c860da6a2ac9650"
+      }
+    },
+    "validation": {
+      "source_rows": 63,
+      "companion_rows": 63,
+      "output_rows": 63,
+      "argument_annotated_rows": 55,
+      "rows_without_argument_annotations": 8,
+      "raw_files": {
+        "/convei_nas2/zzuhyun/Collaborative_agent/data/raw/casimedicos_arg/casimedicos_arg_en_validation_ordered.json": "4b470b9a81f5bd4f6553cafae3b6df3ba8ac4a36d5b89ad8eb9619c91bc57576",
+        "/convei_nas2/zzuhyun/Collaborative_agent/data/raw/casimedicos_arg/casimedicos_exp_en_validation.jsonl": "15b1e68007ae40fb851bc99094b050358252f3aaccc34b1e56949eced6394ffc"
+      }
+    },
+    "test": {
+      "source_rows": 125,
+      "companion_rows": 125,
+      "output_rows": 125,
+      "argument_annotated_rows": 117,
+      "rows_without_argument_annotations": 8,
+      "raw_files": {
+        "/convei_nas2/zzuhyun/Collaborative_agent/data/raw/casimedicos_arg/casimedicos_arg_en_test_ordered.json": "3b9979a52a5ce3d6b307e934ec55bb77764c2ca78c07e651d7415128b56043f8",
+        "/convei_nas2/zzuhyun/Collaborative_agent/data/raw/casimedicos_arg/casimedicos_exp_en_test.jsonl": "1d0f738f6fe0a00c48411038f3ec46e0d2191885b7ef3bd778866b7d758a8ecc"
+      }
+    }
+  },
+  "rows": 622,
+  "output": "data/interim/casimedicos/all_en_622.jsonl",
+  "output_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+  "expected_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+  "exact_original_hash_match": true,
+  "order": "train then validation then test; unchanged companion rows within each split",
+  "annotation_use": "Raw Arg annotations retained separately; not exposed to Agent or Doctor",
+  "test_evaluation_performed": false
+}
