@@ -23,10 +23,11 @@ def test_four_siblings_share_matching_and_review_before_scoring():
     assert len(result)==4 and all(s.score==1 for s in result)
     score_nodes(CASE,nodes,[r],scorer,cache)
     assert len(calls)==6
-    # Different recorded belief is a different state, even for the same prefix.
+    # Hidden belief still partitions behavior/masking, but cannot change the
+    # applicability decision for identical visible judge input.
     changed=replace(nodes[0],trace={'pre_response_belief':{'state':{'belief':'different'}}})
     score_nodes(CASE,[changed],[r],scorer,cache)
-    assert calls[-3:]==['match','review','reply 0']
+    assert calls[-2:]==['match','reply 0'] and calls.count('review') == 1
 
 
 def test_review_na_excludes_behavior_score():

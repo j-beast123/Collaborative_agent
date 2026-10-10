@@ -53,6 +53,22 @@ TEST_FILES=(
   tests/test_scoring_batch.py
   tests/test_source_consistency.py
   tests/test_state_shared_scoring.py
+  tests/test_shared_applicability.py
+  tests/test_intervention_instruction_audit.py
+  tests/test_instruction_alignment_generation.py
+  tests/test_v23_launcher_wiring.py
+  tests/test_supervision_handoff.py
+  tests/test_cumulative_bank.py
+  tests/test_cumulative_run.py
+  tests/test_cumulative_trainer.py
+  tests/test_cumulative_monitor.py
+  tests/test_member_matcher_repair.py
+  tests/test_idle_eval_priority.py
+  tests/test_idle_eval_snapshot.py
+  tests/test_idle_eval_worker.py
+  tests/test_idle_eval_hooks.py
+  tests/test_idle_eval_doctor_restart.py
+  tests/test_idle_eval_supervisor.py
   tests/test_trace_logprobs.py
   tests/test_trajectory_schema.py
   tests/test_tree_na_reward.py
@@ -69,9 +85,6 @@ LEGACY_TESTS=(
   # These assertions require a historical 500-case dataset or compare all historical pilot configs.
   tests/test_gpu_pool.py::test_shared_config_allows_checkpoint_barrier_evaluation
   tests/test_run_tree_wiring.py::test_research_and_pilot_configs_pin_the_same_init_seed
-  # Legacy repair expects a second identical API call; the current cache reuses that response.
-  # Joint active generation rejects source mismatch, and is covered by the new intervention suites.
-  tests/test_source_consistency.py::test_repair_keeps_the_same_locus_and_node
   # Old guided prompt text and P1 reflection/fitness views are not used by this configuration.
   tests/test_tree_v1.py::test_intervention_backends_reuse_the_guided_precedent
   tests/test_tree_v1.py::test_configured_score2_template_uses_the_env_guided_call_shape

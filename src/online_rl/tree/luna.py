@@ -9,7 +9,7 @@ from typing import Callable, Optional
 from src.common import usage
 from src.common.retry import RETRYABLE_STATUS, Retry, rate_limited
 from src.common.config import IntegrationUnavailable
-from src.online_rl.integrated.records import sha256_text
+from src.online_rl.integrated.records import sha256_json, sha256_text
 
 URL = 'https://openrouter.ai/api/v1/chat/completions'
 
@@ -48,7 +48,7 @@ class LunaDecisionClient:
         self.model, self.key, self.system, self.max_tokens, self.post, self.sleep = model, key, system, max_tokens, post, sleep
         self.timeout_s, self.protocol_sha256, self.log = timeout_s, sha256_text(system), []
 
-    def _chat(self, messages: list[dict], schema: dict, purpose: str, max_tokens: Optional[int] = None) -> str:
+    def _chat(self, messages: list[dict], schema: dict, purpose: str, max_tokens: Optional[int] = None, *, return_body=False):
         payload = {'model': self.model, 'messages': messages, 'max_tokens': max_tokens or self.max_tokens,
                    'response_format': {'type': 'json_schema', 'json_schema': {'name': 'decisions', 'strict': True, 'schema': schema}}}
         retry = Retry(f'OpenRouter {self.model} ({purpose})', sleep=self.sleep)        # src/common/retry.py: bounded, larger for 429
@@ -63,7 +63,7 @@ class LunaDecisionClient:
                 usage.record(purpose, body.get('model', self.model), body.get('usage'), retry.attempts,
                              latency_seconds=time.monotonic()-started, request_seconds=request_seconds,
                              retry_wait_seconds=retry_wait_seconds); retry.succeeded()
-                return body['choices'][0]['message'].get('content') or ''
+                return body if return_body else (body['choices'][0]['message'].get('content') or '')
             except urllib.error.HTTPError as e:
                 if request_started is not None:
                     request_seconds += time.monotonic()-request_started;request_started=None
@@ -124,7 +124,16 @@ class LunaDecisionClient:
         rec = {'purpose': purpose, 'stage': stage, 'model': self.model, 'protocol_sha256': self.protocol_sha256, 'raw': raw, 'parsed': parsed,
                'repaired': len(raw) > 1, 'repair_ok': len(raw) > 1 and err is None, 'errors': errors}
         self.log.append(rec)
-        if err or parsed is None: raise IntegrationUnavailable(f'{self.model} returned no valid {purpose} decision after one repair: {err}')
+        if err or parsed is None:
+            error = IntegrationUnavailable(f'{self.model} returned no valid {purpose} decision after one repair: {err}')
+            requests = [{'messages': messages, 'messages_sha256': sha256_json(messages)}]
+            if len(raw) > 1:
+                repaired_messages = messages + [{'role': 'assistant', 'content': raw[0]}, {'role': 'user', 'content': fix}]
+                requests.append({'messages': repaired_messages, 'messages_sha256': sha256_json(repaired_messages)})
+            # Attach this call's evidence directly. Slicing the shared client log
+            # can mix requests from concurrent rubric/member workers.
+            error.audit = {'requests': requests, 'decisions': [rec], 'validation_errors': errors}
+            raise error
         return parsed, rec
 
     def judge_batch(self, stage: str, shared_state: dict, responses: list[dict], items: dict[str, dict],

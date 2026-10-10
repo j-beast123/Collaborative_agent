@@ -1,0 +1,32 @@
+{
+  "extends": "configs/experiments/train120_max2_fixed_p0_v23_cumulative_all_fresh.json",
+  "experiment": {
+    "output_root": "outputs/isolated_app_behavior_audit_v7"
+  },
+  "rubric": {
+    "generator_prompt_file": "prompts/sherpa/trajectory_rubric_generator_v2_8_app_alignment.txt",
+    "prompt_sha256": "3ceb771bab18878aaea62621c7e44d008ff89a147d49584f9dacef2cc877dfc5",
+    "prompt_id": "P0-isolated-app-alignment-v7",
+    "generation": {
+      "public_criterion_protocol": "public_behavior_mc_v1",
+      "local_schema_file": "prompts/sherpa/trajectory_rubric_generator_v2_8_app_alignment.schema.json",
+      "local_schema_sha256": "404d7fdc1b1580650dfc8419c2ac9fbfe18536dfd097dd317befaa8bdb8b0843",
+      "generation_semantic_protocol": "public_app_alignment_generation_v5"
+    },
+    "cumulative_bank": {
+      "matcher_prompt_file": "prompts/sherpa/cumulative_bank_match_public_mc_v1.txt",
+      "matcher_prompt_sha256": "dbd061dcfb40f1d62d4fcdb4b4129ff2ebfd95d0db590d9976a3bc6742807739"
+    }
+  },
+  "judges": {
+    "gate_prompt_file": "prompts/sherpa/gate_public_mc_v5.txt",
+    "gate_prompt_sha256": "1b801deb1cbb2f1be25f39c7e0d754f190b130c2e1fe4cb8191da92ef90deda3",
+    "gate_protocol": "public_mc_gate_v3",
+    "scorer_prompt_file": "prompts/sherpa/scorer_public_mc_v3.txt",
+    "scorer_prompt_sha256": "c2620507db304919270d8a154ea6cdfbe35de810c4c71bce39c8ee13ae6d0fc9",
+    "scorer_protocol": "public_mc_evidence_v3",
+    "applicability_prompt_file": "prompts/sherpa/applicability_public_mc_v3.txt",
+    "applicability_prompt_sha256": "4b2553c3cdc89256f0aeac54e636e6bb8eac32e34573ddf4aa4c7c71ce764b4c",
+    "gate_quote_protocol": "input_field_refs_v2"
+  }
+}

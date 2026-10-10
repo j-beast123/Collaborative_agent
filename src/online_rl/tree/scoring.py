@@ -9,14 +9,11 @@ from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.posthoc import case_view
 from src.online_rl.tree.records import AgentNode, ResponseRubricScore, TrajectoryRubric, to_dialogue
 from src.online_rl.tree.agent_state import visible_rubric
+from src.online_rl.tree.applicability import ScoringContractError, state_applicability
 from src.online_rl.integrated.records import sha256_json
 
 VISIBLE = ('rubric_id', 'name', 'applicability_condition', 'required_behavior', 'scores')
-SCORE_RECORD_CONTRACT = 'complete_state_scoring_with_unscorable_mask_v1'
-
-
-class ScoringContractError(RuntimeError):
-    """An incomplete/invalid judge response must not become NA or a reward."""
+SCORE_RECORD_CONTRACT = 'complete_state_scoring_with_shared_applicability_v2'
 
 
 def _mapping(value, expected, label, metadata=()):
@@ -98,18 +95,11 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
         state_groups = {}
         for n in nodes:
             state_sha = _state_key(view, n)
-            state_groups.setdefault(state_sha, []).append(n)
+            state_groups.setdefault((state_sha, n.policy_sha256), []).append(n)
         batch_fn = getattr(scorer, 'score_behavior_batch', None)
         batch_size = int(getattr(scorer, 'response_batch_size', 1)) if callable(batch_fn) else 1
         if batch_size < 1 or batch_size > 8:
             raise ValueError('response_batch_size must be between 1 and 8')
-
-        def validate_review(value):
-            _mapping(value, src, 'state applicability')
-            for rid, row in value.items():
-                if not isinstance(row, dict) or not isinstance(row.get('applicable'), bool) or row.get('error'):
-                    raise ScoringContractError(f'{rid}: invalid state applicability result')
-            return value
 
         def validate_match(value):
             _mapping(value, src, 'state match')
@@ -121,7 +111,7 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
         def score_state(item):
             # A state owns its review and response batches. No cross-state review
             # barrier or nested pool: at most `workers` API calls are in flight.
-            state_sha, group = item
+            (state_sha, _policy), group = item
             n = group[0]; prefix = to_dialogue(n.prefix)
             identity = {'state_sha256': state_sha, 'policy': n.policy_sha256,
                         'rubrics': sha256_json(rubrics), 'model': getattr(scorer, 'model', None),
@@ -131,11 +121,26 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
             if callable(getattr(scorer, 'match_state', None)):
                 matched = validate_match(cache.call('rubric_state_match', identity,
                     lambda: validate_match(scorer.match_state(view, prefix, rubrics))))
-            review = validate_review(cache.call('rubric_state_applicability', identity,
-                lambda: validate_review(scorer.review_state(view, prefix, rubrics))))
+            review = {r['rubric_id']: state_applicability(case, n, r, scorer, cache) for r in rubrics}
             on = [r for r in rubrics if review[r['rubric_id']]['applicable'] and
                   (matched is None or str(matched[r['rubric_id']]['value']).upper() == 'Y')]
             mask = tuple(r['rubric_id'] for r in on)
+            # Opt-in content aliases let a source ID and bank ID share the same
+            # judgment. Historical scorer/cache contracts remain byte-for-byte
+            # unchanged. Request evidence keeps the canonical transmitted IDs.
+            content_aliases = getattr(scorer, 'behavior_cache_contract', None) == 'public_behavior_content_alias_v1'
+            aliases = {r['rubric_id']: 'criterion_' + sha256_json({k: v for k, v in r.items() if k != 'rubric_id'})
+                       for r in on} if content_aliases else {}
+            canonical_by_id = {aliases[r['rubric_id']]: {**r, 'rubric_id': aliases[r['rubric_id']]}
+                               for r in on} if content_aliases else {}
+            request_rubrics = [canonical_by_id[k] for k in sorted(canonical_by_id)] if content_aliases else on
+
+            def restore_aliases(rows):
+                if not content_aliases:
+                    return rows
+                _mapping(rows, canonical_by_id, 'canonical behavior criteria')
+                return {rid: rows[cid] for rid, cid in aliases.items()}
+
             state_results = {}
             if not on:
                 return group, matched, review, state_results
@@ -151,26 +156,31 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
                 first = part[0]; prefix = to_dialogue(first.prefix)
                 responses = [{'response_id': node.node_id, 'reply': node.response} for node in part]
                 identity = {'state_sha256': sha256_json([view, prefix, (first.trace or {}).get('pre_response_belief')]),
-                            'policy': first.policy_sha256, 'rubrics': sha256_json(on),
+                            'policy': first.policy_sha256, 'rubrics': sha256_json(request_rubrics),
                             'responses': [{'id': node.node_id, 'reply_sha256': sha256_json(node.response)} for node in part],
                             'model': getattr(scorer, 'model', None), 'protocol': getattr(scorer, 'protocol', None),
                             'batch_size': batch_size, 'score_record_contract': SCORE_RECORD_CONTRACT}
+                if content_aliases:
+                    identity['behavior_cache_contract'] = scorer.behavior_cache_contract
                 if callable(batch_fn):
                     def validate_batch(rows):
                         _mapping(rows, [node.node_id for node in part], 'behavior response batch')
                         for node in part:
-                            validate_behavior(node, rows[node.node_id])
+                            validate_behavior(node, restore_aliases(rows[node.node_id]))
                         return rows
                     rows = validate_batch(cache.call('rubric_behavior_batch', identity,
-                        lambda: validate_batch(batch_fn(view, prefix, on, responses))))
-                    state_results.update(rows)
+                        lambda: validate_batch(batch_fn(view, prefix, request_rubrics, responses))))
+                    state_results.update({nid: restore_aliases(values) for nid, values in rows.items()})
                 else:
                     for node in part:
                         single_identity = {**identity, 'response_id': node.node_id}
+                        def validate_single(rows):
+                            validate_behavior(node, restore_aliases(rows))
+                            return rows
                         rows = cache.call('rubric_behavior', single_identity,
-                            lambda: validate_behavior(node, scorer.score_behavior(view, to_dialogue(node.prefix), on,
+                            lambda: validate_single(scorer.score_behavior(view, to_dialogue(node.prefix), request_rubrics,
                                                                                  node.response, matched)))
-                        state_results[node.node_id] = validate_behavior(node, rows)
+                        state_results[node.node_id] = validate_behavior(node, restore_aliases(rows))
             return group, matched, review, state_results
 
         items = list(state_groups.items())
@@ -229,3 +239,68 @@ def scores_by_response(scores: list[ResponseRubricScore]) -> dict[str, list[Resp
     out: dict[str, list[ResponseRubricScore]] = {}
     for s in scores: out.setdefault(s.response_node_id, []).append(s)
     return out
+
+
+def score_cumulative_nodes(case: dict, nodes: list[AgentNode], snapshot: dict, scorer: Callable,
+                           cache: CallCache, *, top_k: int = 8, workers: int = 1,
+                           scoring_scope: str = 'top_k'):
+    """Share applicability across sibling replies for the configured scoring set.
+
+    With scope ``all``, every bank criterion receives an applicability check;
+    ``top_k`` preserves legacy prefix retrieval. In either mode only applicable
+    criteria receive behavior scores. Legacy omitted criteria remain explicitly
+    unevaluated (`not_retrieved`, score=None), never behavior zero.
+    """
+    import json
+    from src.online_rl.tree import cumulative_bank as CB
+    if scoring_scope not in ('top_k', 'all'):
+        raise ScoringContractError('Cumulative scoring_scope must be top_k or all')
+    CB.validate_snapshot(snapshot)
+    rubrics = CB.scoring_rubrics(snapshot)
+    if len({node.node_id for node in nodes}) != len(nodes):
+        raise ScoringContractError('Duplicate response node IDs')
+    by_id = {rubric.rubric_id: rubric for rubric in rubrics}
+    view = case_view(case)
+    groups = {}
+    for node in nodes:
+        groups.setdefault((_state_key(view, node), node.policy_sha256), []).append(node)
+
+    def score_state(item):
+        (state_sha, policy_sha), group = item
+        first = group[0]
+        # Neither current reply, later dialogue nor outcome can influence retrieval.
+        query = json.dumps({'case': view, 'prefix': to_dialogue(first.prefix)},
+                           sort_keys=True, ensure_ascii=False)
+        shortlist = (snapshot['entries'] if scoring_scope == 'all'
+                     else CB.shortlist(snapshot, query, top_k=top_k))
+        selected_ids = [entry['bank_id'] for entry in shortlist]
+        if len(selected_ids) != len(set(selected_ids)) or not set(selected_ids) <= set(by_id):
+            raise ScoringContractError('Cumulative retrieval returned duplicate or unknown bank criteria')
+        selected = [by_id[rid] for rid in selected_ids]
+        rows = score_nodes(case, group, selected, scorer, cache, workers=1)
+        for node in group:
+            for rid in sorted(set(by_id) - set(selected_ids)):
+                rows.append(ResponseRubricScore(node.node_id, rid, by_id[rid].leaf_id, False, None, None, None,
+                    'not_retrieved', {'retrieval': {'evaluated': False, 'snapshot_sha256': snapshot['sha256']}}))
+        retrieval = {'state_sha256': state_sha, 'policy_sha256': policy_sha,
+                     'response_ids': [node.node_id for node in group], 'snapshot_sha256': snapshot['sha256'],
+                     'query_sha256': sha256_json(query), 'retrieval_ids': selected_ids,
+                     'retrieval_content_sha256': {entry['bank_id']: entry['content_sha256'] for entry in shortlist},
+                     'bank_size': len(rubrics), 'top_k': top_k}
+        if scoring_scope == 'all':
+            retrieval.update(scoring_scope='all', candidate_selection='full_cumulative_bank', top_k=None)
+        return rows, retrieval
+
+    items = list(groups.items())
+    if workers > 1 and len(items) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        from contextvars import copy_context
+        with ThreadPoolExecutor(min(workers, len(items))) as pool:
+            futures = [pool.submit(copy_context().run, score_state, item) for item in items]
+            results = [future.result() for future in futures]
+    else:
+        results = [score_state(item) for item in items]
+    rows = [row for scores, _ in results for row in scores]
+    node_order = {node.node_id: i for i, node in enumerate(nodes)}
+    rows.sort(key=lambda row: (node_order[row.response_node_id], row.rubric_id))
+    return rows, [retrieval for _, retrieval in results]

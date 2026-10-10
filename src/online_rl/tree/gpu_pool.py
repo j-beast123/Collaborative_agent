@@ -129,7 +129,8 @@ class Actor:
             note(pool_last_source_gpu=request['source_gpu'],
                  pool_last_case_id=request['context'].get('case_id'),
                  pool_last_operation=request['op'])
-            with activity('pool.execute.' + request['op']):
+            from src.online_rl.tree.idle_eval_hooks import training_guard
+            with training_guard(self.gpu, request['op']), activity('pool.execute.' + request['op']):
                 value = self.handlers[request['op']](*request['args'])
             result = {'ok': True, 'value': value}
         except Exception as exc:

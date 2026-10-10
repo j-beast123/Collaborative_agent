@@ -92,15 +92,15 @@ class Fx:
 
 def run(fx, nodes, leaves, loci, source=None, max_valid=4, rid='R', cache=None, support_sampling='topology'):
     rub = rubric(rid); A = assignments(leaves, rid, source)
-    orig = W.stage1_applicable
+    orig = W.stage1_decision
     def stage1(case, node, r, applicability, cache):
         fx._node = node.node_id; return orig(case, node, r, applicability, cache)
-    W.stage1_applicable = stage1
+    W.stage1_decision = stage1
     try:
         return W.verify_witness(CASE, nodes, leaves, {rid: rub}, A, loci, applicability=fx.applicability, writer=fx.writer, continuation=fx.continuation,
                                 reruns=3, run_seed=0, policy_sha256='pol', cache=cache or CallCache(None), max_valid_supports=max_valid,
                                 support_sampling=support_sampling)[rid]
-    finally: W.stage1_applicable = orig
+    finally: W.stage1_decision = orig
 
 
 def seq_outcomes(seq):
@@ -137,7 +137,10 @@ def test_keep_stops_at_first_witness_and_not_validated_after_four_valid_supports
 
 
 def test_no_match_and_missing_locus_are_skipped_and_not_counted():
+    from dataclasses import replace
     nodes, leaves = tree(['0.0', '1.0', '2.0'])
+    # A different applicability answer requires a different visible state.
+    nodes['c1/1.0'] = replace(nodes['c1/1.0'], prefix=(('doctor', 'D1', 1, 'No pending request.'),))
     fx = Fx(lambda seed: 0.0, applicable=lambda node: node != 'c1/1.0')
     v = run(fx, nodes, leaves, {'c1/0.0': 2, 'c1/1.0': 2, 'c1/2.0': None})
     res = {t['leaf_id']: t['result'] for t in v.tested}

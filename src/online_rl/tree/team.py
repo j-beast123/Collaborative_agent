@@ -25,6 +25,10 @@ def effectiveness_weighted_r_a(scores: list[ResponseRubricScore], weights: dict[
     used = []
     for s in scores:
         status = getattr(s, 'scoring_status', None) or ('scored' if s.match else 'not_applicable')
+        if status == 'not_retrieved':
+            if s.match is not False or any(value is not None for value in (s.score, s.hard, s.probabilities)):
+                raise RuntimeError(f'Invalid not_retrieved assessment: {s.response_node_id}/{s.rubric_id}')
+            continue
         if status in ('group_unscorable', 'rubric_unscorable'):
             continue
         if status == 'not_applicable' and not s.match:

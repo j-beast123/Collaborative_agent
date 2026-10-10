@@ -99,7 +99,7 @@ def test_still_no_match_after_repair_is_source_inconsistent_and_skips_the_gate()
 
 # 6
 def test_repair_keeps_the_same_locus_and_node():
-    g = Gen(); cache = CallCache(None); asked = []
+    g = Gen(repaired={**RUB, 'applicability_condition': 'the physician asks for the basis'}); cache = CallCache(None); asked = []
     def applicability(view, prefix, rubrics):
         asked.append((len(prefix), rubrics[0]['rubric_id'])); return {rubrics[0]['rubric_id']: {'applicable': False, 'stage1': {}}}
     ssf = W.source_stage1_for(CASE, NODES, LEAF, tin().target_reply_id, applicability, cache)

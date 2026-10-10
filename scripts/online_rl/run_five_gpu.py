@@ -21,9 +21,19 @@ def preflight(cfg):
     from scripts.online_rl.run_tree import blockers, PROMPT_HASHES, file_sha
     from src.online_rl.cases import load_cases, file_sha256
     errors = blockers(cfg)
+    from src.online_rl.tree.cumulative_run import config_identity as bank_identity
+    try:
+        bank_identity(cfg, ROOT)
+    except (ValueError, RuntimeError, OSError, KeyError) as exc:
+        errors.append('Cumulative bank: ' + str(exc))
     for section, file, digest in PROMPT_HASHES:
         if file not in cfg.get(section, {}) or digest not in cfg.get(section, {}): continue
-        if cfg[section][digest] != file_sha(cfg[section][file]):
+        try:
+            actual_digest = file_sha(cfg[section][file])
+        except (OSError, TypeError):
+            errors.append(f'Missing or unreadable prompt artifact: {section}.{file}')
+            continue
+        if cfg[section][digest] != actual_digest:
             errors.append(f'Prompt hash differs: {section}.{file}')
     for section, path_key, hash_key in ((cfg['data'],'train','train_sha256'),
                                        (cfg['five_gpu'],'eval_file','eval_sha256')):
@@ -99,6 +109,11 @@ def preflight(cfg):
         except (ValueError,OSError) as e: errors.append(str(e))
     try: physical_gpus()
     except ValueError as e: errors.append(str(e))
+    if cfg.get('supervision_handoff') is not None and not (ROOT/cfg['output_dir']/'run_state.json').exists():
+        from src.online_rl.tree.supervision_handoff import validate_handoff
+        try: validate_handoff(cfg, ROOT/cfg['output_dir'])
+        except (ValueError, RuntimeError, KeyError, OSError) as e:
+            errors.append('Checkpoint supervision handoff: ' + str(e))
     return errors
 
 
@@ -186,8 +201,10 @@ def run(cfg, max_batches=None, eval_only=False):
     local['rollout']['doctor_backend']['endpoint'] = fg['doctor_urls'][4]
     torch.manual_seed(cfg['schedule']['seed'])
     from src.common.live_gpu import configure, activity, note
+    from src.online_rl.tree.idle_eval_hooks import register_worker, training_guard
+    register_worker(4)
     configure(out,4)
-    with activity('model_load'):
+    with training_guard(4, 'model_load', release_memory=True), activity('model_load'):
         policy = SharedPolicy(local,key,device='cuda:4')
     problems = policy.doctor.verify()['problems']
     if problems: raise RuntimeError('GPU4 Doctor identity: '+'; '.join(problems))
@@ -229,10 +246,24 @@ def run(cfg, max_batches=None, eval_only=False):
         # The dialogue policy stays frozen, but a new reflection-output contract
         # must never share the old supervision protocol identity.
         protocol_parts['feedback_claim_audit'] = generation_settings(cfg['rubric'])
-    from scripts.online_rl.run_tree import evidence_gate_identity
+    from scripts.online_rl.run_tree import evidence_gate_identity, intervention_audit_identity
+    from src.online_rl.tree.applicability import APPLICABILITY_CONTRACT
+    from src.online_rl.tree.scoring import SCORE_RECORD_CONTRACT
     gate_identity = evidence_gate_identity(cfg, ROOT)
     if gate_identity is not None:
         protocol_parts['rubric_gate'] = gate_identity
+    if cfg.get('rubric', {}).get('enabled', True):
+        protocol_parts['applicability_contract'] = APPLICABILITY_CONTRACT
+        protocol_parts['score_record_contract'] = SCORE_RECORD_CONTRACT
+    audit_identity = intervention_audit_identity(cfg, ROOT)
+    if audit_identity is not None:
+        protocol_parts['intervention_instruction_audit'] = audit_identity
+    from src.online_rl.tree import cumulative_run
+    bank_identity = cumulative_run.config_identity(cfg, ROOT)
+    if bank_identity is not None:
+        protocol_parts['cumulative_bank'] = bank_identity
+    # Case workers call run_tree.build, which binds the same configured audit callback.
+    # Explicit research identities prevent importing old decisions with a frozen rollout hash.
     protocol = sha256_json({**protocol_parts,
                             'rubric_pipeline_mode':'phase_barrier_reruns_then_union_score_v1'})
     path = out/'run_state.json'
@@ -285,7 +316,8 @@ def run(cfg, max_batches=None, eval_only=False):
                 run_manifest['protocol_sha256'] = protocol
                 atomic_write_json(manifest_path, run_manifest)
         experiment.check_resume(cfg,out,state,theta0)
-        load_checkpoint(updater,state['checkpoint'])
+        with training_guard(4, 'resume_checkpoint', release_memory=True):
+            load_checkpoint(updater,state['checkpoint'])
         if adapter_sha256(policy.model) != state['policy_sha256']: raise RuntimeError('Resume adapter mismatch')
         manifest_path = out/'run_manifest.json'
         if manifest_path.exists():
@@ -297,6 +329,20 @@ def run(cfg, max_batches=None, eval_only=False):
                     'note': 'Evaluation-only change; training config identity is normalized to disabled.'})
                 run_manifest['config'] = cfg
                 atomic_write_json(manifest_path, run_manifest)
+    elif cfg.get('supervision_handoff') is not None:
+        if eval_only: raise RuntimeError('--eval-only requires an existing run')
+        from src.online_rl.tree.supervision_handoff import prepare_handoff
+        print(json.dumps({'stage':'checkpoint_handoff',
+                          'source_checkpoint':cfg['supervision_handoff']['source_checkpoint']}),flush=True)
+        state = prepare_handoff(updater,cfg,out,config_sha,protocol,theta0,
+            lambda:adapter_sha256(policy.model),
+            manifest_payload={'config':cfg,'protocol_sha256':protocol,
+                              'rubric_only_na_policy':RUBRIC_ONLY_NA_POLICY,
+                              'rerun_outcome_policy':RERUN_OUTCOME_POLICY,
+                              'rerun_continuation_protocol':RERUN_CONTINUATION_PROTOCOL})
+        print(json.dumps({'stage':'checkpoint_handoff_complete','completed_cases':state['case_cursor'],
+                          'batch':state['batch_cursor'],'optimizer_steps':updater.steps,
+                          'policy_sha256':state['policy_sha256']}),flush=True)
     else:
         if eval_only: raise RuntimeError('--eval-only requires an existing run')
         if (out/'checkpoints').exists(): raise RuntimeError('Checkpoint artifacts without committed run state')
@@ -311,6 +357,8 @@ def run(cfg, max_batches=None, eval_only=False):
                             'rubric_only_na_policy':RUBRIC_ONLY_NA_POLICY,'rerun_outcome_policy':RERUN_OUTCOME_POLICY,
                             'rerun_continuation_protocol':RERUN_CONTINUATION_PROTOCOL})
         atomic_write_json(path,state)
+    if bank_identity is not None:
+        state = cumulative_run.initialize_bank_state(cfg, ROOT, out, state)
     eval_cases = load_cases(ROOT/fg['eval_file']) if evaluation_enabled or fg.get('base_evaluation',{}).get('enabled') else []
     base_evaluation=None
     if fg.get('base_evaluation',{}).get('enabled'):
@@ -419,6 +467,7 @@ def run(cfg, max_batches=None, eval_only=False):
                     if shared:assert_idle(pool_spec)
                     return sorted([r for result in results for r in result],key=lambda r:r['case_cursor'])
                 next_prompt=None
+                next_bank=None
                 if evolving:
                     history=[]
                     for p in sorted((out/'prompt_events').glob('batch_*.json')):
@@ -430,6 +479,8 @@ def run(cfg, max_batches=None, eval_only=False):
                     records,event=prompt_round(batch,jobs,state,collect,store,backend,prompt_cache,history,batchdir)
                     atomic_write_json(out/'prompt_events'/f'batch_{batch:06d}.json',event)
                     next_prompt=event['next_prompt']
+                elif bank_identity is not None:
+                    records,next_bank=cumulative_run.round_records(cfg,ROOT,out,state,batch,batchdir,collect)
                 else:
                     records=collect()
                 if shared:
@@ -448,24 +499,35 @@ def run(cfg, max_batches=None, eval_only=False):
                         raise RuntimeError('Recovery receipt differs from replayed batch')
                     if evolving and proof.get('next_prompt')!=next_prompt:
                         raise RuntimeError('Recovery receipt prompt winner differs')
-                    load_checkpoint(updater,ckpt); update = proof['update']
+                    if next_bank is not None and any(proof.get(k)!=v for k,v in cumulative_run.bank_fields(next_bank).items()):
+                        raise RuntimeError('Recovery receipt cumulative bank differs')
+                    with training_guard(4, 'recovery_checkpoint', release_memory=True):
+                        load_checkpoint(updater,ckpt)
+                    update = proof['update']
                 else:
                     print(json.dumps({'stage':'agent_update','gpu':4,'batch':batch,'cases':len(records)}),flush=True)
-                    # Release the idle evaluation Doctor's VRAM before backward/optimizer work.
-                    policy.doctor.http(fg['doctor_urls'][4]+'/api/generate',
-                        {'model':cfg['rollout']['doctor_backend']['model'],'keep_alive':0},60)
-                    note(phase='agent_update',batch=batch)
-                    with activity('agent_update'):
-                        update = update_batch(updater,records,state['policy_sha256'],lambda:adapter_sha256(policy.model))
-                    proof = {'records_sha256':digest,'source_policy_sha256':state['policy_sha256'],
-                        'policy_sha256':adapter_sha256(policy.model),'completed_cases':cursor,
-                        'protocol_sha256':protocol,'update':update,**experiment.receipt_fields(cfg)}
-                    if evolving:proof['next_prompt']=next_prompt
-                    save_checkpoint(updater,ckpt,proof)
+                    # The optional independent evaluator must release GPU4's
+                    # model residency before backward can allocate memory.
+                    with training_guard(4, 'agent_update', release_memory=True):
+                        policy.doctor.http(fg['doctor_urls'][4]+'/api/generate',
+                            {'model':cfg['rollout']['doctor_backend']['model'],'keep_alive':0},60)
+                        note(phase='agent_update',batch=batch)
+                        with activity('agent_update'):
+                            update = update_batch(updater,records,state['policy_sha256'],lambda:adapter_sha256(policy.model))
+                        proof = {'records_sha256':digest,'source_policy_sha256':state['policy_sha256'],
+                            'policy_sha256':adapter_sha256(policy.model),'completed_cases':cursor,
+                            'protocol_sha256':protocol,'update':update,**experiment.receipt_fields(cfg)}
+                        if evolving:proof['next_prompt']=next_prompt
+                        if next_bank is not None:proof.update(cumulative_run.bank_fields(next_bank))
+                        save_checkpoint(updater,ckpt,proof)
+                        if os.environ.get('SHERPA_IDLE_EVAL_PRIORITY_DIR'):
+                            torch.cuda.synchronize(policy.model.device)
+                            torch.cuda.empty_cache()
                 previous = Path(state['checkpoint'])
                 state = {**state,'case_cursor':cursor,'batch_cursor':batch,
                          'checkpoint':str(ckpt),'policy_sha256':adapter_sha256(policy.model)}
                 if evolving:state.update(prompt_sha256=next_prompt['sha256'],prompt_id=next_prompt['id'])
+                if next_bank is not None:state.update(cumulative_run.bank_fields(next_bank))
                 for record in records:
                     record['batch_update'] = update
                     atomic_write_json(out/'cases'/f'case_{record["case_cursor"]:06d}.json',record)

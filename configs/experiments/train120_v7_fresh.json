@@ -1,0 +1,16 @@
+{
+  "extends": "configs/experiments/quality_alignment_audit_v7.json",
+  "experiment": {
+    "output_root": "outputs/train120_v7_fresh_20261011"
+  },
+  "policy": {
+    "init_adapter": null
+  },
+  "judges": {
+    "compact_runtime": "v7_1"
+  },
+  "notes": {
+    "restart": "base plus empty bank; no prior bank, KEEP, score cache, or adapter import",
+    "evaluation": "C65 full 622 runs on cooperative idle GPUs with training priority. The same fixed 200-item subset starts at C30 and is evaluated every two optimizer updates."
+  }
+}

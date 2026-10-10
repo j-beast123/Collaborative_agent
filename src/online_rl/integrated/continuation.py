@@ -45,7 +45,20 @@ def protocol_sha256(cfg: dict, root: Path) -> str:
            'agent_prompt': sha256_text((root / ro.get('agent_system_prompt_file', 'prompts/agent.txt')).read_text()),
            'doctor_prompt': sha256_text(doctor_system := (root / ro.get('doctor_system_prompt_file', 'prompts/user_simulator.txt')).read_text())}
     if cfg.get('rubric', {}).get('enabled', True):
+        if cfg.get('rubric', {}).get('cumulative_bank') is not None:
+            from src.online_rl.tree.cumulative_run import config_identity
+            out['cumulative_bank'] = config_identity(cfg, root)
         out['rerun_outcome_policy'] = RERUN_OUTCOME_POLICY
+        from src.online_rl.tree.applicability import APPLICABILITY_CONTRACT
+        from src.online_rl.tree.scoring import SCORE_RECORD_CONTRACT
+        out['applicability_contract'] = APPLICABILITY_CONTRACT
+        out['score_record_contract'] = SCORE_RECORD_CONTRACT
+        if cfg.get('judges', {}).get('gate_protocol') == 'evidence_gate_v2':
+            from scripts.online_rl.run_tree import evidence_gate_identity
+            out['evidence_gate'] = evidence_gate_identity(cfg, root)
+        if cfg.get('judges', {}).get('intervention_audit_protocol'):
+            from scripts.online_rl.run_tree import intervention_audit_identity
+            out['intervention_audit'] = intervention_audit_identity(cfg, root)
         if cfg.get('rubric', {}).get('generation', {}).get('output_contract') == 'trajectory_analysis_candidate_v2_with_intervention':
             from src.online_rl.tree.member_intervention import MEMBER_INTERVENTION_VERSION
             out['member_intervention_protocol'] = MEMBER_INTERVENTION_VERSION

@@ -1,0 +1,39 @@
+{
+  "extends": "configs/experiments/train120_max2_fixed_p0_v23.json",
+  "experiment": {
+    "output_root": "outputs/reward_prompt_matrix/p0_fixed_v23_cumulative_all_max2_train120_fresh_20261010"
+  },
+  "policy": {
+    "init_adapter": null
+  },
+  "supervision_handoff": null,
+  "rollout": {
+    "doctor_backend": {
+      "endpoint": "http://127.0.0.1:11835"
+    }
+  },
+  "five_gpu": {
+    "doctor_urls": [
+      "http://127.0.0.1:11835",
+      "http://127.0.0.1:11836",
+      "http://127.0.0.1:11837",
+      "http://127.0.0.1:11838",
+      "http://127.0.0.1:11839"
+    ]
+  },
+  "rubric": {
+    "cumulative_bank": {
+      "protocol": "cumulative_keep_bank_v1",
+      "retrieval_top_k": 8,
+      "scoring_scope": "all",
+      "matcher_prompt_file": "prompts/sherpa/cumulative_bank_match_v1.txt",
+      "matcher_prompt_sha256": "617519e9dad8e7ccd8fc28db8ece136e32f938e0a4bad18187e79a4b9ded69e6"
+    }
+  },
+  "notes": {
+    "activation": "Fresh base Qwen3-8B and new untrained LoRA, empty cumulative bank, case cursor zero. No checkpoint handoff or prior bank/cache import.",
+    "cumulative_scoring": "After all five cases finish generation and verification, freeze one cumulative bank and check every criterion for each shared pre-response state. Only applicable criteria receive behavior scores; NA is not zero. No top-k cutoff in final scoring.",
+    "cumulative_reuse": "retrieval_top_k=8 applies only to the separate pre-generation reuse search; unchanged verified criteria are reused without new generation, Gate or witness reruns.",
+    "output_root": "New output root for the fresh full-bank-scoring run. Previous runs, banks, caches and checkpoints remain separate."
+  }
+}

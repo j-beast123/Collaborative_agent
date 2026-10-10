@@ -213,3 +213,11 @@ active max2 run:
 ```text
 b6475b72d7f8bd5892008bcf2af1d6b8f7402fbb26b0beef9eb0ebf28a248d6a
 ```
+
+## Fresh v7 rubric training (120 cases)
+
+The active v7 run uses `configs/experiments/train120_v7_fresh.json`: Qwen3-8B base weights, a new LoRA adapter, an empty cumulative rubric bank, fixed P0 generation, two rollout turns, five GPUs, and equal outcome/rubric reward weights. Cumulative-bank scoring evaluates every stored criterion; the top-8 setting is only for pre-generation reuse search. The v7 judge path keeps shared-state applicability separate from per-response behavior scoring and records compact evidence.
+
+The run uses the existing prepared 120-case MedMCQA order and CasiMedicos 622-item evaluation file. Prepare those files locally before launching; dataset contents and run outputs are not committed. Check the config's pinned hashes after preparation.
+
+For the fixed 200-item evaluation schedule, the running job uses the same baseline selection and cached Doctor openings as the earlier balanced evaluation, begins at C30, and schedules evaluation after every two optimizer updates. C65 full evaluation uses cooperative idle-GPU leases and yields to training.

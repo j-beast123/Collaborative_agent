@@ -16,6 +16,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 ROOT=Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:sys.path.insert(0,str(ROOT))
 ONE_STEP_PROTOCOLS={'intervention_agent_once_doctor_final_once_v1',
                     'fresh_agent_from_joint_generated_intervention_instruction_then_doctor_final_each_rerun_v4',
                     'fresh_agent_from_joint_generated_intervention_instruction_then_doctor_final_each_rerun_v5'}
@@ -23,7 +24,8 @@ ONE_STEP_PROTOCOLS={'intervention_agent_once_doctor_final_once_v1',
 
 def unscorable_suffix(distribution):
     """U is an explicitly unscorable assessment, separate from genuine NA."""
-    return f' U:{distribution["U"]}' if distribution.get('U',0) else ''
+    return ((f' U:{distribution["U"]}' if distribution.get('U',0) else '') +
+            (f' NR:{distribution["NR"]}' if distribution.get('NR',0) else ''))
 
 
 def incomplete_suffix(funnel):
@@ -220,7 +222,9 @@ def summarize_phase(record):
     for item in scores:
         hard=item.get('hard')
         applicable=item.get('applicable',item.get('match',hard is not None or item.get('score') is not None))
-        if item.get('scoring_status') in ('rubric_unscorable','group_unscorable'):
+        if item.get('scoring_status') == 'not_retrieved':
+            score_distribution['NR']+=1
+        elif item.get('scoring_status') in ('rubric_unscorable','group_unscorable'):
             score_distribution['U']+=1
         elif not applicable:
             score_distribution['NA']+=1
@@ -242,7 +246,9 @@ def summarize_phase(record):
             'not_validated':sum(w.get('decision')=='NOT_VALIDATED' for w in witness),
             'rollout_wall_seconds':(record.get('timings') or {}).get('rollout_wall_seconds'),
             'step_wall_seconds':record.get('seconds'),
-            'score_distribution':{k:score_distribution.get(k,0) for k in ('0','1','2','NA','U','other')},
+            'score_distribution':{**{k:score_distribution.get(k,0) for k in ('0','1','2','NA','U','other')},
+                                  **({'NR':score_distribution['NR']} if score_distribution['NR'] else {})},
+            'cumulative_reused_trajectories':len(record.get('cumulative_reuse', [])),
             'scored_pairs':len(scores),
             'training_rubrics':len(record.get('rubric_weights',{})),
             'union_rubrics':len(record.get('training_rubrics',[])),
@@ -316,6 +322,7 @@ class Monitor:
                 self.api_latency['timed_calls']+=1
                 self.api_purposes[purpose]['calls']+=1
         state=read_json(self.root/'run_state.json',{})
+        cumulative=bool(self.cfg.get('rubric',{}).get('cumulative_bank') or state.get('rubric_bank_sha256'))
         eval_jobs=[]
         for job in sorted((self.root/'evaluation').glob('checkpoint_*')):
             manifest=read_json(job/'manifest.json',{})
@@ -355,7 +362,12 @@ class Monitor:
                     path=directory/'calls.jsonl';key=str(path)
                     cache=self.caches.setdefault(key,WorkerCache(path));cache.update(now)
                     r.update(case_index=assignment['index'],case_id=manifest['case_ids'][manifest['assignments'].index(assignment)])
-                    if (directory/'union.json').exists() or (directory/'result.json').exists():r['phase']='waiting at batch barrier'
+                    if cumulative:
+                        if (directory/'bank_score.json').exists():r['phase']='waiting at batch barrier'
+                        elif (directory/'bank_verify.json').exists():r['phase']='bank scoring / wait'
+                        elif (directory/'bank_prepare.json').exists():r['phase']='bank rerun verification / wait'
+                        else:r['phase']='bank rollout / Doctor reflection'
+                    elif (directory/'union.json').exists() or (directory/'result.json').exists():r['phase']='waiting at batch barrier'
                     elif (directory/'P1_verify.json').exists() or (directory/'P1.json').exists():r['phase']='P0+P1 union scoring / wait'
                     elif (directory/'P1_prepare.json').exists():r['phase']='P1 rubric / rerun'
                     elif (directory/'P0_verify.json').exists():r['phase']='P1 generation / wait'
@@ -367,8 +379,19 @@ class Monitor:
                     ro=self.cfg['rollout']
                     leaves=leaf_progress(cache.agent_paths,cache.final_paths,ro['branching'],ro['rounds'],
                                          ro.get('halting',{}).get('min_agent_turns',2 if ro.get('doctor_backend') else 1))
+                    if cumulative and not any((directory/f'bank_{stage}.json').exists() for stage in ('prepare','verify','score')):
+                        # Leaf reflection overlaps rollout. Its first completed
+                        # API call does not mean a complete tree or rubric bank.
+                        active=(live.get('active',{}) if live_ok and live.get('case_index')==assignment['index'] else {})
+                        generating=any(cache.counts[k] for k in ('rubric_generation','rubric_repair','rubric_match','rubric_match_batch','posthoc_gate')) or any(
+                            active.get(k) for k in ('role.rubric_generator','cache.rubric_generation','cache.rubric_repair','cache.posthoc_gate'))
+                        matching=bool(cache.counts['cumulative_bank_match'] or active.get('cache.cumulative_bank_match'))
+                        if not leaves['tree_complete']:r['phase']='bank rollout / Doctor reflection'
+                        elif generating:r['phase']='bank candidate generation / reuse'
+                        elif matching:r['phase']='bank reuse matching'
+                        else:r['phase']='bank Doctor reflection / wait'
                     case_start=first_record_time(directory/'execution_runtime.jsonl') or batch_start
-                    case_end=file_time(directory/'union.json') or file_time(directory/'result.json') or wall
+                    case_end=(file_time(directory/'bank_score.json') if cumulative else None) or file_time(directory/'union.json') or file_time(directory/'result.json') or wall
                     phases={
                         'P0': next((self.phase_summary(directory/f'{name}.json') for name in
                                     ('P0_verify','P0','P0_prepare') if (directory/f'{name}.json').exists()),None),
@@ -377,8 +400,16 @@ class Monitor:
                         'union': self.phase_summary(directory/'union.json')}
                     if phases['union'] is None and (directory/'result.json').exists():
                         phases['union']=self.phase_summary(directory/'result.json')
+                    bank_prepared=self.phase_summary(directory/'bank_prepare.json') if cumulative else None
+                    if cumulative:
+                        phases={'P0':self.phase_summary(directory/'bank_verify.json'),
+                                'P1':None,'union':self.phase_summary(directory/'bank_score.json')}
+                    bank_phases={phase:(directory/f'bank_{phase}.json').exists() for phase in ('prepare','verify','score')}
                     final_scoring=phases['union']
                     pipeline={'feedback_done':len(cache.feedback_leaves),
+                              'cumulative':cumulative,
+                              'bank_phase_complete':bank_phases,
+                              'bank_reused_trajectories':((phases['P0'] or bank_prepared or {}).get('cumulative_reused_trajectories',0) if cumulative else 0),
                               'generation_calls':cache.counts['rubric_generation'],
                               'repair_calls':cache.counts['rubric_repair'],
                               'match_calls':cache.counts['rubric_match'],
@@ -391,9 +422,10 @@ class Monitor:
                               'scoring_requests':cache.counts['rubric_score'],'scoring_unique_nodes':len(cache.scored_nodes),
                               'live_scored_pairs':len(cache.scored_pairs),
                               'live_score_distribution':{k:cache.live_score_distribution.get(k,0) for k in ('0','1','2','NA','U')},
-                              'phase_complete':{p:phases[p] is not None for p in phases},
-                              'rollout_seconds':(phases['P0'] or {}).get('rollout_wall_seconds'),
-                              'p0_step_seconds':(phases['P0'] or {}).get('step_wall_seconds'),
+                              'phase_complete':({'P0':bank_phases['verify'],'P1':False,'union':bank_phases['score']} if cumulative else
+                                                {p:phases[p] is not None for p in phases}),
+                              'rollout_seconds':(phases['P0'] or bank_prepared or {}).get('rollout_wall_seconds'),
+                              'p0_step_seconds':(phases['P0'] or bank_prepared or {}).get('step_wall_seconds'),
                               'score_distribution':{phase:(phases[phase] or {}).get('score_distribution')
                                                     for phase in ('P0','P1','union')},
                               'outcome_signal':{phase:(phases[phase] or {}).get('outcome_signal')
@@ -479,9 +511,14 @@ class Monitor:
             for dist in records:totals.update(dist)
             scored_pairs=sum(p['phase_scored_pairs'][phase] for p in pipelines
                              if p['phase_scored_pairs'].get(phase) is not None)
-            pipeline['score_distribution'][phase]={'counts':{k:totals.get(k,0) for k in ('0','1','2','NA','U','other')},
+            pipeline['score_distribution'][phase]={'counts':{k:totals.get(k,0) for k in ('0','1','2','NA','U','NR','other')},
                                                    'cases':len(records),'n':scored_pairs}
         pipeline['cases_total']=len(pipelines)
+        if cumulative:
+            pipeline['cumulative']=True
+            pipeline['bank_phase_complete']={phase:sum(p['bank_phase_complete'][phase] for p in pipelines)
+                                             for phase in ('prepare','verify','score')}
+            pipeline['bank_reused_trajectories']=sum(p['bank_reused_trajectories'] for p in pipelines)
         pipeline['final_nodes_total_known']=bool(pipelines) and all(p['final_nodes_total_known'] for p in pipelines)
         pipeline['keep']={phase:sum(p['keep'][phase] for p in pipelines if p['keep'][phase] is not None)
                           if any(p['keep'][phase] is not None for p in pipelines) else None for phase in ('P0','P1')}
@@ -502,6 +539,8 @@ class Monitor:
                           'trees_total':sum('leaves' in r for r in rows)},
                 'pipeline':pipeline,'committed_batches':state.get('batch_cursor',0),'restart':restart,
                 'checkpoint_evaluation':pending_eval or latest_eval,
+                'idle_evaluation':idle_evaluation_status(self.root),
+                'cumulative_bank':cumulative_bank_status(self.root,state,latest.parent if latest else None,pipeline,self.cfg) if cumulative else None,
                 'api':{'recorded_usd':self.spend,'calls':self.api_calls,'unpriced_calls':self.unpriced,
                        'timing':dict(self.api_latency),'by_purpose':{k:dict(v) for k,v in self.api_purposes.items()}},
                 'sample_window_seconds':min(60,now-self.start)}
@@ -511,6 +550,129 @@ def pid_alive(pid):
     if not pid:return False
     try:os.kill(int(pid),0);return True
     except OSError:return False
+
+
+def idle_evaluation_status(root):
+    reference=read_json(Path(root)/'idle_eval_runtime.json',{})
+    if not reference.get('output_dir'):return None
+    out=Path(reference['output_dir'])
+    if not out.is_absolute():out=Path(root)/out
+    controller=read_json(out/'status.json',{})
+    priority_dir=Path(reference['priority_dir']) if reference.get('priority_dir') else Path(root)/'idle_eval_priority'
+    if reference.get('priority_dir') and not priority_dir.is_absolute():priority_dir=Path(root)/priority_dir
+    priority=read_json(priority_dir/'priority.json',{})
+    active=[];resident=[]
+    for gpu,state in priority.get('gpus',{}).items():
+        if any(pid_alive(row.get('owner',{}).get('pid')) for row in state.get('calls',{}).values()):active.append(gpu)
+        if any(pid_alive(row.get('owner',{}).get('pid')) for row in state.get('residents',{}).values()):resident.append(gpu)
+    if (controller.get('contract') or reference.get('contract'))=='periodic_idle_checkpoint_eval_v1':
+        job=controller.get('current_job') or {}
+        evaluation=job.get('evaluation') or controller.get('evaluation')
+        # Read only the explicitly selected job. The old fixed C20/622 summary
+        # at output/evaluation must never be relabelled as a new balanced job.
+        summary={}
+        if evaluation:
+            directory=Path(evaluation)
+            if not directory.is_absolute():directory=out/directory
+            summary=read_json(directory/'summary.json',{})
+        queued=controller.get('queued_updates',controller.get('queue',[]))
+        return {**controller,**summary,'contract':'periodic_idle_checkpoint_eval_v1',
+                'checkpoint_cases':job.get('completed_cases',job.get('checkpoint_cases',controller.get('checkpoint_cases'))),
+                'optimizer_steps':job.get('optimizer_steps',controller.get('evaluating_update')),
+                'dataset_cases':summary.get('dataset_cases',controller.get('dataset_cases',200)),
+                'queue_depth':controller.get('queue_depth',len(queued) if isinstance(queued,list) else 0),
+                'baseline_accuracy':summary.get('baseline_accuracy',controller.get('baseline_accuracy',reference.get('baseline_accuracy',.5))),
+                'controller_stage':controller.get('stage','starting'),
+                'controller_alive':pid_alive(controller.get('pid')),
+                'active_gpus':sorted(active),'resident_gpus':sorted(resident)}
+    summary=read_json(out/'evaluation/summary.json',{})
+    return {**summary,'checkpoint_cases':reference.get('checkpoint_cases',20),
+            'controller_stage':controller.get('stage','starting'),
+            'controller_alive':pid_alive(controller.get('pid')),
+            'active_gpus':sorted(active),'resident_gpus':sorted(resident)}
+
+
+def render_idle_evaluation(idle):
+    if not idle:return None
+    accuracy=idle.get('accuracy')
+    accuracy_text='-' if accuracy is None else f'{accuracy*100:.1f}%'
+    stage=('done' if idle.get('status')=='complete' else
+           idle.get('controller_stage','starting') if idle.get('controller_alive') else 'stopped')
+    active=','.join(str(x) for x in idle.get('active_gpus',[])) or '-'
+    if idle.get('contract')!='periodic_idle_checkpoint_eval_v1':
+        return (f'Idle eval C{idle["checkpoint_cases"]} · {idle.get("evaluated",0)}/{idle.get("dataset_cases",622)} · '
+                f'accuracy {accuracy_text} · {stage} · active GPUs {active}')
+    total=idle.get('dataset_cases',200)
+    evaluated=idle.get('evaluated',0)
+    checkpoint=idle.get('checkpoint_cases');update=idle.get('optimizer_steps')
+    identity=f'C{count(checkpoint)}/U{count(update)}' if checkpoint is not None or update is not None else 'waiting checkpoint'
+    delta=''
+    baseline=idle.get('baseline_accuracy')
+    paired_delta=idle.get('paired_accuracy_delta')
+    if paired_delta is not None:
+        delta=f' · paired ΔC20 {paired_delta*100:+.1f}pp'
+    elif accuracy is not None and baseline is not None and evaluated==total:
+        delta=f' · ΔC20 {(accuracy-baseline)*100:+.1f}pp'
+    elif baseline is not None:
+        # The partial evaluated subset need not be balanced even though the
+        # full dataset is. A full-set 50% reference is not a paired delta.
+        delta=f' · C20 full {baseline*100:.0f}%'
+    transitions=idle.get('transition_metrics') or {}
+    groups=[]
+    for key,label,total_key in [('baseline_correct_retained','kept','baseline_correct_total'),
+                                ('baseline_wrong_recovered','recovered','baseline_wrong_total')]:
+        value=transitions.get(key,idle.get(key))
+        denominator=transitions.get(total_key,idle.get(total_key,100))
+        if value is not None:groups.append(f'{label} {value}/{denominator}')
+    group_text=' · '+' '.join(groups) if groups else ''
+    return (f'Balanced{total} {identity} · {evaluated}/{total} · accuracy {accuracy_text}{delta}{group_text} · '
+            f'{stage} · queued {idle.get("queue_depth",0)} latestU{count(idle.get("latest_committed_update"))} · GPUs {active}')
+
+
+def cumulative_bank_status(root,state,batchdir,pipeline,cfg=None):
+    """Saved bank snapshots only; never instantiate the live GPU coordinator."""
+    spec=(cfg or {}).get('rubric',{}).get('cumulative_bank') or {}
+    digest=state.get('rubric_bank_sha256')
+    committed=read_json(Path(root)/'rubric_bank/snapshots'/f'{digest}.json',{}) if digest else {}
+    frozen=read_json(Path(batchdir)/'bank_frozen.json',{}) if batchdir else {}
+    before=read_json(Path(batchdir)/'bank_input.json',{}) if batchdir else {}
+    metrics=read_json(Path(batchdir)/'bank_metrics.json',{}) if batchdir else {}
+    before_digest=before.get('rubric_bank_sha256')
+    before_bank=read_json(Path(root)/'rubric_bank/snapshots'/f'{before_digest}.json',{}) if before_digest else committed
+    empty_start=bool(spec) and not state and batchdir is None and not spec.get('initial_snapshot_file')
+    # An existing batch without a scope field used the legacy shortlist. A new
+    # configuration must not relabel that saved batch as full-bank scoring.
+    scope=before.get('scoring_scope','top_k') if before else spec.get('scoring_scope','top_k')
+    return {'committed_version':state.get('rubric_bank_version'),
+            'committed_size':len(committed['entries']) if 'entries' in committed else (0 if empty_start else None),
+            'empty_start_pending':empty_start,
+            'frozen_version':frozen.get('version'),'frozen_size':len(frozen['entries']) if 'entries' in frozen else None,
+            'added_unique_rubrics':len(frozen['entries'])-len(before_bank['entries'])
+                if 'entries' in frozen and 'entries' in before_bank else metrics.get('added_unique_rubrics'),
+            'new_keep':(pipeline.get('keep') or {}).get('P0'),
+            'reused_trajectories':metrics.get('reused_trajectories',pipeline.get('bank_reused_trajectories',0)),
+            'scoring_scope':scope,'scoring_top_k':None if scope=='all' else spec.get('retrieval_top_k',8)}
+
+
+def render_bank_progress(s):
+    p=s.get('pipeline',{});done=p.get('bank_phase_complete',{});total=p.get('cases_total',0)
+    return (f'Phases prepare {done.get("prepare",0)}/{total} · verify {done.get("verify",0)}/{total} · '
+            f'score {done.get("score",0)}/{total} · rerun {p.get("one_step_reruns_done",0)} · '
+            f'update {s.get("committed_batches",0)}')
+
+
+def render_bank_status(s):
+    b=s.get('cumulative_bank') or {};p=s.get('pipeline',{})
+    committed=count(b.get('committed_size'))
+    if b.get('empty_start_pending'):committed+=' (not started)'
+    elif b.get('committed_version') is not None:committed+=f' (v{b["committed_version"]})'
+    scope='all' if b.get('scoring_scope')=='all' else f'top{b.get("scoring_top_k",8)}/state'
+    frozen=str(b['frozen_size']) if b.get('frozen_size') is not None else 'pending'
+    version=f', v{b["frozen_version"]}' if b.get('frozen_version') is not None else ''
+    added=(f'+{b["added_unique_rubrics"]}' if b.get('added_unique_rubrics') is not None else 'pending')
+    return (f'Bank stored {committed} | scoring {frozen} ({scope}{version}) | new {added} unique | '
+            f'reused {b.get("reused_trajectories",0)} trajectories · new KEEP {count(b.get("new_keep"))} · '
+            f'gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)} · NA stays unscored')
 
 
 def number(v,suffix='',digits=0):return '-' if v is None else f'{v:.{digits}f}{suffix}'
@@ -561,14 +723,21 @@ def render(s):
                      f'| FINAL 호출 {p["one_step_final_calls"]} | 구 프로토콜 리런 캐시 보관·미사용 {p["legacy_reruns_preserved"]}')
         lines.append(f'채점 완료 요청 {p["scoring_requests"]} (대상 응답 {p["scoring_unique_nodes"]}개) '
                      f'| 최종 학습채점 확정 {final_score_text(p)} | 유효보상 {p["final_valid_rewards"]}·NA {p["final_na_rewards"]}')
-        lines.append(f'단계 완료: P0 {done["P0"]}/{total} | P1 {done["P1"]}/{total} | 최종채점 {done["union"]}/{total} '
-                     f'| KEEP P0 {count(p["keep"]["P0"])} / P1 {count(p["keep"]["P1"])} | 업데이트 완료 {s.get("committed_batches",0)}회')
+        if s.get('cumulative_bank'):
+            lines += [render_bank_progress(s),render_bank_status(s)]
+        else:
+            lines.append(f'단계 완료: P0 {done["P0"]}/{total} | P1 {done["P1"]}/{total} | 최종채점 {done["union"]}/{total} '
+                         f'| KEEP P0 {count(p["keep"]["P0"])} / P1 {count(p["keep"]["P1"])} | 업데이트 완료 {s.get("committed_batches",0)}회')
+    elif s.get('cumulative_bank'):
+        lines.append(render_bank_status(s))
     evaluation=s.get('checkpoint_evaluation')
     if evaluation:
         accuracy='' if evaluation.get('accuracy') is None else f' | accuracy {100*evaluation["accuracy"]:.1f}%'
         label='running' if evaluation['status']!='complete' else 'complete'
         lines.append(f'622-set evaluation · checkpoint {evaluation["checkpoint_cases"]} · '
                      f'{evaluation["evaluated"]}/{evaluation["total"]} · {label}{accuracy}')
+    idle_line=render_idle_evaluation(s.get('idle_evaluation'))
+    if idle_line:lines.append(idle_line)
     lines.append('GPU  util  avg60  VRAM GiB   watt   stage / progress')
     for r in s['gpus']:
         active=r.get('active')
@@ -599,8 +768,11 @@ def render(s):
                          f'| 채점요청 {p["scoring_requests"]} | 학습채점 확정 {final_score_text(p)} ({ready})')
             lines.append(f'     새 리런 완료 {p["one_step_reruns_done"]} | 개입 대상 {p["one_step_targets"]} '
                          f'| Doctor FINAL {p["one_step_final_calls"]} | 구 프로토콜 캐시 {p["legacy_reruns_preserved"]}건(미사용)')
-            lines.append(f'     P0 {"완료" if done["P0"] else "대기/진행"} · P1 {"완료" if done["P1"] else "대기/진행"} '
-                         f'| KEEP P0 {count(p["keep"]["P0"])} / P1 {count(p["keep"]["P1"])}')
+            if p.get('cumulative'):
+                lines.append(f'     Bank new KEEP {count(p["keep"]["P0"])} · reused {p.get("bank_reused_trajectories",0)} trajectories')
+            else:
+                lines.append(f'     P0 {"완료" if done["P0"] else "대기/진행"} · P1 {"완료" if done["P1"] else "대기/진행"} '
+                             f'| KEEP P0 {count(p["keep"]["P0"])} / P1 {count(p["keep"]["P1"])}')
         if live.get('pool_last_case_id'):
             lines.append(f'     last GPU task: {live["pool_last_operation"]} for {live["pool_last_case_id"]} (coordinator GPU{live["pool_last_source_gpu"]})')
     api=s['api'];lines.append(f'API recorded ${api["recorded_usd"]:.4f} | calls {api["calls"]} | unpriced {api["unpriced_calls"]}')
@@ -669,21 +841,27 @@ def render_dashboard(s):
         status='running' if evaluation['status']!='complete' else 'done'
         lines.append(f'622 eval · checkpoint {evaluation["checkpoint_cases"]} · '
                      f'{evaluation["evaluated"]}/{evaluation["total"]} · {status}{accuracy}')
+    idle_line=render_idle_evaluation(s.get('idle_evaluation'))
+    if idle_line:lines.append(idle_line)
     p=s.get('pipeline',{})
     if p.get('cases_total'):
         done=p.get('phase_complete',{})
-        lines.append(f'Phases · P0 verified {done.get("P0",0)}/{p["cases_total"]} · '
-                     f'P1 verified {done.get("P1",0)}/{p["cases_total"]} · '
-                     f'final scoring {done.get("union",0)}/{p["cases_total"]} · '
-                     f'rerun {p.get("one_step_reruns_done",0)} · updates {s.get("committed_batches",0)}')
+        if s.get('cumulative_bank'):
+            lines.append(render_bank_progress(s))
+        else:
+            lines.append(f'Phases · P0 verified {done.get("P0",0)}/{p["cases_total"]} · '
+                         f'P1 verified {done.get("P1",0)}/{p["cases_total"]} · '
+                         f'final scoring {done.get("union",0)}/{p["cases_total"]} · '
+                         f'rerun {p.get("one_step_reruns_done",0)} · updates {s.get("committed_batches",0)}')
         funnel=p.get('rubric_funnel',{})
         def rubric_status(phase):
             f=funnel.get(phase)
             if f is None or f.get('rubrics_validated') is None:return f'{phase} verification pending'
             return (f'{phase} KEEP {f["rubrics_keep"]}/{f["rubrics_validated"]}'
                     f' (new {f["rubrics_generated"]}){incomplete_suffix(f)}')
-        lines.append('Rubrics confirmed · '+' | '.join(rubric_status(phase) for phase in ('P0','P1'))+
-                     f' · gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)}')
+        if s.get('cumulative_bank'):lines.append(render_bank_status(s))
+        else:lines.append('Rubrics confirmed · '+' | '.join(rubric_status(phase) for phase in ('P0','P1'))+
+                          f' · gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)}')
         lines.append(render_outcome_signal(p.get('outcome_signal')))
         if p.get('rollout_seconds_cases'):
             lines.append(f'Rollout {duration(p["rollout_seconds"])} total · '
@@ -695,6 +873,8 @@ def render_dashboard(s):
                          f'0:{counts["0"]} 1:{counts["1"]} 2:{counts["2"]} NA:{counts["NA"]}{unscorable_suffix(counts)}')
         else:
             lines.append(f'Train scores · waiting for final rubric set (union {done.get("union",0)}/{p["cases_total"]})')
+    elif s.get('cumulative_bank'):
+        lines.append(render_bank_status(s))
     def active_task(row):
         elapsed=row.get('active_elapsed_seconds',{})
         preferred=('agent_generate','agent_batch_generate','doctor_generate','doctor_queue_wait',
@@ -734,7 +914,9 @@ def render_dashboard(s):
                 if f is None or f.get('rubrics_validated') is None:return f'{phase} pending'
                 return f'{phase} {f["rubrics_keep"]}/{f["rubrics_validated"]}{incomplete_suffix(f)}'
             dist,scored,_=case_score_distribution(case_pipeline)
-            lines.append(f'     case stats · KEEP {keep_text("P0")} / {keep_text("P1")} · '
+            keep_label=(f'new KEEP {count(case_pipeline.get("keep",{}).get("P0"))} · reused {case_pipeline.get("bank_reused_trajectories",0)}'
+                        if case_pipeline.get('cumulative') else f'KEEP {keep_text("P0")} / {keep_text("P1")}')
+            lines.append(f'     case stats · {keep_label} · '
                          f'score n={scored} 0:{dist.get("0",0)} 1:{dist.get("1",0)} '
                          f'2:{dist.get("2",0)} NA:{dist.get("NA",0)}{unscorable_suffix(dist)}')
     if s.get('gpu_query_error'):
@@ -761,17 +943,21 @@ def render_compact_dashboard(s):
         lines.append(f'Cases {s.get("completed_cases",0)}/{s.get("total_cases",0)} · '
                      f'leaves {leaves.get("completed",0)}/{remaining(leaves)} · '
                      f'trees {leaves.get("trees_complete",0)}/{leaves.get("trees_total",0)}')
-        lines.append(f'Phases P0 verified {done.get("P0",0)}/{p["cases_total"]} · '
-                     f'P1 verified {done.get("P1",0)}/{p["cases_total"]} · '
-                     f'final scored {done.get("union",0)}/{p["cases_total"]} · '
-                     f'rerun {p.get("one_step_reruns_done",0)} · update {s.get("committed_batches",0)}')
+        if s.get('cumulative_bank'):
+            lines.append(render_bank_progress(s))
+        else:
+            lines.append(f'Phases P0 verified {done.get("P0",0)}/{p["cases_total"]} · '
+                         f'P1 verified {done.get("P1",0)}/{p["cases_total"]} · '
+                         f'final scored {done.get("union",0)}/{p["cases_total"]} · '
+                         f'rerun {p.get("one_step_reruns_done",0)} · update {s.get("committed_batches",0)}')
         funnel=p.get('rubric_funnel',{})
         def compact_rubrics(phase):
             f=funnel.get(phase)
             if f is None or f.get('rubrics_validated') is None:return f'{phase} verifying'
             return f'{phase} KEEP {f["rubrics_keep"]}/{f["rubrics_validated"]} (new {f["rubrics_generated"]}){incomplete_suffix(f)}'
-        lines.append('Rubrics · '+compact_rubrics('P0')+' · '+compact_rubrics('P1')+
-                     f' · gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)}')
+        if s.get('cumulative_bank'):lines.append(render_bank_status(s))
+        else:lines.append('Rubrics · '+compact_rubrics('P0')+' · '+compact_rubrics('P1')+
+                          f' · gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)}')
         lines.append(render_outcome_signal(p.get('outcome_signal')))
         train=p.get('score_distribution',{}).get('union',{})
         if train.get('cases'):
@@ -780,6 +966,10 @@ def render_compact_dashboard(s):
                          f'0:{counts["0"]} 1:{counts["1"]} 2:{counts["2"]} NA:{counts["NA"]}{unscorable_suffix(counts)}')
         else:
             lines.append(f'Train scores waiting · final set scored {done.get("union",0)}/{p["cases_total"]}')
+    elif s.get('cumulative_bank'):
+        lines.append(render_bank_status(s))
+    idle_line=render_idle_evaluation(s.get('idle_evaluation'))
+    if idle_line:lines.append(idle_line)
     for r in s.get('gpus',[]):
         util=number(r.get('util'),'%').rjust(3)
         mem=(f'{r["memory_mb"]/1024:.0f}G' if r.get('memory_mb') is not None and r.get('total_mb') else '-')
@@ -793,10 +983,12 @@ def render_compact_dashboard(s):
                 return f'{f["rubrics_keep"]}/{f["rubrics_validated"]}{incomplete_suffix(f)}'
             case_pipeline=r.get('pipeline',{})
             dist,n,score_label=case_score_distribution(case_pipeline)
+            keep_label=(f'newK{case_keep("P0")} R{case_pipeline.get("bank_reused_trajectories",0)}'
+                        if case_pipeline.get('cumulative') else f'K{case_keep("P0")}/{case_keep("P1")}')
             work=(f'C{r["case_index"]+1} {r.get("phase")} · '
                   f'A{r.get("agent_nodes",0)} D{r.get("doctor_calls",0)} F{r.get("finals",0)} · '
                   f'L{leaf.get("completed",0)}/{remaining(leaf)} · '
-                  f'K{case_keep("P0")}/{case_keep("P1")} · '
+                  f'{keep_label} · '
                   f'{score_label} score n={n} [0:{dist.get("0",0)} 1:{dist.get("1",0)} '
                   f'2:{dist.get("2",0)} NA:{dist.get("NA",0)}{unscorable_suffix(dist)}]')
         else:
@@ -818,6 +1010,7 @@ def render_compact_dashboard(s):
 
 
 def main():
+    from src.online_rl.tree.experiment import load_config
     p=argparse.ArgumentParser();p.add_argument('--config',help='Pin a configuration; default follows the current controller')
     p.add_argument('--run-dir');p.add_argument('--interval',type=float,default=2);p.add_argument('--once',action='store_true');p.add_argument('--json',action='store_true');p.add_argument('--compact',action='store_true',help='One line per GPU; fits five GPUs on short terminals')
     args=p.parse_args()
@@ -828,16 +1021,16 @@ def main():
             handoff=read_json(ROOT/'outputs/diagnostics/doctor_parallel_20261008/handoff_status.json',{})
             if args.config and handoff.get('config')!=args.config:handoff={}
             if args.config:
-                cfg=json.loads((ROOT/args.config).read_text())
+                cfg=load_config(ROOT/args.config)
                 root=ROOT/(args.run_dir or cfg['output_dir'])
             elif args.run_dir:
                 root=Path(args.run_dir)
                 if not root.is_absolute():root=ROOT/root
                 saved=read_json(root/'run_manifest.json',{})
-                cfg=saved.get('config') or json.loads((ROOT/'configs/online_rl/tree_v21_five_gpu_shared5.json').read_text())
+                cfg=saved.get('config') or load_config(ROOT/'configs/online_rl/tree_v21_five_gpu_shared5.json')
             else:
                 config=handoff.get('config') or 'configs/online_rl/tree_v21_five_gpu_shared5.json'
-                cfg=json.loads((ROOT/config).read_text())
+                cfg=load_config(ROOT/config)
                 root=ROOT/handoff.get('run_dir',cfg['output_dir'])
             if current!=str(root):monitor=Monitor(root,cfg);current=str(root)
             s=monitor.snapshot();s['handoff']=handoff;output=json.dumps(s,ensure_ascii=False) if args.json else (render_compact_dashboard(s) if args.compact else render_dashboard(s))

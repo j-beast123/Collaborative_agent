@@ -1,0 +1,345 @@
+{
+  "description": "Recorded batch-1 KEEP instruction inputs. Expected reviews are manually authored stub answers for deterministic contract tests, not observed judge results or proof of semantic judge accuracy. Source/rerun responses and outcomes are intentionally excluded.",
+  "cases": [
+    {
+      "id": "d6eefdb2654a_generated",
+      "recorded_source": {
+        "batch": 1,
+        "case": 2,
+        "rubric_id": "8f74fb98d8a9-d6eefdb2654a",
+        "leaf_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b/0.0"
+      },
+      "case": {
+        "case_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b",
+        "scenario": "",
+        "question": "Wickham's striae is a feature of: September 2009, 2010, September 2012",
+        "options": {
+          "A": "Psoriasis",
+          "B": "Pityriasis rosea",
+          "C": "Lichen planus",
+          "D": "Vitiligo"
+        }
+      },
+      "prefix": [
+        {
+          "speaker": "doctor",
+          "stage": "D1",
+          "round": 1,
+          "text": "I think the answer is B, Pityriasis rosea. Wickham's striae are characteristic of PR, representing the slightly raised, scale-like ridges seen in the lesions. I'm curious if you see any reason to favor one of the other options given this single finding."
+        }
+      ],
+      "rubric": {
+        "name": "grounding_differential_specificity_in_morphological_features",
+        "applicability": {
+          "user_side_context": "The clinician proposes a candidate condition based on an isolated physical sign or finding and explicitly asks whether there is any reason to favor alternative diagnostic options.",
+          "agent_side_state": "No additional recorded Agent state is required."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The clinician proposes a candidate condition based on an isolated physical sign or finding and explicitly asks whether there is any reason to favor alternative diagnostic options.",
+            "agent_side_state": "No additional recorded Agent state is required.",
+            "behavior": "The response fails to meet the minimum useful contribution: it does not introduce or substantiate an alternative candidate condition's comparative relevance to the finding, or merely expresses agreement/disagreement without comparative grounding."
+          },
+          "1": {
+            "user_side_context": "The clinician proposes a candidate condition based on an isolated physical sign or finding and explicitly asks whether there is any reason to favor alternative diagnostic options.",
+            "agent_side_state": "No additional recorded Agent state is required.",
+            "behavior": "The response identifies an alternative candidate condition and asserts its differing degree of association or specificity relative to the finding, but leaves the physical, visual, or morphological basis of that distinction unstated or contradicted."
+          },
+          "2": {
+            "user_side_context": "The clinician proposes a candidate condition based on an isolated physical sign or finding and explicitly asks whether there is any reason to favor alternative diagnostic options.",
+            "agent_side_state": "No additional recorded Agent state is required.",
+            "behavior": "The response identifies an alternative candidate condition, asserts its comparative specificity for the finding, and explicitly articulates the concrete physical, visual, or morphological characteristics of the sign that ground the distinction."
+          }
+        },
+        "required_behavior": "The response identifies an alternative candidate condition, asserts its comparative specificity for the finding, and explicitly articulates the concrete physical, visual, or morphological characteristics of the sign that ground the distinction.",
+        "rubric_id": "8f74fb98d8a9-d6eefdb2654a"
+      },
+      "member_spec": {
+        "version": "trajectory_member_instruction_v1",
+        "leaf_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b/0.0",
+        "case_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b",
+        "canonical_rubric_id": "8f74fb98d8a9-d6eefdb2654a",
+        "rubric_sha256": "1e7054c143ef80cd8ed8d82d529bbb06431dc122276746ea98c2510fb0b49298",
+        "selected_agent_turn_id": 1,
+        "intervention_instruction": "State whether an alternative diagnostic option should be favored over the clinician's proposal based on the queried finding. When discussing the finding, omit any concrete physical, visual, or morphological description of its appearance. Provide only an assertion of comparative specificity or association without explaining the descriptive features of the sign.",
+        "requested_level": "0",
+        "prefix_sha256": "6367cefef442c96bb144fa125c32b5b03dfa4093bcb5fb866b38ddd99a014031",
+        "origin": "generated"
+      },
+      "expected_review": {
+        "instruction_aligned": false,
+        "instruction_alignment_quote": "Provide only an assertion of comparative specificity or association without explaining the descriptive features of the sign.",
+        "instruction_alignment_reason": "M is identifying an alternative and asserting its comparative relevance; C is the concrete morphological basis. Requested level 0 must omit M, but this guide allows a comparative assertion with only C removed, which satisfies the written level 1.",
+        "unsupported_context_premise": false,
+        "unsupported_context_premise_quote": "",
+        "unsupported_context_premise_reason": "The guide asks for an operation without establishing an additional contextual or medical fact.",
+        "unsupported_quote_source": "none",
+        "conclusion_prescribed": false,
+        "conclusion_quote": "",
+        "conclusion_reason": "The guide does not fix which diagnostic option must be selected.",
+        "conclusion_quote_source": "none"
+      }
+    },
+    {
+      "id": "d6eefdb2654a_matched",
+      "recorded_source": {
+        "batch": 1,
+        "case": 2,
+        "rubric_id": "8f74fb98d8a9-d6eefdb2654a",
+        "leaf_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b/2.1"
+      },
+      "case": {
+        "case_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b",
+        "scenario": "",
+        "question": "Wickham's striae is a feature of: September 2009, 2010, September 2012",
+        "options": {
+          "A": "Psoriasis",
+          "B": "Pityriasis rosea",
+          "C": "Lichen planus",
+          "D": "Vitiligo"
+        }
+      },
+      "prefix": [
+        {
+          "speaker": "doctor",
+          "stage": "D1",
+          "round": 1,
+          "text": "I think the answer is B, Pityriasis rosea. Wickham's striae are characteristic of PR, representing the slightly raised, scale-like ridges seen in the lesions. I'm curious if you see any reason to favor one of the other options given this single finding."
+        }
+      ],
+      "rubric": {
+        "name": "grounding_differential_specificity_in_morphological_features",
+        "applicability": {
+          "user_side_context": "The clinician proposes a candidate condition based on an isolated physical sign or finding and explicitly asks whether there is any reason to favor alternative diagnostic options.",
+          "agent_side_state": "No additional recorded Agent state is required."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The clinician proposes a candidate condition based on an isolated physical sign or finding and explicitly asks whether there is any reason to favor alternative diagnostic options.",
+            "agent_side_state": "No additional recorded Agent state is required.",
+            "behavior": "The response fails to meet the minimum useful contribution: it does not introduce or substantiate an alternative candidate condition's comparative relevance to the finding, or merely expresses agreement/disagreement without comparative grounding."
+          },
+          "1": {
+            "user_side_context": "The clinician proposes a candidate condition based on an isolated physical sign or finding and explicitly asks whether there is any reason to favor alternative diagnostic options.",
+            "agent_side_state": "No additional recorded Agent state is required.",
+            "behavior": "The response identifies an alternative candidate condition and asserts its differing degree of association or specificity relative to the finding, but leaves the physical, visual, or morphological basis of that distinction unstated or contradicted."
+          },
+          "2": {
+            "user_side_context": "The clinician proposes a candidate condition based on an isolated physical sign or finding and explicitly asks whether there is any reason to favor alternative diagnostic options.",
+            "agent_side_state": "No additional recorded Agent state is required.",
+            "behavior": "The response identifies an alternative candidate condition, asserts its comparative specificity for the finding, and explicitly articulates the concrete physical, visual, or morphological characteristics of the sign that ground the distinction."
+          }
+        },
+        "required_behavior": "The response identifies an alternative candidate condition, asserts its comparative specificity for the finding, and explicitly articulates the concrete physical, visual, or morphological characteristics of the sign that ground the distinction.",
+        "rubric_id": "8f74fb98d8a9-d6eefdb2654a"
+      },
+      "member_spec": {
+        "version": "trajectory_member_instruction_v1",
+        "leaf_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b/2.1",
+        "case_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b",
+        "canonical_rubric_id": "8f74fb98d8a9-d6eefdb2654a",
+        "rubric_sha256": "1e7054c143ef80cd8ed8d82d529bbb06431dc122276746ea98c2510fb0b49298",
+        "selected_agent_turn_id": 1,
+        "intervention_instruction": "State your diagnostic leaning without explaining or describing the physical or morphological features of the sign that ground the distinction. Do not detail the specific visual presentation of the finding or substantiate why it links to an alternative condition beyond simple assertion.",
+        "requested_level": "0",
+        "prefix_sha256": "6367cefef442c96bb144fa125c32b5b03dfa4093bcb5fb866b38ddd99a014031",
+        "origin": "matched"
+      },
+      "expected_review": {
+        "instruction_aligned": false,
+        "instruction_alignment_quote": "Do not detail the specific visual presentation of the finding or substantiate why it links to an alternative condition beyond simple assertion.",
+        "instruction_alignment_reason": "M is identifying an alternative and asserting its comparative relevance; C is the concrete morphological basis. Requested level 0 must omit M, but this guide allows a comparative assertion with only C removed, which satisfies the written level 1.",
+        "unsupported_context_premise": false,
+        "unsupported_context_premise_quote": "",
+        "unsupported_context_premise_reason": "The guide asks for an operation without establishing an additional contextual or medical fact.",
+        "unsupported_quote_source": "none",
+        "conclusion_prescribed": false,
+        "conclusion_quote": "",
+        "conclusion_reason": "The guide does not fix which diagnostic option must be selected.",
+        "conclusion_quote_source": "none"
+      }
+    },
+    {
+      "id": "bc233c3d29bf_generated",
+      "recorded_source": {
+        "batch": 1,
+        "case": 2,
+        "rubric_id": "8f74fb98d8a9-bc233c3d29bf",
+        "leaf_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b/2.0"
+      },
+      "case": {
+        "case_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b",
+        "scenario": "",
+        "question": "Wickham's striae is a feature of: September 2009, 2010, September 2012",
+        "options": {
+          "A": "Psoriasis",
+          "B": "Pityriasis rosea",
+          "C": "Lichen planus",
+          "D": "Vitiligo"
+        }
+      },
+      "prefix": [
+        {
+          "speaker": "doctor",
+          "stage": "D1",
+          "round": 1,
+          "text": "I think the answer is B, Pityriasis rosea. Wickham's striae are characteristic of PR, representing the slightly raised, scale-like ridges seen in the lesions. I'm curious if you see any reason to favor one of the other options given this single finding."
+        },
+        {
+          "speaker": "agent",
+          "stage": "A1",
+          "round": 1,
+          "text": "You raise a good point about Wickham's striae being a key feature of pityriasis rosea. However, I remain inclined toward lichen planus, as Wickham's striae—those fine, white, lacy streaks—are most classically associated with it, particularly in mucosal involvement. This distinction is critical in differentiating between these conditions."
+        },
+        {
+          "speaker": "doctor",
+          "stage": "D2",
+          "round": 2,
+          "text": "You're right to highlight the classic association of Wickham's striae with lichen planus, especially concerning mucosal involvement. However, the question specifically mentions Wickham's striae in the context of the listed timeframes (2009, 2010, 2012), which aligns more closely with the typical presentation of pityriasis rosea following the herald patch."
+        }
+      ],
+      "rubric": {
+        "name": "evaluating-non-clinical-prompt-metadata-in-collaborator-premises",
+        "applicability": {
+          "user_side_context": "The collaborator introduces a premise or decision criterion that interprets non-clinical prompt text, citation metadata, or exam administration dates as clinical timing, disease course, or patient history evidence.",
+          "agent_side_state": "The Agent has previously expressed or discussed a diagnostic preference based on a specific clinical finding in the prompt."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The collaborator introduces a premise or decision criterion that interprets non-clinical prompt text, citation metadata, or exam administration dates as clinical timing, disease course, or patient history evidence.",
+            "agent_side_state": "The Agent has previously expressed or discussed a diagnostic preference based on a specific clinical finding in the prompt.",
+            "behavior": "The response does not distinguish the non-clinical prompt text or metadata from genuine clinical findings; it accepts or validates the collaborator's interpretation of metadata as clinical evidence, or ignores the distinction while merely reiterating a diagnostic choice."
+          },
+          "1": {
+            "user_side_context": "The collaborator introduces a premise or decision criterion that interprets non-clinical prompt text, citation metadata, or exam administration dates as clinical timing, disease course, or patient history evidence.",
+            "agent_side_state": "The Agent has previously expressed or discussed a diagnostic preference based on a specific clinical finding in the prompt.",
+            "behavior": "The response identifies that the cited text elements represent administrative or citation metadata rather than clinical progression milestones, but leaves their evidentiary relevance ambiguous or continues to treat the collaborator's disease-course timing premise as clinically supported."
+          },
+          "2": {
+            "user_side_context": "The collaborator introduces a premise or decision criterion that interprets non-clinical prompt text, citation metadata, or exam administration dates as clinical timing, disease course, or patient history evidence.",
+            "agent_side_state": "The Agent has previously expressed or discussed a diagnostic preference based on a specific clinical finding in the prompt.",
+            "behavior": "The response explicitly distinguishes the administrative citation metadata from clinical disease progression, refrains from validating the non-clinical text as clinical evidence, and grounds its diagnostic evaluation strictly in genuine clinical findings."
+          }
+        },
+        "required_behavior": "The response explicitly distinguishes the administrative citation metadata from clinical disease progression, refrains from validating the non-clinical text as clinical evidence, and grounds its diagnostic evaluation strictly in genuine clinical findings.",
+        "rubric_id": "8f74fb98d8a9-bc233c3d29bf"
+      },
+      "member_spec": {
+        "version": "trajectory_member_instruction_v1",
+        "leaf_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b/2.0",
+        "case_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b",
+        "canonical_rubric_id": "8f74fb98d8a9-bc233c3d29bf",
+        "rubric_sha256": "1cf395ef66bf4300e57c04340e1666de13ff4cffccf3f5d15cb5dbe97f169473",
+        "selected_agent_turn_id": 2,
+        "intervention_instruction": "Address the clinician's premise regarding the listed dates by clarifying that these numbers reflect non-clinical examination administration dates rather than a clinical timeline or disease progression milestones. Do not validate the claim that the dates represent clinical timeframes. Re-evaluate the diagnostic options based strictly on the described clinical finding.",
+        "requested_level": "2",
+        "prefix_sha256": "90065fcea9b9493ac8b55be8af619ce962da231ec298744cc85a942eb93747cf",
+        "origin": "generated"
+      },
+      "expected_review": {
+        "instruction_aligned": true,
+        "instruction_alignment_quote": "Address the clinician's premise regarding the listed dates by clarifying that these numbers reflect non-clinical examination administration dates rather than a clinical timeline or disease progression milestones. Do not validate the claim that the dates represent clinical timeframes. Re-evaluate the diagnostic options based strictly on the described clinical finding.",
+        "instruction_alignment_reason": "M under the written anchors is distinguishing administrative metadata from clinical history; C is rejecting its use as clinical progression evidence and evaluating the supplied finding. The guide requests both for level 2, but the presumed administrative classification lacks visible support.",
+        "unsupported_context_premise": true,
+        "unsupported_context_premise_quote": "clarifying that these numbers reflect non-clinical examination administration dates",
+        "unsupported_context_premise_reason": "The visible question contains dates and the Doctor interprets them, but neither the case nor the prefix establishes an examination or citation origin.",
+        "unsupported_quote_source": "instruction",
+        "conclusion_prescribed": true,
+        "conclusion_quote": "clarifying that these numbers reflect non-clinical examination administration dates",
+        "conclusion_reason": "The guide fixes the contextual conclusion that the dates are examination metadata instead of leaving their evidentiary role open to the supplied evidence.",
+        "conclusion_quote_source": "instruction"
+      }
+    },
+    {
+      "id": "bc233c3d29bf_matched",
+      "recorded_source": {
+        "batch": 1,
+        "case": 2,
+        "rubric_id": "8f74fb98d8a9-bc233c3d29bf",
+        "leaf_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b/3.3"
+      },
+      "case": {
+        "case_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b",
+        "scenario": "",
+        "question": "Wickham's striae is a feature of: September 2009, 2010, September 2012",
+        "options": {
+          "A": "Psoriasis",
+          "B": "Pityriasis rosea",
+          "C": "Lichen planus",
+          "D": "Vitiligo"
+        }
+      },
+      "prefix": [
+        {
+          "speaker": "doctor",
+          "stage": "D1",
+          "round": 1,
+          "text": "I think the answer is B, Pityriasis rosea. Wickham's striae are characteristic of PR, representing the slightly raised, scale-like ridges seen in the lesions. I'm curious if you see any reason to favor one of the other options given this single finding."
+        },
+        {
+          "speaker": "agent",
+          "stage": "A1",
+          "round": 1,
+          "text": "You make a valid point about Wickham's striae being a key feature of pityriasis rosea. However, I would typically associate Wickham's striae with lichen planus, as they represent the characteristic fine, white, lacy streaks seen in the lesions. Both conditions can present with similar skin findings, but the presence of Wickham's striae is more classically linked to lichen planus."
+        },
+        {
+          "speaker": "doctor",
+          "stage": "D2",
+          "round": 2,
+          "text": "You raise a good point about lichen planus and Wickham's striae. However, the question specifically mentions September 2009, 2010, and September 2012, which strongly suggests a temporal pattern typical of pityriasis rosea’s herald patch and subsequent lesions."
+        }
+      ],
+      "rubric": {
+        "name": "evaluating-non-clinical-prompt-metadata-in-collaborator-premises",
+        "applicability": {
+          "user_side_context": "The collaborator introduces a premise or decision criterion that interprets non-clinical prompt text, citation metadata, or exam administration dates as clinical timing, disease course, or patient history evidence.",
+          "agent_side_state": "The Agent has previously expressed or discussed a diagnostic preference based on a specific clinical finding in the prompt."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The collaborator introduces a premise or decision criterion that interprets non-clinical prompt text, citation metadata, or exam administration dates as clinical timing, disease course, or patient history evidence.",
+            "agent_side_state": "The Agent has previously expressed or discussed a diagnostic preference based on a specific clinical finding in the prompt.",
+            "behavior": "The response does not distinguish the non-clinical prompt text or metadata from genuine clinical findings; it accepts or validates the collaborator's interpretation of metadata as clinical evidence, or ignores the distinction while merely reiterating a diagnostic choice."
+          },
+          "1": {
+            "user_side_context": "The collaborator introduces a premise or decision criterion that interprets non-clinical prompt text, citation metadata, or exam administration dates as clinical timing, disease course, or patient history evidence.",
+            "agent_side_state": "The Agent has previously expressed or discussed a diagnostic preference based on a specific clinical finding in the prompt.",
+            "behavior": "The response identifies that the cited text elements represent administrative or citation metadata rather than clinical progression milestones, but leaves their evidentiary relevance ambiguous or continues to treat the collaborator's disease-course timing premise as clinically supported."
+          },
+          "2": {
+            "user_side_context": "The collaborator introduces a premise or decision criterion that interprets non-clinical prompt text, citation metadata, or exam administration dates as clinical timing, disease course, or patient history evidence.",
+            "agent_side_state": "The Agent has previously expressed or discussed a diagnostic preference based on a specific clinical finding in the prompt.",
+            "behavior": "The response explicitly distinguishes the administrative citation metadata from clinical disease progression, refrains from validating the non-clinical text as clinical evidence, and grounds its diagnostic evaluation strictly in genuine clinical findings."
+          }
+        },
+        "required_behavior": "The response explicitly distinguishes the administrative citation metadata from clinical disease progression, refrains from validating the non-clinical text as clinical evidence, and grounds its diagnostic evaluation strictly in genuine clinical findings.",
+        "rubric_id": "8f74fb98d8a9-bc233c3d29bf"
+      },
+      "member_spec": {
+        "version": "trajectory_member_instruction_v1",
+        "leaf_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b/3.3",
+        "case_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b",
+        "canonical_rubric_id": "8f74fb98d8a9-bc233c3d29bf",
+        "rubric_sha256": "1cf395ef66bf4300e57c04340e1666de13ff4cffccf3f5d15cb5dbe97f169473",
+        "selected_agent_turn_id": 2,
+        "intervention_instruction": "Evaluate the clinician's argument regarding the dates mentioned in the question prompt. Explicitly clarify that these dates represent examination citation metadata rather than clinical history or temporal disease progression, and base your diagnostic evaluation strictly on the genuine clinical finding.",
+        "requested_level": "2",
+        "prefix_sha256": "432ebe860694c673245b95b8abfcb99d4cc43fc5fd2f3425712b3e6e3ac4adab",
+        "origin": "matched"
+      },
+      "expected_review": {
+        "instruction_aligned": true,
+        "instruction_alignment_quote": "Evaluate the clinician's argument regarding the dates mentioned in the question prompt. Explicitly clarify that these dates represent examination citation metadata rather than clinical history or temporal disease progression, and base your diagnostic evaluation strictly on the genuine clinical finding.",
+        "instruction_alignment_reason": "M under the written anchors is distinguishing administrative metadata from clinical history; C is rejecting its use as clinical progression evidence and evaluating the supplied finding. The guide requests both for level 2, but the presumed administrative classification lacks visible support.",
+        "unsupported_context_premise": true,
+        "unsupported_context_premise_quote": "these dates represent examination citation metadata",
+        "unsupported_context_premise_reason": "The visible question contains dates and the Doctor interprets them, but neither the case nor the prefix establishes an examination or citation origin.",
+        "unsupported_quote_source": "instruction",
+        "conclusion_prescribed": true,
+        "conclusion_quote": "these dates represent examination citation metadata",
+        "conclusion_reason": "The guide fixes the contextual conclusion that the dates are examination metadata instead of leaving their evidentiary role open to the supplied evidence.",
+        "conclusion_quote_source": "instruction"
+      }
+    }
+  ]
+}

@@ -211,6 +211,16 @@ class RubricOutputIncomplete(RuntimeError):
     scored as an invalid rubric (s = 0)."""
 
 
+GENERATION_SEMANTIC_PROTOCOL = 'public_mc_generation_v2'
+SEMANTIC_CRITERION_VERSION = 'public_behavior_mc_semantic_v2'
+GENERATION_SEMANTIC_VERSIONS = {
+    GENERATION_SEMANTIC_PROTOCOL: SEMANTIC_CRITERION_VERSION,
+    'public_mc_generation_v3': 'public_behavior_mc_semantic_v3',
+    'public_mc_generation_refs_v4': 'public_behavior_mc_refs_v4',
+    'public_app_alignment_generation_v5': 'public_behavior_app_alignment_v5',
+}
+
+
 def generation_settings(rubric_cfg: dict) -> dict:
     """rubric.generation: max_tokens, temperature and reasoning effort of every Rubric-Generator call (provenance + cache key).
     Gemini 3.8 Flash reasons mandatorily and its reasoning tokens count against max_tokens: at the default (medium) effort
@@ -226,15 +236,47 @@ def generation_settings(rubric_cfg: dict) -> dict:
     # Do not add a null/default key to legacy settings: these identify old caches.
     if feedback_check_protocol is not None:
         settings['feedback_check_protocol'] = feedback_check_protocol
+    alignment = g.get('instruction_alignment_protocol')
+    if alignment is not None:
+        from src.online_rl.tree.instruction_audit import ANALYSIS_PROTOCOL
+        if alignment != ANALYSIS_PROTOCOL:
+            raise ValueError('Unknown instruction alignment analysis protocol')
+        settings['instruction_alignment_protocol'] = alignment
+    public_protocol = g.get('public_criterion_protocol')
+    if public_protocol is not None:
+        from src.judges.rubric_schema import PUBLIC_CRITERION_PROTOCOL
+        if public_protocol != PUBLIC_CRITERION_PROTOCOL:
+            raise ValueError('Unknown public criterion protocol')
+        settings['public_criterion_protocol'] = public_protocol
+    semantic_protocol = g.get('generation_semantic_protocol')
+    if semantic_protocol is not None:
+        if semantic_protocol not in GENERATION_SEMANTIC_VERSIONS or public_protocol is None:
+            raise ValueError('Unknown or incompatible generation semantic protocol')
+        settings['generation_semantic_protocol'] = semantic_protocol
     return settings
 
 
 def normalize_trajectory_analysis_output(parsed: dict | None, err: str | None, tin, *, require_intervention: bool = False,
                                         enforce_feedback_locus: bool = True,
-                                        feedback_check_protocol: str | None = None) -> tuple[dict | None, str | None]:
+                                        feedback_check_protocol: str | None = None,
+                                        instruction_alignment_protocol: str | None = None,
+                                        public_criterion_protocol: str | None = None,
+                                        generation_semantic_protocol: str | None = None) -> tuple[dict | None, str | None]:
     """Validate the user's full P0 response and adapt its reusable candidate to the existing rubric pipeline."""
     from src.online_rl.tree.feedback_grounding import validate_protocol, validate_claim_reviews
     validate_protocol(feedback_check_protocol)
+    from src.judges.rubric_schema import PUBLIC_CRITERION_PROTOCOL, PUBLIC_CRITERION_FIELDS, validate_public_criterion
+    if public_criterion_protocol is not None and public_criterion_protocol != PUBLIC_CRITERION_PROTOCOL:
+        raise ValueError('Unknown public criterion protocol')
+    observed_source = generation_semantic_protocol is not None
+    reference_analysis = generation_semantic_protocol in ('public_mc_generation_refs_v4', 'public_app_alignment_generation_v5')
+    if observed_source and (generation_semantic_protocol not in GENERATION_SEMANTIC_VERSIONS or
+                            public_criterion_protocol is None or not require_intervention):
+        raise ValueError('Generation semantic protocol requires the public joint intervention contract')
+    if instruction_alignment_protocol is not None:
+        from src.online_rl.tree.instruction_audit import ANALYSIS_PROTOCOL
+        if instruction_alignment_protocol != ANALYSIS_PROTOCOL or not require_intervention:
+            raise ValueError('Instruction alignment analysis requires the joint intervention contract')
     if err: return None, err
     if not isinstance(parsed, dict) or not isinstance(parsed.get('analysis'), dict) or not isinstance(parsed.get('candidate_rubric'), dict):
         return None, 'missing analysis/candidate_rubric output contract'
@@ -264,6 +306,32 @@ def normalize_trajectory_analysis_output(parsed: dict | None, err: str | None, t
     for key in _SCORE_CONSTRUCTION['required']:
         if not isinstance(check.get(key), str) or not check[key].strip():
             return None, f'analysis.score_construction_check.{key} must be a substantive non-empty string'
+    if instruction_alignment_protocol is not None:
+        if reference_analysis:
+            if 'minimal_contribution' in check or 'complete_behavior' in check:
+                return None, 'Reference analysis must not duplicate M/C definitions'
+            for key, ref in [('minimum_ref', 'candidate_rubric.minimum_performance'),
+                             ('completion_ref', 'candidate_rubric.completion_condition')]:
+                if check.get(key) != ref:
+                    return None, f'analysis.{key} must reference {ref}'
+        else:
+            for key in ('minimal_contribution', 'complete_behavior'):
+                if not isinstance(check.get(key), str) or not check[key].strip():
+                    return None, f'analysis.score_construction_check.{key} must be a substantive non-empty string'
+        alignment = check.get('instruction_alignment')
+        instruction_field = 'instruction_ref' if reference_analysis else 'instruction_quote'
+        if not isinstance(alignment, dict) or set(alignment) != {'target_level', instruction_field, 'rationale'}:
+            return None, f'instruction_alignment must contain exactly target_level, {instruction_field}, rationale'
+        expected_level = 0 if tin.outcome == 'success' else 2
+        if type(alignment['target_level']) is not int or alignment['target_level'] != expected_level:
+            return None, 'instruction_alignment.target_level disagrees with the source direction'
+        for key in (instruction_field, 'rationale'):
+            if not isinstance(alignment[key], str) or not alignment[key].strip():
+                return None, f'instruction_alignment.{key} must be substantive'
+        if reference_analysis and alignment['instruction_ref'] != 'intervention_instruction':
+            return None, 'instruction_alignment must reference stored intervention_instruction'
+        if not reference_analysis and alignment['instruction_quote'] not in parsed['intervention_instruction']:
+            return None, 'instruction_alignment.instruction_quote must quote the exact stored instruction'
     feedback = analysis.get('feedback_check')
     feedback_fields = {'claim', 'assessment', 'dialogue_basis'}
     if feedback_check_protocol is not None: feedback_fields.add('claim_reviews')
@@ -281,7 +349,9 @@ def normalize_trajectory_analysis_output(parsed: dict | None, err: str | None, t
     if analysis.get('evidence_strength') not in ('strong', 'limited'):
         return None, 'analysis.evidence_strength must be strong or limited'
     source_score = analysis.get('source_score')
-    if isinstance(source_score, bool) or source_score not in (0, 2):
+    if observed_source and (type(source_score) is not int or source_score not in (0, 1, 2)):
+        return None, 'analysis.source_score must be integer 0, 1 or 2 for the observed source'
+    if not observed_source and (isinstance(source_score, bool) or source_score not in (0, 2)):
         return None, 'analysis.source_score must be integer 0 or 2'
     if analysis.get('score_0_basis') not in ('counterfactual_removal', 'observed_problem'):
         return None, 'analysis.score_0_basis has an invalid value'
@@ -299,20 +369,36 @@ def normalize_trajectory_analysis_output(parsed: dict | None, err: str | None, t
                 isinstance(span.get('turn_id'), bool) or not isinstance(span.get('turn_id'), int) or
                 span.get('speaker') not in ('doctor', 'agent') or not isinstance(span.get('quote'), str) or not span['quote'].strip()):
             return None, f'analysis.evidence_spans[{i}] must contain integer turn_id, valid speaker, and non-empty quote'
-    if set(candidate) != {'name', 'applicability', 'scores'}:
-        return None, 'candidate_rubric must contain exactly name, applicability, and scores'
+    candidate_fields = {'name', 'applicability', 'scores'}
+    if public_criterion_protocol is not None:
+        candidate_fields.update(('required_behavior', *PUBLIC_CRITERION_FIELDS))
+    if set(candidate) != candidate_fields:
+        return None, f'candidate_rubric must contain exactly {sorted(candidate_fields)}'
+    if public_criterion_protocol is not None:
+        problems = validate_public_criterion(candidate, required=True)
+        if problems: return None, '; '.join(problems)
+        expected_version = GENERATION_SEMANTIC_VERSIONS[generation_semantic_protocol] if observed_source else PUBLIC_CRITERION_PROTOCOL
+        if candidate['criterion_version'] != expected_version:
+            return None, 'candidate_rubric.criterion_version differs from the generation contract'
+        if not reference_analysis and check.get('minimal_contribution') != candidate['minimum_performance']:
+            return None, 'analysis minimal_contribution must exactly repeat public minimum_performance'
     outcome = 'success' if tin.outcome == 'success' else 'failure'
     expected_source_score = 2 if outcome == 'success' else 0
     expected_basis = 'counterfactual_removal' if outcome == 'success' else 'observed_problem'
+    if public_criterion_protocol is not None and ((not observed_source and source_score != expected_source_score)
+                                                 or analysis['score_0_basis'] != expected_basis):
+        return None, 'public source anchor declaration differs from the source direction; do not relabel observed partial behavior'
     if parsed.get('source_case_id') != tin.case_id or parsed.get('source_trajectory_id') != tin.leaf_id:
         return None, 'source case/trajectory ID does not match the input'
     if parsed.get('source_outcome') != outcome:
         return None, f'source_outcome must be {outcome!r}'
-    # These two fields are deterministic annotations of the supplied outcome, not model
-    # judgments. Preserve what the model reported, then canonicalize only the normalized
-    # provenance fields so a wrong annotation cannot invalidate an otherwise valid rubric.
+    # Legacy fields were outcome annotations. The opt-in semantic contract instead
+    # preserves the generator's source-score claim; independent blind scoring and the
+    # outcome-derived Gate expectation remain separate. A truthful partial claim is
+    # not a malformed output to retry until it becomes the desired source anchor.
     reported_analysis = dict(analysis)
-    normalized_analysis = {**analysis, 'source_score': expected_source_score, 'score_0_basis': expected_basis}
+    normalized_analysis = {**analysis, 'source_score': source_score if observed_source else expected_source_score,
+                            'score_0_basis': expected_basis}
     adjustments = {k: {'model_reported': reported_analysis.get(k), 'canonical': normalized_analysis[k]}
                    for k in ('source_score', 'score_0_basis') if reported_analysis.get(k) != normalized_analysis[k]}
     scores = candidate.get('scores') or {}
@@ -341,12 +427,24 @@ def normalize_trajectory_analysis_output(parsed: dict | None, err: str | None, t
         source = agent_text if span['speaker'] == 'agent' else doctor_text
         if span['turn_id'] not in source or not span['quote'] or span['quote'] not in source[span['turn_id']]:
             return None, 'an evidence span does not exactly match its supplied speaker/turn'
-    normalized = {**candidate, 'required_behavior': high['behavior'],
+    normalized = {**candidate, 'required_behavior': candidate['required_behavior'] if public_criterion_protocol is not None else high['behavior'],
                   'source_provenance': {**{k: parsed[k] for k in ('rubric_id', 'source_case_id', 'source_trajectory_id', 'source_outcome')},
                                         'analysis': normalized_analysis, 'model_reported_analysis': reported_analysis,
                                         'deterministic_adjustments': adjustments}}
     if feedback_check_protocol is not None:
         normalized['source_provenance']['feedback_check_protocol'] = feedback_check_protocol
+    if instruction_alignment_protocol is not None:
+        normalized['source_provenance']['instruction_alignment_protocol'] = instruction_alignment_protocol
+    if public_criterion_protocol is not None:
+        normalized['source_provenance']['public_criterion_protocol'] = public_criterion_protocol
+    if observed_source:
+        normalized['source_provenance'].update(
+            generation_semantic_protocol=generation_semantic_protocol,
+            source_anchor_contract_mismatch=source_score != expected_source_score,
+            source_anchor_declaration={'expected_score_from_outcome': expected_source_score,
+                                       'generator_claimed_source_score': source_score,
+                                       'matches_expected': source_score == expected_source_score,
+                                       'independent_measurement': False})
     return normalized, None
 
 
@@ -375,6 +473,21 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
     output_contract = settings.get('output_contract')
     from src.online_rl.tree.feedback_grounding import validate_protocol, extend_schema
     feedback_check_protocol = validate_protocol(settings.get('feedback_check_protocol'))
+    alignment_protocol = settings.get('instruction_alignment_protocol')
+    public_protocol = settings.get('public_criterion_protocol')
+    semantic_protocol = settings.get('generation_semantic_protocol')
+    if semantic_protocol is not None and (semantic_protocol not in GENERATION_SEMANTIC_VERSIONS or public_protocol is None):
+        raise ValueError('Unknown or incompatible generation semantic protocol')
+    if public_protocol is not None:
+        from src.judges.rubric_schema import PUBLIC_CRITERION_PROTOCOL
+        if (public_protocol != PUBLIC_CRITERION_PROTOCOL or output_contract != 'trajectory_analysis_candidate_v2_with_intervention'
+                or not settings.get('local_schema_file')):
+            raise ValueError('Public criterion protocol requires a joint output contract and pinned local schema')
+    if alignment_protocol is not None:
+        from src.online_rl.tree.instruction_audit import ANALYSIS_PROTOCOL
+        if (alignment_protocol != ANALYSIS_PROTOCOL or output_contract != 'trajectory_analysis_candidate_v2_with_intervention'
+                or not settings.get('local_schema_file')):
+            raise ValueError('Instruction alignment analysis requires a joint output contract and pinned local schema')
     if feedback_check_protocol is not None and output_contract not in ('trajectory_analysis_candidate_v2', 'trajectory_analysis_candidate_v2_with_intervention'):
         raise ValueError('rubric feedback_check_protocol requires a trajectory analysis output contract')
     schema = (FULL_TRAJECTORY_RUBRIC_WITH_INTERVENTION_JSON_SCHEMA if output_contract == 'trajectory_analysis_candidate_v2_with_intervention' else
@@ -396,6 +509,12 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
         import jsonschema
         jsonschema.Draft202012Validator.check_schema(local_schema)
         schema = local_schema
+    if semantic_protocol is not None:
+        source_schema = schema['properties']['analysis']['properties']['source_score']
+        if source_schema.get('type') != 'integer' or source_schema.get('enum') != [0, 1, 2]:
+            raise ValueError('Generation semantic protocol requires observed source_score 0/1/2 schema')
+        if schema['properties']['candidate_rubric']['properties']['criterion_version'].get('const') != GENERATION_SEMANTIC_VERSIONS[semantic_protocol]:
+            raise ValueError('Generation semantic protocol requires its new criterion version schema')
     turn_policy = settings.get('selected_turn_policy', 'feedback_locus_v1')
     if turn_policy not in ('feedback_locus_v1', 'generator_v1'):
         raise ValueError(f'Unknown rubric selected_turn_policy: {turn_policy}')
@@ -424,7 +543,10 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
         normalized, error = normalize_trajectory_analysis_output(parsed, err, tin,
             require_intervention=output_contract == 'trajectory_analysis_candidate_v2_with_intervention',
             enforce_feedback_locus=turn_policy != 'generator_v1',
-            feedback_check_protocol=feedback_check_protocol)
+            feedback_check_protocol=feedback_check_protocol,
+            instruction_alignment_protocol=alignment_protocol,
+            public_criterion_protocol=public_protocol,
+            generation_semantic_protocol=semantic_protocol)
         if normalized is not None and turn_policy == 'generator_v1':
             normalized['source_provenance']['selected_turn_policy'] = turn_policy
         return normalized, error
@@ -442,11 +564,19 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
         # also applies when provider-side JSON Schema is disabled because a provider may omit
         # required nested analysis fields despite claiming schema support.
         if err and output_contract in ('trajectory_analysis_candidate_v2', 'trajectory_analysis_candidate_v2_with_intervention'):
+            source_contract = (
+                'analysis.source_score is the generator\'s evidence-grounded observation (integer 0, 1 or 2), '
+                'not the outcome-derived expected anchor. Preserve a supported partial score 1; never change '
+                'M, C, the score boundaries, source quotes or the claimed score merely to make failure become 0 '
+                'or success become 2. A mismatch is a substantive Gate issue, not a JSON-format error. '
+                'score_0_basis remains counterfactual_removal for success or observed_problem for failure. '
+                if semantic_protocol is not None else
+                'For success, source_score must be integer 2 and score_0_basis must be counterfactual_removal. '
+                'For failure, source_score must be integer 0 and score_0_basis must be observed_problem. ')
             correction = (f'{user}\n\nYour previous JSON failed a deterministic validation: {err}. '
                           'Correct only the invalid output fields while preserving the same grounded candidate rubric. '
-                          'The source outcome is given above. For success, source_score must be integer 2 and score_0_basis '
-                          'must be counterfactual_removal. For failure, source_score must be integer 0 and score_0_basis '
-                          'must be observed_problem. source_outcome, source IDs, evidence quotes, and selected Agent reply ID '
+                          'The source outcome is given above. ' + source_contract +
+                          'source_outcome, source IDs, evidence quotes, and selected Agent reply ID '
                           'must exactly reflect the supplied input. For the intervention contract, also return a substantive '
                           'intervention_instruction that implements only the source-outcome-selected score behavior and contains no answer or outcome objective. '
                           'Do not omit analysis fields, substitute empty analysis, '
@@ -534,6 +664,48 @@ changing its construct, return CREATE_NEW. Both extra fields are required: REUSE
 requires an integer selected_agent_turn_id >= 1 and a nonblank intervention_instruction;
 CREATE_NEW requires selected_agent_turn_id = null and intervention_instruction = null.
 """
+MEMBER_ALIGNMENT_INSTRUCTIONS = """
+For each matched member, derive the minimum contribution M and completion C from
+the immutable anchors before writing its guide. A score-0 guide must omit M itself;
+retaining a comparative assertion while removing only its explanation is score 1
+when that is what the anchors define. A score-2 guide performs M and C with an open
+conclusion. Do not inject a factual classification of dates/metadata or a medical
+premise that its pre-response context does not establish. Ask to check support
+and limit inference when information is missing. Earlier explicit requests remain
+eligible until visibly fulfilled, withdrawn, superseded or closed; absence of a
+repeat request is not resolution. A later reflection cannot create a prior trigger.
+"""
+PUBLIC_MEMBER_ALIGNMENT_INSTRUCTIONS = """
+PUBLIC M/C MATCH CONTRACT (public_behavior_mc_v1):
+Read the frozen candidate's explicit required_behavior, minimum_performance (M),
+completion_condition (C), criterion_version and all score anchors. Never derive
+different boundaries from hidden analysis, a source outcome, or general ideals.
+same_required_behavior requires the same concrete response operation and M;
+score_semantics_apply requires the same M, C and complete 0/1/2 partition without
+alteration. Reusing only a similar behavior label is insufficient. A changed
+minimum, completion, applicability or score definition means CREATE_NEW, never
+an in-place repair or inherited KEEP. Do not silently upgrade a legacy rubric
+without public M/C fields when this public contract is enabled.
+The member-specific score-0 guide must remove M, not merely C. The score-2 guide
+must perform M and C, leaving the conclusion open. Do not introduce a medical
+or metadata premise absent from the prefix, demand an unrelated operation, or
+copy a source answer. Unresolved earlier requests may remain active without
+repetition; later reflection cannot create a prior need. Keep the canonical
+criterion_version and fields immutable. Instruction adherence remains a
+diagnostic; this matching call does not certify a rerun effect.
+"""
+MATCH_CORRECTION_CONTRACT = 'same_input_match_schema_correction_v1'
+MATCH_SINGLE_INSTRUCTIONS = """
+SINGLE MATCH OUTPUT CONTRACT: This is only an assignment decision against the
+provided frozen rubric bank. The generator/CREATE sections earlier in this
+package describe other calls and are not the output contract for this call.
+Return exactly the matcher JSON object requested here, not analysis or a new
+candidate rubric. Use decision, rubric_id, all six boolean checks, and a concise
+rationale. When the joint member contract applies, also return its required
+selected_agent_turn_id and intervention_instruction fields. CREATE_NEW still
+means no existing rubric safely matches; it is not a request to generate one.
+Return complete JSON without Markdown or text outside the object.
+"""
 
 
 def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: str | None = None, match_batch_size: int = 1):
@@ -544,10 +716,26 @@ def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: s
     if match_batch_size not in (1,8):raise ValueError('match_batch_size must be 1 or 8')
     member_interventions = settings.get('output_contract') == 'trajectory_analysis_candidate_v2_with_intervention'
     schema = MEMBER_MATCH_JSON_SCHEMA if member_interventions else MATCH_JSON_SCHEMA
+    member_instructions = MEMBER_MATCH_INSTRUCTIONS
+    public_protocol = settings.get('public_criterion_protocol')
+    if public_protocol is not None:
+        from src.judges.rubric_schema import PUBLIC_CRITERION_PROTOCOL
+        if public_protocol != PUBLIC_CRITERION_PROTOCOL or not member_interventions:
+            raise ValueError('Unknown or incompatible matcher public criterion protocol')
+    if settings.get('instruction_alignment_protocol') is not None:
+        from src.online_rl.tree.instruction_audit import ANALYSIS_PROTOCOL
+        if settings['instruction_alignment_protocol'] != ANALYSIS_PROTOCOL or not member_interventions:
+            raise ValueError('Unknown or incompatible matcher instruction alignment protocol')
+        if public_protocol is None: member_instructions += '\n' + MEMBER_ALIGNMENT_INSTRUCTIONS
+    if public_protocol is not None:
+        member_instructions += '\n' + PUBLIC_MEMBER_ALIGNMENT_INSTRUCTIONS
     if member_interventions:
         from src.online_rl.integrated.records import sha256_text
         settings = {**settings, 'member_intervention_version': MEMBER_INTERVENTION_VERSION,
-                    'member_intervention_prompt_sha256': sha256_text(MEMBER_MATCH_INSTRUCTIONS)}
+                    'member_intervention_prompt_sha256': sha256_text(member_instructions)}
+    from src.online_rl.integrated.records import sha256_text
+    settings = {**settings, 'match_correction_contract': MATCH_CORRECTION_CONTRACT,
+                'match_single_contract_sha256': sha256_text(MATCH_SINGLE_INSTRUCTIONS)}
 
     def valid_decision(value):
         if not (isinstance(value, dict) and set(value) == set(schema['required']) and
@@ -563,14 +751,57 @@ def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: s
         return (isinstance(turn, int) and not isinstance(turn, bool) and turn >= 1 and
                 isinstance(instruction, str) and bool(instruction.strip()))
 
+    def request_decision(package, user, output_schema, name, validate):
+        """One same-input schema correction; failure stays operational and uncached."""
+        attempts = []
+        request_user = user
+        for attempt in range(2):
+            raw, meta = None, {}
+            try:
+                raw, meta = _openrouter_json(key, model, package, request_user, settings,
+                                            output_schema, name, 'rubric_matcher')
+                try:
+                    parsed = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', raw.strip()))
+                except (json.JSONDecodeError, AttributeError) as exc:
+                    raise RubricOutputIncomplete(f'{model}: matcher JSON schema parse error: {exc}') from exc
+                value = validate(parsed)
+            except RubricOutputIncomplete as exc:
+                attempts.append({'attempt': attempt + 1, 'raw': raw, 'meta': meta, 'error': str(exc)})
+                if attempt:
+                    failure = RubricOutputIncomplete(f'{model}: matcher schema correction failed: {exc}')
+                    failure.audit = {'contract': MATCH_CORRECTION_CONTRACT, 'system': package,
+                                     'user': user, 'output_schema': output_schema, 'settings': settings,
+                                     'attempts': attempts}
+                    raise failure from exc
+                request_user = (user + '\n\nMATCH JSON CORRECTION: The previous response did not satisfy the '
+                                'output contract. Re-evaluate only the SAME original input and frozen bank. '
+                                'Return one complete JSON object conforming to the schema below. Keep all '
+                                'required member turn/instruction fields and exact supplied trajectory IDs. '
+                                'Do not turn an output-format error into CREATE_NEW or invent missing evidence. '
+                                'Keep rationales concise. No Markdown.\n' +
+                                json.dumps({'schema': output_schema, 'validation_error': str(exc),
+                                            'invalid_previous_output': raw}, ensure_ascii=False))
+                attempts[-1]['correction_user'] = request_user
+                continue
+            attempts.append({'attempt': attempt + 1, 'raw': raw, 'meta': meta, 'error': None})
+            result = {**value, 'usage': meta.get('usage')}
+            if attempt:
+                result['match_correction_audit'] = {'contract': MATCH_CORRECTION_CONTRACT,
+                                                   'system': package, 'user': user,
+                                                   'output_schema': output_schema, 'settings': settings,
+                                                   'attempts': attempts}
+            return result
+
     def decide(package, user):
+        if not member_interventions: package += '\n\n' + MATCH_SINGLE_INSTRUCTIONS
         if context_addendum: package += '\n\n' + context_addendum
-        if member_interventions: package += '\n\n' + MEMBER_MATCH_INSTRUCTIONS
-        raw, meta = _openrouter_json(key, model, package, user, settings, schema, 'rubric_match_decision', 'rubric_matcher')
-        try: d = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', raw.strip()))
-        except json.JSONDecodeError as e: raise RubricOutputIncomplete(f'{model}: match decision is not JSON: {e}') from e
-        if not valid_decision(d): raise RubricOutputIncomplete(f'{model}: match decision does not follow the schema: {raw[:300]}')
-        return {**d, 'usage': meta.get('usage')}
+        if member_interventions: package += '\n\n' + member_instructions
+        if member_interventions: package += '\n\n' + MATCH_SINGLE_INSTRUCTIONS
+        def validate(d):
+            if not valid_decision(d):
+                raise RubricOutputIncomplete(f'{model}: match decision does not follow the schema')
+            return d
+        return request_decision(package, user, schema, 'rubric_match_decision', validate)
     def batch(package, items, bank):
         """One frozen bank and up to eight independent trajectory decisions; exact ID coverage required."""
         from src.online_rl.tree.rubric_bank import bank_view
@@ -589,31 +820,30 @@ def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: s
                     'identifying its behavioral locus and quoting the relevant visible dialogue. Never reference another '
                     'trajectory as evidence. CREATE_NEW means no existing rubric safely matches; do not invent rubric IDs '
                     'or create rubrics in this call. There is no gold answer. Return only the batch JSON schema.')
-        if member_interventions: package += '\n\n' + MEMBER_MATCH_INSTRUCTIONS
+        if member_interventions: package += '\n\n' + member_instructions
         user=json.dumps({'frozen_bank':bank_view(bank),'trajectories':[
             {'trajectory_id':t.leaf_id,
              **({} if member_interventions else {'behavioral_locus':t.target_reply_id}),
              'input':trajectory_message(replace(t, target_reply_id=None) if member_interventions else t)} for t in items]},ensure_ascii=False)
-        raw,meta=_openrouter_json(key,model,package,user,settings,batch_schema,'rubric_match_batch','rubric_matcher')
-        try:d=json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',raw.strip()))
-        except json.JSONDecodeError as e:raise RubricOutputIncomplete('Batch match output is not JSON') from e
-        rows=d.get('decisions') if isinstance(d,dict) and set(d)=={'decisions'} else None
-        expected={t.leaf_id for t in items}
-        if not isinstance(rows,list) or len(rows)!=len(expected):raise RubricOutputIncomplete('Batch match ID coverage differs')
-        out={}
-        for row in rows:
-            if not isinstance(row,dict) or set(row)!={'trajectory_id',*schema['required']}:raise RubricOutputIncomplete('Malformed batch match row')
-            tid=row['trajectory_id']
-            if not isinstance(tid,str) or tid not in expected or tid in out:raise RubricOutputIncomplete('Missing, duplicate or unknown trajectory ID')
-            value={k:row[k] for k in schema['required']}
-            if not valid_decision(value):raise RubricOutputIncomplete('Malformed batch match decision')
-            if member_interventions and value['decision'] == 'REUSE_EXISTING':
-                tin = next(t for t in items if t.leaf_id == tid)
-                agent_count = sum(turn[0] == 'agent' for turn in tin.dialogue)
-                if value['selected_agent_turn_id'] > agent_count:
-                    raise RubricOutputIncomplete('Member selected_agent_turn_id is not an actual Agent reply ID')
-            out[tid]=value
-        return {'decisions':out,'usage':meta.get('usage')}
+        def validate(d):
+            rows=d.get('decisions') if isinstance(d,dict) and set(d)=={'decisions'} else None
+            expected={t.leaf_id for t in items}
+            if not isinstance(rows,list) or len(rows)!=len(expected):raise RubricOutputIncomplete('Batch match ID coverage differs')
+            out={}
+            for row in rows:
+                if not isinstance(row,dict) or set(row)!={'trajectory_id',*schema['required']}:raise RubricOutputIncomplete('Malformed batch match row')
+                tid=row['trajectory_id']
+                if not isinstance(tid,str) or tid not in expected or tid in out:raise RubricOutputIncomplete('Missing, duplicate or unknown trajectory ID')
+                value={k:row[k] for k in schema['required']}
+                if not valid_decision(value):raise RubricOutputIncomplete('Malformed batch match decision')
+                if member_interventions and value['decision'] == 'REUSE_EXISTING':
+                    tin = next(t for t in items if t.leaf_id == tid)
+                    agent_count = sum(turn[0] == 'agent' for turn in tin.dialogue)
+                    if value['selected_agent_turn_id'] > agent_count:
+                        raise RubricOutputIncomplete('Member selected_agent_turn_id is not an actual Agent reply ID')
+                out[tid]=value
+            return {'decisions':out}
+        return request_decision(package, user, batch_schema, 'rubric_match_batch', validate)
     decide.model = model; decide.settings = settings
     decide.batch=batch;batch.model=model;batch.settings=settings
     decide.batch_size=match_batch_size
@@ -748,7 +978,12 @@ def two_stage_structured_scorer(client, observed_context: bool = False, response
         validate(rubrics)
         app, _ = with_role('rubric_scorer', lambda: client.judge('applicability', before_state(view, prefix), stage1_items(rubrics), STAGE1_FIELDS,
                                                                   'tree_response_rubric_score_applicability'))
-        return {rid: {'applicable': bool(row['applicable']), 'stage1': row} for rid, row in app.items()}
+        if not isinstance(app, dict) or set(app) != {r['rubric_id'] for r in rubrics}:
+            raise ValueError('Applicability response must contain exactly the requested rubric IDs')
+        for row in app.values():
+            if not isinstance(row, dict) or type(row.get('applicable')) is not bool:
+                raise ValueError('Applicability must be a JSON boolean; malformed results cannot become NA')
+        return {rid: {'applicable': row['applicable'], 'stage1': row} for rid, row in app.items()}
 
     def score_behavior(view, prefix, rubrics, reply, matches=None):
         if not rubrics: return {}
@@ -808,6 +1043,10 @@ def posthoc_gates(client, cases: dict, observed_context: bool = False, protocol:
     """Post-hoc rubric gate: schema, deterministic leakage / answer copy (the gold is used only inside this check), and the
     Jev answer_presupposition and new_domain_premise questions on the source discussion without the FINAL. 'observable' is
     recorded but does not block."""
+    if protocol in ('public_mc_gate_v1', 'public_mc_gate_v2', 'public_mc_gate_v3'):
+        from src.online_rl.tree.quality_gate import public_mc_posthoc_gate
+        return public_mc_posthoc_gate(client, cases, observed_context=observed_context,
+                                     rubric_quote_protocol=rubric_quote_protocol, protocol=protocol)
     if protocol == 'evidence_gate_v2':
         from src.online_rl.tree.quality_gate import evidence_posthoc_gate
         quote_options = {'rubric_quote_protocol': rubric_quote_protocol} if rubric_quote_protocol is not None else {}

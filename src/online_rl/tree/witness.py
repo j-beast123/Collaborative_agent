@@ -1,13 +1,15 @@
-"""Training-time rubric verification, protocol bounded_witness_v1: does a consolidated rubric have a causal witness?
+"""Training-time rubric verification: does a consolidated rubric have a causal witness?
 
 Same-reason consolidation maps every decided trajectory to one rubric of its outcome stratum (rubric_bank.build_banks).
-Verification here asks one question per gate-passed rubric R: is there, among a few DIFFERENT interaction contexts that
-share R's behavioral reason, one where acting on R changes the downstream outcome? It does not estimate every member's
+Verification here asks one question per gate-passed rubric R: is there, among its selected support trajectories,
+one where acting on R changes the downstream outcome? Supports may share the same pre-reply state; distinct leaves
+do not imply distinct interaction contexts. It does not estimate every member's
 s_j (prompt-evolution J still does that, through rubric_bank.verify_members, on its own path).
 
-- Support order (tree topology only, never rerun outcomes): R's source trajectory (the member whose rubric was generated)
+- Topology support order (never rerun outcomes): R's source trajectory (the member whose rubric was generated)
   first; then, greedily, the member whose path shares the shortest prefix with every member already chosen (largest
-  minimum branch distance); ties by leaf id.
+  minimum branch distance); ties by leaf id. random5_witness_v1 instead samples at most five members uniformly without
+  replacement using the run seed, case and rubric; skipped members do not cause replacement samples.
 - Target: with joint instruction generation, the member assignment's own selected Agent reply and frozen guide;
   legacy rubrics without instructions use the feedback behavioral locus. Missing joint specifications are errors.
   A legacy member without a locus is skipped. The rubric must be Stage-1 Applicable at that reply (the scorer's applicability
@@ -30,9 +32,8 @@ from src.online_rl.tree.effectiveness import intervention_level, reaches_target,
 from src.online_rl.tree.member_intervention import resolve_member_intervention
 from src.online_rl.tree.posthoc import case_view
 from src.online_rl.tree.records import AgentNode, Leaf, RubricAssignment, TrajectoryRubric, to_dialogue
-from src.online_rl.tree.scoring import VISIBLE
-from src.online_rl.integrated.records import sha256_json
 from src.online_rl.tree.agent_state import visible_rubric
+from src.online_rl.tree.applicability import ScoringContractError, state_applicability
 
 PROTOCOL = 'bounded_witness_v1'
 ALL_MEMBERS_PROTOCOL = 'all_members_witness_v1'
@@ -49,9 +50,9 @@ class WitnessVerification:
     stratum: str
     support_count: int                    # members mapped to the rubric
     support_trajectory_ids: tuple[str, ...]
-    candidate_order: tuple[str, ...]      # topology order in which members were considered
+    candidate_order: tuple[str, ...]      # topology order or seeded random sample
     tested: tuple[dict, ...]              # per considered member: leaf, target_reply_id, node, stage1, reruns, outcomes, result
-    num_valid_supports: int               # considered members with a locus whose target was Stage-1 Applicable
+    num_valid_supports: int               # applicable members that pass any configured instruction audit
     num_reruns_executed: int
     validated_by_trajectory_id: Optional[str]
     decision: str                         # KEEP | NOT_VALIDATED | INCOMPLETE
@@ -89,19 +90,12 @@ def random_support_sample(members: list[Leaf], *, run_seed: int, case_id: str, r
 
 
 def stage1_decision(case: dict, node: AgentNode, rubric: dict, applicability: Callable, cache: CallCache) -> dict:
-    """Stage-1 applicability, cached by the complete visible state and rubric content."""
-    visible = [visible_rubric(rubric)]
-    ident = {'node': node.node_id, 'policy': node.policy_sha256, 'rubric': rubric['rubric_id'],
-             'content': sha256_json(visible),
-             'state_sha256': sha256_json([case_view(case), to_dialogue(node.prefix)]),
-             'model': getattr(applicability, 'model', None), 'protocol': getattr(applicability, 'protocol', None)}
-    r = cache.call('rubric_applicability', ident,
-                   lambda: applicability(case_view(case), to_dialogue(node.prefix), visible))
-    return r[rubric['rubric_id']]
+    """Use the same singleton Stage-1 decision as source checks and final scoring."""
+    return state_applicability(case, node, rubric, applicability, cache)
 
 
 def stage1_applicable(case: dict, node: AgentNode, rub: TrajectoryRubric, applicability: Callable, cache: CallCache) -> bool:
-    return bool(stage1_decision(case, node, rub.rubric, applicability, cache)['applicable'])
+    return stage1_decision(case, node, rub.rubric, applicability, cache)['applicable']
 
 
 def source_stage1_for(case: dict, nodes: dict, leaf: Leaf, locus: Optional[int], applicability: Callable, cache: CallCache) -> Callable:
@@ -112,7 +106,8 @@ def source_stage1_for(case: dict, nodes: dict, leaf: Leaf, locus: Optional[int],
         if isinstance(selected, bool) or not isinstance(selected, int) or not 1 <= selected <= len(leaf.path): return None
         node = nodes[leaf.path[selected - 1]]
         r = stage1_decision(case, node, rubric, applicability, cache)
-        return {'applicable': bool(r['applicable']), 'stage1': r.get('stage1'), 'node_id': node.node_id, 'target_reply_id': selected}
+        return {'applicable': r['applicable'], 'stage1': r.get('stage1'), 'node_id': node.node_id, 'target_reply_id': selected,
+                'applicability_provenance': r['provenance']}
     return check
 
 
@@ -134,7 +129,8 @@ def witness_test(case: dict, leaf: Leaf, node: AgentNode, rub: TrajectoryRubric,
 def verify_witness(case: dict, nodes: dict[str, AgentNode], leaves: dict[str, Leaf], canon: dict[str, TrajectoryRubric],
                    assignments: list[RubricAssignment], loci: dict[str, Optional[int]], *, applicability: Callable, writer: Callable,
                    continuation: Callable, reruns: int, run_seed: int, policy_sha256: str, cache: CallCache, max_valid_supports: Optional[int] = 4,
-                   workers: int = 1, support_sampling: str = 'topology') -> dict[str, WitnessVerification]:
+                   workers: int = 1, support_sampling: str = 'topology',
+                   intervention_audit: Optional[Callable] = None) -> dict[str, WitnessVerification]:
     """One WitnessVerification per gate-passed rubric. Rubrics are independent; workers > 1 (execution only) verifies them
     concurrently, results keyed by rubric id."""
     if max_valid_supports is not None and (not isinstance(max_valid_supports, int) or max_valid_supports < 1):
@@ -183,8 +179,18 @@ def verify_witness(case: dict, nodes: dict[str, AgentNode], leaves: dict[str, Le
                    'intervention_spec': member_spec}
             if n is None or not 1 <= n <= len(lf.path): tested.append({**row, 'result': 'no_locus'}); continue
             node = nodes[lf.path[n - 1]]; row['node_id'] = node.node_id
-            ok = stage1_applicable(case, node, rub, applicability, cache); row['stage1_applicable'] = ok
+            stage1 = stage1_decision(case, node, rub.rubric, applicability, cache)
+            ok = stage1['applicable']; row['stage1_applicable'] = ok
+            row['stage1'] = stage1.get('stage1')
+            row['applicability_provenance'] = stage1['provenance']
             if not ok: tested.append({**row, 'result': 'no_match'}); continue
+            if intervention_audit is not None:
+                audit = intervention_audit(case_view(case), to_dialogue(node.prefix), visible_rubric(rub.rubric), member_spec)
+                if not isinstance(audit, dict) or type(audit.get('passed')) is not bool or audit.get('error'):
+                    raise ScoringContractError('Invalid intervention instruction audit result')
+                row['intervention_audit'] = audit
+                if not audit['passed']:
+                    tested.append({**row, 'result': 'instruction_rejected'}); continue
             valid += 1
             passed, runs = witness_test(case, lf, node, rub, reruns=reruns, run_seed=run_seed, policy_sha256=policy_sha256,
                                         writer=writer, continuation=continuation, cache=cache, member_spec=member_spec)
@@ -230,4 +236,5 @@ def witness_telemetry(verifications: dict[str, WitnessVerification]) -> dict:
             'rerun_errors': sum(t.get('error_count', 0) for x in v for t in x.tested),
             'stage1_calls': sum(1 for x in v for t in x.tested if t['stage1_applicable'] is not None),
             'no_locus': sum(1 for x in v for t in x.tested if t['result'] == 'no_locus'),
+            'instruction_rejected': sum(1 for x in v for t in x.tested if t['result'] == 'instruction_rejected'),
             'no_match': sum(1 for x in v for t in x.tested if t['result'] == 'no_match')}

@@ -2,6 +2,7 @@
 import copy
 import json
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -17,6 +18,8 @@ def initialize(cfg, worker, key, pool_spec=None, existing_policy=None):
     os.environ.pop('SHERPA_DOCTOR_ENDPOINTS', None)
     os.environ['OPENROUTER_API_KEY'] = key
     from scripts.online_rl.run_tree import ROOT
+    from src.online_rl.tree.idle_eval_hooks import register_worker, training_guard
+    register_worker(worker)
     _CFG = copy.deepcopy(cfg)
     # The parent coordinator owns batch prompt evolution; no per-case prompt event.
     _CFG['prompt_update']['enabled'] = False
@@ -27,7 +30,8 @@ def initialize(cfg, worker, key, pool_spec=None, existing_policy=None):
     from src.online_rl.runtime import SharedPolicy
     from src.online_rl.tree.five_gpu import cache_openings
     if existing_policy is None:
-        with activity('model_load'):_POLICY = SharedPolicy(_CFG, key)
+        with training_guard(worker, 'model_load', release_memory=True), activity('model_load'):
+            _POLICY = SharedPolicy(_CFG, key)
     else:
         _POLICY = existing_policy
     note(phase='ready')
@@ -60,7 +64,8 @@ def prepare(checkpoint, expected):
                 raise RuntimeError('Rollout worker adapter mismatch')
     actor = getattr(_POLICY, 'pool_actor', None)
     if actor is not None:
-        with actor.changing_policy():
+        from src.online_rl.tree.idle_eval_hooks import training_guard
+        with training_guard(actor.gpu, 'prepare'), actor.changing_policy():
             load()
             actor.expected = expected
             _POLICY.pool_client.expected = expected
@@ -95,6 +100,57 @@ def run_case(job, phase='fixed', prompt=None):
     cfg['schedule'].pop('positions', None)
     cfg['schedule']['calibration_only_cursors'] = []
     trainer = build(cfg, policy=_POLICY, cases=[job['case']], defer_update=True)
+    if phase in ('bank_prepare', 'bank_verify', 'bank_score'):
+        from src.online_rl.tree import cumulative_bank as CB
+        from src.online_rl.integrated.records import sha256_text
+        snapshot = CB.validate_snapshot(prompt['snapshot'])
+        if sha256_text(prompt['text']) != prompt['sha256']:
+            raise RuntimeError('Cumulative bank phase prompt text/hash mismatch')
+        base = Path(job['out']); path = base / f'{phase}.json'
+
+        def validate_phase(record, name, expected_snapshot=None):
+            if (record['prompt_sha256'] != prompt['sha256'] or
+                    record['policy_sha256'] != trainer.state.policy_sha256 or
+                    record['case_id'] != job['case']['case_id']):
+                raise RuntimeError('Saved cumulative phase prompt/policy/case mismatch')
+            trainer.validate_member_interventions(record)
+            if name == 'bank_score':
+                scoring = record.get('cumulative_bank_scoring') or {}
+                actual = CB.validate_snapshot(scoring.get('snapshot'))
+                if scoring.get('snapshot_sha256') != actual['sha256']:
+                    raise RuntimeError('Saved cumulative scoring snapshot identity mismatch')
+            else:
+                actual = CB.validate_snapshot(record.get('cumulative_bank_input'))
+            if expected_snapshot is not None and actual['sha256'] != expected_snapshot['sha256']:
+                raise RuntimeError('Saved cumulative phase snapshot changed')
+            if name != 'bank_prepare' and record['rubric_bank'].get('verification_pending'):
+                raise RuntimeError('Saved cumulative verification/scoring is incomplete')
+            return record
+
+        if path.exists():
+            return validate_phase(json.loads(path.read_text()), phase, snapshot)
+        phase_started = time.perf_counter()
+        if phase == 'bank_prepare':
+            with activity('bank_prepare.tree_rubric_reuse'):
+                record = trainer.step(prompt_text=prompt['text'], prompt_id=prompt['id'],
+                                      score_responses=False, commit=False, apply_update=False,
+                                      defer_verification=True, cumulative_snapshot=snapshot)
+        elif phase == 'bank_verify':
+            prepared = validate_phase(json.loads((base / 'bank_prepare.json').read_text()), 'bank_prepare', snapshot)
+            with activity('bank_verify.witness_verification'):
+                record = trainer.finish_deferred_verification(prepared)
+        else:
+            # The input snapshot predates new KEEP additions; its identity is
+            # independently validated, while all five scores use this new set.
+            verified = validate_phase(json.loads((base / 'bank_verify.json').read_text()), 'bank_verify')
+            with activity('bank_score.frozen_cumulative_scoring'):
+                record = trainer.score_cumulative(verified, snapshot)
+        record.setdefault('timings', {})[phase + '_wall_seconds'] = time.perf_counter() - phase_started
+        record.update(case_cursor=job['index'], rollout_gpu=job['worker'], dialogue_lane=job['lane'])
+        validate_phase(record, phase, snapshot)
+        atomic_write_json(path, record)
+        note(phase='waiting_at_batch_barrier', finished_phase=phase)
+        return record
     if phase != 'fixed':
         from src.online_rl.tree.batch_prompt import evaluate_prompt_record, score_union
         base = Path(job['out'])

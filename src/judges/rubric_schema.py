@@ -9,6 +9,30 @@ LEVELS = ("0", "1", "2")
 CONTEXT_FIELDS = ("user_side_context", "agent_side_state")
 LEVEL_FIELDS = CONTEXT_FIELDS + ("behavior",)
 SCORE_NORMALIZATION = {0: 0.0, 1: 0.5, 2: 1.0}
+PUBLIC_CRITERION_PROTOCOL = "public_behavior_mc_v1"
+PUBLIC_CRITERION_FIELDS = ("minimum_performance", "completion_condition", "criterion_version")
+
+
+def has_public_criterion(rubric: dict[str, Any]) -> bool:
+    """A partial public record is also public, so it cannot fall back to legacy."""
+    return any(field in rubric for field in PUBLIC_CRITERION_FIELDS)
+
+
+def validate_public_criterion(rubric: dict[str, Any], *, required: bool = False) -> list[str]:
+    """Check transport integrity only; M/C meaning is assessed by the quality gate.
+
+    Legacy criteria are never upgraded from private analysis. A new criterion is
+    complete only when all its public anchors and explicit version are written.
+    """
+    if not required and not has_public_criterion(rubric):
+        return []
+    problems = []
+    for field in ("required_behavior", *PUBLIC_CRITERION_FIELDS):
+        if not isinstance(rubric.get(field), str) or not rubric[field].strip():
+            problems.append(f"public criterion requires nonblank {field}")
+    if not isinstance(rubric.get("applicability"), dict):
+        problems.append("public criterion requires structured applicability")
+    return problems
 
 
 def _norm(text: str) -> str:
@@ -23,7 +47,7 @@ def build_levels(user_side_context: str, agent_side_state: str, behaviors: dict[
 
 def validate_rubric(rubric: dict[str, Any]) -> list[str]:
     """Problems with a rubric; empty when it follows the schema."""
-    problems = []
+    problems = validate_public_criterion(rubric)
     if not isinstance(rubric.get("name"), str) or not rubric["name"].strip():
         problems.append("missing name")
     applicability = rubric.get("applicability")

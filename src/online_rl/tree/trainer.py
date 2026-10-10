@@ -36,10 +36,13 @@ def model_roles(cfg: dict) -> dict:
     r, j, pu = cfg.get('rubric', {}), cfg.get('judges', {}), cfg.get('prompt_update', {})
     b = cfg.get('rollout', {}).get('doctor_backend')
     doctor = cfg.get('rollout', {}).get('doctor_model') if not b else f"{b['model']} ({b['engine']} {b['ollama_version']}, {b['quantization']}, digest {b['model_digest']}; source {b.get('source_model')})"
-    return {'doctor': doctor, 'agent': f"{cfg.get('policy', {}).get('base_model')} + LoRA (local)",
+    roles = {'doctor': doctor, 'agent': f"{cfg.get('policy', {}).get('base_model')} + LoRA (local)",
             'feedback_generator': (cfg.get('feedback') or {}).get('model'), 'rubric_generator': r.get('generator_model'),
             'rubric_gate': j.get('gate_model'), 'rubric_scorer': j.get('scorer_model'),
             'prompt_reflection': pu.get('reflection_model'), 'prompt_refiner': pu.get('refiner_model')}
+    if j.get('intervention_audit_protocol'):
+        roles['intervention_audit'] = j.get('intervention_audit_model')
+    return roles
 
 
 @dataclass(frozen=True)
@@ -76,6 +79,8 @@ class TreeEnv:
     behavior_logprobs: Optional[Callable] = None
     assign_fn: Optional[Callable] = None        # MATCH-vs-NEW decision (rubric.reuse)
     opening: Optional[Callable] = None          # frozen shared D1 table (rollout.doctor_opening; src/online_rl/doctor_openings.py)
+    intervention_audit_fn: Optional[Callable] = None  # pre-rerun written-guide validity, separate from outcome KEEP
+    bank_matcher: Optional[Callable] = None       # immutable cross-case KEEP-bank reuse; no new intervention
 
 
 class TreeTrainer:
@@ -90,6 +95,7 @@ class TreeTrainer:
         self.every = (cfg.get('evaluation') or {}).get('checkpoint_every_cases'); self.evaluator = evaluator
         self.rubric_on = cfg['rubric'].get('enabled', True); self.fb_model = (cfg.get('feedback') or {}).get('model')
         self.reuse = cfg['rubric'].get('reuse') == RB.ASSIGNMENT_VERSION
+        self.cumulative_bank = cfg['rubric'].get('cumulative_bank') or None
         from src.online_rl.tree.member_intervention import MEMBER_INTERVENTION_VERSION
         self.member_intervention_version = (MEMBER_INTERVENTION_VERSION if self.rubric_on and
             cfg['rubric'].get('generation', {}).get('output_contract') == 'trajectory_analysis_candidate_v2_with_intervention' else None)
@@ -105,6 +111,17 @@ class TreeTrainer:
         if self.reuse and self.rubric_on and getattr(env, 'assign_fn', None) is None: raise ValueError('rubric.reuse needs env.assign_fn')
         if not self.rubric_on and cfg['prompt_update']['enabled']: raise ValueError('prompt evolution needs the rubric pipeline (rubric.enabled)')
         self.verification = (cfg.get('verification') or {}).get('mode', 'exhaustive_members_v1')     # training-time rubric verification
+        from src.online_rl.tree.instruction_audit import PROTOCOL as INSTRUCTION_AUDIT_PROTOCOL
+        audit_protocol = cfg.get('judges', {}).get('intervention_audit_protocol')
+        if audit_protocol is not None:
+            if audit_protocol != INSTRUCTION_AUDIT_PROTOCOL:
+                raise ValueError('Unknown intervention audit protocol')
+            if (not self.rubric_on or not self.member_intervention_version or self.verification not in W.PROTOCOLS
+                    or not callable(env.intervention_audit_fn)
+                    or getattr(env.intervention_audit_fn, 'settings', {}).get('protocol') != audit_protocol):
+                raise ValueError('Instruction audit requires a bound versioned auditor and joint bounded witness verification')
+        elif env.intervention_audit_fn is not None:
+            raise ValueError('An intervention auditor is bound without a pinned config protocol')
         if self.verification not in ('exhaustive_members_v1', *W.PROTOCOLS): raise ValueError(f'unknown verification.mode {self.verification!r}')
         if self.verification == W.ALL_MEMBERS_PROTOCOL and cfg['verification'].get('max_valid_supports') is not None:
             raise ValueError('all_members_witness_v1 has no max_valid_supports cap')
@@ -121,6 +138,12 @@ class TreeTrainer:
             if getattr(env.scorer, 'applicability', None) is None: raise ValueError(f'{W.PROTOCOL} needs a scorer with a Stage-1 applicability call')
         if self.verification not in W.PROTOCOLS and (cfg.get('agent_reward') or {}).get('r_a_weighting', 'effectiveness') != 'effectiveness':
             raise ValueError('equal R_A weighting is defined only with bounded witness verification')
+        if self.cumulative_bank:
+            from src.online_rl.tree import cumulative_bank as CB
+            if (self.cumulative_bank.get('protocol') != CB.VERSION or not self.rubric_on or not self.reuse
+                    or self.verification not in W.PROTOCOLS or cfg['prompt_update']['enabled']
+                    or not self.member_intervention_version or not callable(env.bank_matcher)):
+                raise ValueError('cumulative bank requires fixed P0, consolidated witness verification and a bank matcher')
         if (cfg.get('feedback') or {}).get('protocol') in ('behavior_observer_v4','behavior_observer_v5') and self.rubric_on and not self.reuse:
             raise ValueError('behavior-observer feedback (invalid feedback excluded from rubric mapping) needs rubric.reuse')
         sch = cfg['schedule']; self.calibration_only = set(sch.get('calibration_only_cursors') or [])   # e.g. pool positions 401-410
@@ -233,7 +256,15 @@ class TreeTrainer:
             self.step(); done += 1
 
     def step(self, *, frozen_record=None, prompt_text=None, prompt_id=None, score_responses=True, commit=True,
-             apply_update=True, defer_verification=False) -> dict:
+             apply_update=True, defer_verification=False, cumulative_snapshot=None) -> dict:
+        cumulative_reuse = []
+        if getattr(self, 'cumulative_bank', None):
+            from src.online_rl.tree import cumulative_bank as CB
+            if cumulative_snapshot is None or commit or apply_update or score_responses or not defer_verification:
+                raise ValueError('cumulative bank preparation requires its frozen input snapshot and deferred verification/scoring/update')
+            CB.validate_snapshot(cumulative_snapshot)
+        elif cumulative_snapshot is not None:
+            raise ValueError('cumulative snapshot supplied without cumulative bank configuration')
         if commit and (prompt_text is not None or frozen_record is not None or not score_responses or not apply_update):
             raise ValueError('Batch assessment requires commit=False; the batch coordinator owns inheritance')
         if defer_verification and (not self.rubric_on or self.verification not in W.PROTOCOLS):
@@ -295,6 +326,21 @@ class TreeTrainer:
             nodes = {n.node_id: n for n in tree.nodes}
             if self.reuse and self.verification in W.PROTOCOLS:       # consolidation + bounded causal-witness verification (witness.py)
                 tin_of = {t.leaf_id: t for t in tins}
+                if cumulative_snapshot is not None:
+                    def match_existing(tin):
+                        return CB.match_existing(tin, cumulative_snapshot, e.bank_matcher, self.cache,
+                                                 top_k=int(self.cumulative_bank.get('retrieval_top_k', 8)))
+                    if self.api_workers > 1 and len(tins) > 1:
+                        from concurrent.futures import ThreadPoolExecutor
+                        from contextvars import copy_context
+                        with ThreadPoolExecutor(self.api_workers) as pool:
+                            futures = [pool.submit(copy_context().run, match_existing, tin) for tin in tins]
+                            matches = [future.result() for future in futures]
+                    else:
+                        matches = [match_existing(tin) for tin in tins]
+                    cumulative_reuse = [{'leaf_id': tin.leaf_id, **match} for tin, match in zip(tins, matches) if match is not None]
+                    reused_ids = {item['leaf_id'] for item in cumulative_reuse}
+                    ruled = [leaf for leaf in ruled if leaf.leaf_id not in reused_ids]
                 ssf = (lambda leaf: W.source_stage1_for(case, nodes, leaf, tin_of[leaf.leaf_id].target_reply_id, e.scorer.applicability, self.cache)
                        ) if self.source_consistency else None             # v2.1: source-self-applicability before the quality gate
                 canon, assignments = RB.build_banks(case, ruled, tin_of, prompt, s.prompt_sha256, e.generate_fn,
@@ -362,6 +408,8 @@ class TreeTrainer:
                   'selection': [to_dict(d) for d in selection],
                   'response_scores': [to_dict(x) for x in scores], 'rubric_weights': weights, 'agent_targets': targets, 'update': update,
                   **({'rubric_bank': bank} if bank is not None else {}),
+                  **({'cumulative_bank_input': cumulative_snapshot, 'cumulative_reuse': cumulative_reuse,
+                      'cumulative_reused_trajectories': len(cumulative_reuse)} if cumulative_snapshot is not None else {}),
                   'group_diagnostics': sibling_group_diagnostics(tree, targets, update if isinstance(update, dict) else None),
                   'interaction_diagnostics': interaction_diagnostics(tree, targets if isinstance(targets, dict) else None),
                   'seconds': time.time() - t_case,
@@ -375,6 +423,10 @@ class TreeTrainer:
         nodes = {n.node_id: n for n in tree.nodes}
         loci = {f.leaf_id: f.target_reply_id for f in feedback if getattr(f, 'valid', True)}
         vcfg = self.cfg['verification']
+        audit = None
+        if self.env.intervention_audit_fn is not None:
+            from src.online_rl.tree.instruction_audit import cached_instruction_auditor
+            audit = cached_instruction_auditor(self.env.intervention_audit_fn, self.cache, tree.policy_sha256)
         return W.verify_witness(case, nodes, {l.leaf_id: l for l in ruled}, canon, assignments, loci,
                                 applicability=self.env.scorer.applicability, writer=self.env.writer,
                                 continuation=self.env.continuation,
@@ -382,7 +434,8 @@ class TreeTrainer:
                                 run_seed=self.state.run_seed, policy_sha256=tree.policy_sha256,
                                 cache=self.cache, max_valid_supports=vcfg['max_valid_supports'],
                                 workers=self.member_workers,
-                                support_sampling=vcfg.get('support_sampling', 'topology'))
+                                support_sampling=vcfg.get('support_sampling', 'topology'),
+                                intervention_audit=audit)
 
     @staticmethod
     def _witness_selection(canon, wit):
@@ -408,6 +461,26 @@ class TreeTrainer:
         if len(feedback_ids) != len(set(feedback_ids)) or set(feedback_ids) != decided:
             raise RuntimeError('saved joint bank feedback does not cover every decided trajectory exactly once')
         eligible = {f['leaf_id'] for f in feedback if f.get('valid', True)}
+        if getattr(self, 'cumulative_bank', None):
+            from src.online_rl.tree import cumulative_bank as CB
+            snapshot = record.get('cumulative_bank_input')
+            CB.validate_snapshot(snapshot)
+            inputs = {raw['leaf_id']: from_dict(TrajectoryRubricInput, raw) for raw in record['trajectory_inputs']}
+            if len(inputs) != len(record['trajectory_inputs']) or set(inputs) != eligible:
+                raise RuntimeError('saved cumulative bank inputs do not cover eligible trajectories exactly once')
+            reused = record.get('cumulative_reuse')
+            if not isinstance(reused, list):
+                raise RuntimeError('saved cumulative bank lacks reuse decisions')
+            ids = [row['leaf_id'] for row in reused]
+            if len(ids) != len(set(ids)) or not set(ids) <= eligible:
+                raise RuntimeError('saved cumulative reuse has duplicate or ineligible trajectories')
+            for row in reused:
+                CB.validate_reuse(inputs[row['leaf_id']], snapshot, row)
+            if record.get('cumulative_reused_trajectories') != len(ids):
+                raise RuntimeError('saved cumulative reuse count differs from validated decisions')
+            eligible -= set(ids)
+        elif record.get('cumulative_bank_input') is not None or record.get('cumulative_reuse'):
+            raise RuntimeError('saved cumulative bank cannot be used without its configured protocol')
         member_ids = [a['leaf_id'] for a in bank['assignments']]
         if len(member_ids) != len(set(member_ids)) or set(member_ids) != eligible:
             raise RuntimeError('saved joint bank assignments do not cover every eligible trajectory exactly once')
@@ -443,6 +516,8 @@ class TreeTrainer:
         feedback = [from_dict(DoctorFeedback, f) for f in record['feedback']]
         ruled = [leaf for leaf in tree.leaves if leaf.outcome is not None and
                  any(f.leaf_id == leaf.leaf_id and getattr(f, 'valid', True) for f in feedback)]
+        reused_ids = {row['leaf_id'] for row in record.get('cumulative_reuse', [])}
+        ruled = [leaf for leaf in ruled if leaf.leaf_id not in reused_ids]
         canon = {r['rubric_id']: from_dict(TrajectoryRubric, r)
                  for r in record['trajectory_rubrics']}
         assignments = [from_dict(RubricAssignment, a)
@@ -457,6 +532,48 @@ class TreeTrainer:
         record['response_scores'] = []
         record['rubric_bank'] = bank
         return record
+
+    def score_cumulative(self, record: dict, snapshot: dict) -> dict:
+        """Score one case against the batch coordinator's frozen cumulative KEEP set."""
+        if not getattr(self, 'cumulative_bank', None):
+            raise ValueError('cumulative scoring is not enabled')
+        from src.online_rl.tree import cumulative_bank as CB
+        from src.online_rl.tree.scoring import score_cumulative_nodes
+        CB.validate_snapshot(snapshot)
+        self.validate_member_interventions(record)
+        if record['rubric_bank'].get('verification_pending'):
+            raise RuntimeError('cumulative scoring cannot precede local verification')
+        entries = {entry['bank_id']: entry for entry in snapshot['entries']}
+        for previous in record['cumulative_bank_input']['entries']:
+            current = entries.get(previous['bank_id'])
+            if (current is None or current['rubric'] != previous['rubric'] or
+                    any(proof not in current['sources'] for proof in previous['sources'])):
+                raise RuntimeError('frozen scoring bank lost or changed prior validated criteria')
+        local = {raw['rubric_id']: raw for raw in record['trajectory_rubrics']}
+        for selection in record['selection']:
+            if selection.get('retained') is True:
+                rid = 'bank_' + CB.content_hash(local[selection['rubric_id']]['rubric'])
+                if rid not in entries:
+                    raise RuntimeError('frozen scoring bank omits a newly validated local criterion')
+        tree = from_dict(Tree, record['tree'])
+        if tree.policy_sha256 != self.policy_sha() or tree.case_id != record['case_id']:
+            raise RuntimeError('cumulative scoring tree policy or case changed')
+        case = self.cases[tree.case_id]
+        scoring_scope = self.cumulative_bank.get('scoring_scope', 'top_k')
+        scores, retrieval = score_cumulative_nodes(case, list(tree.nodes), snapshot, self.env.scorer, self.cache,
+            top_k=int(self.cumulative_bank.get('retrieval_top_k', 8)), workers=self.api_workers,
+            scoring_scope=scoring_scope)
+        weights = {rubric.rubric_id: 1.0 for rubric in CB.scoring_rubrics(snapshot)}
+        targets = agent_targets(tree, scores, weights, self.st)
+        result = {**record, 'response_scores': [to_dict(row) for row in scores], 'rubric_weights': weights,
+                  'agent_targets': targets, 'update': {'optimizer_step': False, 'deferred_to_gpu4': True},
+                  'cumulative_bank_scoring': {'snapshot': snapshot, 'snapshot_sha256': snapshot['sha256'],
+                                              'retrieval': retrieval}, 'cumulative_retrieval': retrieval,
+                  'group_diagnostics': sibling_group_diagnostics(tree, targets),
+                  'interaction_diagnostics': interaction_diagnostics(tree, targets)}
+        if scoring_scope == 'all':
+            result['cumulative_bank_scoring']['scoring_scope'] = 'all'
+        return result
 
     def _commit(self) -> None:
         """Save the checkpoint of the finished case, write run_state, then drop rolling checkpoints it no longer points to.

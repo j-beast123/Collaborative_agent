@@ -185,7 +185,10 @@ def fingerprint(cfg: dict) -> Optional[str]:
                         'feedback': {k: cfg['feedback'][k] for k in ('model', 'prompt_sha256')},
                         'data': {'train_sha256': cfg['data']['train_sha256'], 'train_order_sha256': cfg['five_gpu']['train_order_sha256'],
                                  'cases': cfg['schedule']['cases']},
-                        'seed': cfg['schedule']['seed'], 'theta0': theta0_identity(cfg)})
+                        'seed': cfg['schedule']['seed'], 'theta0': theta0_identity(cfg),
+                        **({'cumulative_bank': {k:v for k,v in cfg['rubric']['cumulative_bank'].items()
+                                               if not k.endswith('_file')}}
+                           if cfg['rubric'].get('cumulative_bank') is not None else {})})
 
 
 def receipt_fields(cfg: dict) -> dict:
