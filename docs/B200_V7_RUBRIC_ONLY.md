@@ -203,3 +203,13 @@ bash scripts/online_rl/launch_b200_v7.sh --action train \
 호환 재개에서는 `stage: compatible_code_resume`과 완료 case 수가 출력됩니다.
 모델/데이터 재다운로드, cache 삭제, 초기 adapter 재설정은 필요 없습니다.
 CPU 회귀 검증: `python -m pytest -q tests/test_consolidate_repair.py tests/test_parallel_bank.py tests/test_b200_v7.py tests/test_b200_runner.py`.
+
+## 반복 top_k 경고 출력
+
+B200 shell launcher는 `maintenance/quiet_b200.py`를 거쳐 Transformers의
+`The following generation flags are not valid and may be ignored: ['top_k']`
+경고 한 종류만 숨깁니다. 다른 경고/오류와 실제 sampling 설정은 유지합니다.
+이 경로에서는 별도 RowSampler가 샘플링하므로 경고를 없애려고 `do_sample`을 바꾸지 않습니다.
+학습 코드/config hash를 변경하지 않는 콘솔 변경으로 기존 run을 그대로 재개할 수 있습니다.
+다시 표시하려면 `export SHERPA_SHOW_TOP_K_WARNING=1`을 설정하세요.
+이미 실행 중인 프로세스의 출력에는 적용되지 않으며, 다음 launcher 실행부터 적용됩니다.
