@@ -8,6 +8,8 @@ from pathlib import Path
 
 from src.online_rl.integrated.records import atomic_write_json, sha256_json
 
+EXACT_ASSIGNMENT_PROTOCOL = 'exact_generated_source_case_v1'
+
 
 def config_identity(cfg, root):
     spec = cfg.get('rubric', {}).get('cumulative_bank')
@@ -22,6 +24,9 @@ def config_identity(cfg, root):
         raise ValueError('Cumulative bank requires its versioned protocol and retrieval_top_k 1..32')
     if spec.get('scoring_scope', 'top_k') not in ('top_k', 'all'):
         raise ValueError('Cumulative bank scoring_scope must be top_k or all')
+    exact = cfg['rubric'].get('assignment_protocol') == EXACT_ASSIGNMENT_PROTOCOL
+    if exact and (spec.get('scoring_scope') != 'all' or spec.get('initial_snapshot_file') or spec.get('initial_snapshot_sha256')):
+        raise ValueError('Exact generated assignment requires an empty initial bank and full frozen-bank scoring')
     if (cfg.get('prompt_update', {}).get('enabled') or not cfg['rubric'].get('enabled', True)
             or cfg.get('five_gpu', {}).get('execution_mode') != 'shared_ready_tasks_v1'
             or cfg.get('agent_reward', {}).get('r_a_weighting') != 'equal'):
@@ -49,6 +54,12 @@ def config_identity(cfg, root):
     if spec.get('scoring_scope', 'top_k') == 'all':
         identity.update(scoring_scope='all', scoring='full_bank_shared_state_applicability_v1',
                         retrieval='generation_reuse_trajectory_shortlist_v1')
+    if exact:
+        identity.update(assignment_protocol=EXACT_ASSIGNMENT_PROTOCOL,
+                        generation_assignment='all_eligible_trajectories_then_exact_public_content_dedup_v1',
+                        semantic_matcher='disabled', reuse_effect_verification='new_source_witness_only',
+                        retrieval='disabled_for_generation_full_bank_for_scoring_v1',
+                        matcher_model=None, matcher_generation=None)
     return identity
 
 
@@ -130,6 +141,9 @@ def round_records(cfg, root, out, state, batch, batchdir, collect):
     batchdir = Path(batchdir)
     identity = {'batch': batch, 'source_policy_sha256': state['policy_sha256'],
                 'source_case_cursor': state['case_cursor'], **bank_fields(before)}
+    exact = cfg['rubric'].get('assignment_protocol') == EXACT_ASSIGNMENT_PROTOCOL
+    if exact:
+        identity['assignment_protocol'] = EXACT_ASSIGNMENT_PROTOCOL
     scoring_scope = cfg['rubric']['cumulative_bank'].get('scoring_scope', 'top_k')
     if scoring_scope not in ('top_k', 'all'):
         raise ValueError('Cumulative bank scoring_scope must be top_k or all')
@@ -155,6 +169,8 @@ def round_records(cfg, root, out, state, batch, batchdir, collect):
         if any(r['policy_sha256'] != state['policy_sha256'] or
                r['cumulative_bank_input']['sha256'] != before['sha256'] for r in records):
             raise RuntimeError('Case preparation used a different policy or bank snapshot')
+        if exact and any(r.get('cumulative_reuse') for r in records):
+            raise RuntimeError('Exact-generated assignment cannot inherit a semantic bank match')
     after = extend_snapshot(before, records)
     publish_snapshot(out, after)
     frozen_path = batchdir / 'bank_frozen.json'
@@ -180,5 +196,6 @@ def round_records(cfg, root, out, state, batch, batchdir, collect):
         'before_rubrics': len(before['entries']), 'after_rubrics': len(after['entries']),
         'added_unique_rubrics': len(after['entries']) - len(before['entries']),
         'reused_trajectories': sum(len(r.get('cumulative_reuse', [])) for r in scored),
+        **({'semantic_pre_generation_reuse_disabled': True} if exact else {}),
         'timings_wall_seconds': timings})
     return scored, after

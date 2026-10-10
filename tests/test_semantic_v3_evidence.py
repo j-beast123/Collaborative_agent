@@ -199,6 +199,42 @@ def test_v3_gate_binds_v3_blind_source_and_preserves_partial_source_mismatch():
     assert result['evidence']['blind_source']['protocol'] == PUBLIC_EVIDENCE_CONTRACT_V3
 
 
+def test_gate_rejects_conflicting_blind_source_as_unscorable_without_aborting():
+    class ConflictingBlindScorer:
+        protocol = 'test-blind-scorer'
+
+        def score_behavior(self, *args):
+            error = IntegrationUnavailable('synthetic anchor contradiction')
+            error.audit = {'validation': {'status': 'execution_error', 'kind': 'evidence_contract',
+                'error': 'Numeric score contradicts anchor matches',
+                'raw_parsed': {'answers': {'target': {'level': '2',
+                    'checks': [{'ref': 'score_anchors.1', 'met': True},
+                               {'ref': 'score_anchors.2', 'met': True}]}}}}}
+            raise error
+
+    result = public_mc_posthoc_gate(V3Client(), {CASE['case_id']: CASE},
+        protocol=PUBLIC_GATE_PROTOCOL_V3, blind_scorer_override=ConflictingBlindScorer())(tin(), rubric())
+    assert not result['passed']
+    assert 'source_unscorable' in result['reasons']
+    assert result['source_anchor']['observed_level'] == 'UNSCORABLE'
+    assert result['blind_source_assessment']['level'] == 'UNSCORABLE'
+    assert result['evidence']['blind_source']['validation']['raw_parsed']
+
+
+def test_gate_does_not_mask_other_blind_scorer_execution_errors():
+    class BrokenBlindScorer:
+        protocol = 'test-blind-scorer'
+
+        def score_behavior(self, *args):
+            error = IntegrationUnavailable('synthetic truncated output')
+            error.audit = {'validation': {'status': 'execution_incomplete', 'kind': 'finish_reason'}}
+            raise error
+
+    with pytest.raises(IntegrationUnavailable, match='truncated'):
+        public_mc_posthoc_gate(V3Client(), {CASE['case_id']: CASE},
+            protocol=PUBLIC_GATE_PROTOCOL_V3, blind_scorer_override=BrokenBlindScorer())(tin(), rubric())
+
+
 def test_v3_cache_identities_differ_from_v2():
     old = evidence_scorer(V2Client(), evidence_contract=PUBLIC_EVIDENCE_CONTRACT_V2)
     new = scorer()

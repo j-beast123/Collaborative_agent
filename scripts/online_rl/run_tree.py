@@ -45,6 +45,20 @@ def blockers(cfg: dict) -> list[str]:
     """Unresolved settings plus every approved prompt/template whose file differs from its pinned sha256 (as run_integrated)."""
     from src.online_rl.tree.conditions import active_unresolved
     out = active_unresolved(cfg)                                    # only settings the condition uses
+    provider = cfg.get('api_provider', 'openrouter')
+    judge_provider = cfg.get('judges', {}).get('api_provider', provider)
+    generation_provider = (cfg.get('rubric', {}).get('generation') or {}).get('api_provider', provider)
+    if provider not in ('openrouter', 'openai_direct'):
+        out.append(f'Unknown api_provider {provider!r}')
+    if provider == 'openai_direct':
+        if judge_provider != 'openai_direct' or generation_provider != 'openai_direct':
+            out.append('OpenAI direct run requires direct rubric generation and judges')
+        for section, key in (('rubric', 'generator_model'), ('judges', 'gate_model'),
+                             ('judges', 'scorer_model'), ('judges', 'intervention_audit_model')):
+            if key in cfg.get(section, {}) and cfg[section][key] != 'gpt-6-luna':
+                out.append(f'{section}.{key} must be gpt-6-luna for the OpenAI direct run')
+    elif judge_provider == 'openai_direct' or generation_provider == 'openai_direct':
+        out.append('Direct judge/generator provider requires top-level api_provider=openai_direct')
     raw_sampling = (cfg.get('optimizer') or {}).get('require_raw_on_policy_sampling', False)
     if not isinstance(raw_sampling, bool):
         out.append('optimizer.require_raw_on_policy_sampling must be boolean')
@@ -154,8 +168,9 @@ def evidence_gate_identity(cfg: dict, root: Path = ROOT):
     # instead of maintaining a second weaker manifest-only fingerprint.
     client = LunaDecisionClient(model=jm['gate_model'], key='',
                                 system=(root / jm['gate_prompt_file']).read_text(),
-                                max_tokens=jm['gate_max_tokens'])
-    if jm.get('compact_runtime') == 'v7_1':
+                                max_tokens=jm['gate_max_tokens'],
+                                provider=jm.get('api_provider', cfg.get('api_provider', 'openrouter')))
+    if jm.get('compact_runtime') in ('v7_1', 'v7_5_v7_6'):
         return make_gate(cfg, client, []).settings
     if jm.get('gate_protocol') in (PUBLIC_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL_V2, PUBLIC_GATE_PROTOCOL_V3):
         from src.online_rl.tree.quality_gate import public_mc_posthoc_gate
@@ -248,7 +263,8 @@ def _intervention_audit_client(cfg: dict, key: str, root: Path):
     return LunaDecisionClient(model=jm['intervention_audit_model'], key=key,
                               system=(root / jm['intervention_audit_prompt_file']).read_text(),
                               max_tokens=jm['intervention_audit_max_tokens'],
-                              timeout_s=jm['intervention_audit_timeout_s'])
+                              timeout_s=jm['intervention_audit_timeout_s'],
+                              provider=jm.get('api_provider', cfg.get('api_provider', 'openrouter')))
 
 
 def intervention_audit_identity(cfg: dict, root: Path = ROOT):
@@ -420,38 +436,115 @@ def phase_problems(cfg: dict, phase) -> list[str]:
     return ['phase B already completed (lineage_cursor >= 1)'] if st['lineage_cursor'] >= 1 else []
 
 
-def load_key() -> str:
+def load_key(cfg: dict | None = None) -> str:
+    provider = (cfg or {}).get('api_provider', 'openrouter')
+    if provider == 'openai_direct':
+        # The direct API credential is kept in the user's private settings.
+        # Never copy it into config files or emit it in diagnostics.
+        from src.common.config import IntegrationUnavailable
+        path = Path.home() / '.config/sherpa/openai.env'
+        try:
+            lines = path.read_text(encoding='utf-8').splitlines()
+        except OSError as exc:
+            raise IntegrationUnavailable(f'OpenAI secret settings are unreadable: {path}') from exc
+        for line in lines:
+            name, sep, value = line.strip().removeprefix('export ').partition('=')
+            if sep and name.strip() == 'OPENAI_API_KEY':
+                key = value.strip().strip('"\'')
+                if key: return key
+        raise IntegrationUnavailable(f'OPENAI_API_KEY missing in secret settings: {path}')
+    if provider != 'openrouter':
+        raise ValueError(f'Unknown API provider: {provider}')
     from src.prompt_opt import harness as H
     return H.load_key()
 
 
-def judge_client(model: str, key: str, system: str, *, max_tokens: int = 2000):
+def judge_client(model: str, key: str, system: str, *, max_tokens: int = 2000, provider: str = 'openrouter'):
     """Jev (decisions API, label probabilities) for typesafe/jev models, else a hard-label decision client (Luna)."""
+    if provider not in ('openrouter', 'openai_direct'):
+        raise ValueError(f'Unknown judge API provider: {provider}')
+    if provider == 'openai_direct' and model != 'gpt-6-luna':
+        raise ValueError('OpenAI direct judge model must be gpt-6-luna')
     if model.startswith('typesafe/jev'):
         from src.judges.jev import JevClient
         from src.prompt_opt import harness as H
         return JevClient(**{**H.JEV, 'model': model})
     from src.online_rl.tree.luna import LunaDecisionClient
-    return LunaDecisionClient(model=model, key=key, system=system, max_tokens=max_tokens)
+    return LunaDecisionClient(model=model, key=key, system=system, max_tokens=max_tokens, provider=provider)
 
 
 def make_scorer(cfg: dict, client):
     """Select evidence scoring only for configs that explicitly request it."""
     from src.online_rl.tree.backends import two_stage_scorer, two_stage_structured_scorer, two_stage_hard_scorer
     jm = cfg['judges']
-    if jm.get('compact_runtime') == 'v7_1':
+    if jm.get('compact_runtime') in ('v7_1', 'v7_5_v7_6'):
+        from functools import wraps
+        from src.common.config import IntegrationUnavailable
         from src.online_rl.tree.compact_runtime import compact_scorer
         from src.online_rl.tree.luna import LunaDecisionClient
         app_client = LunaDecisionClient(model=client.model, key=client.key,
             system=(ROOT/jm['applicability_prompt_file']).read_text(), max_tokens=client.max_tokens,
-            post=client.post, sleep=client.sleep, timeout_s=client.timeout_s)
-        return compact_scorer(client, app_client, rubric_score_batch_size(cfg))
+            post=client.post, sleep=client.sleep, timeout_s=client.timeout_s,
+            provider=getattr(client, 'provider', 'openrouter'))
+        scorer = compact_scorer(client, app_client, rubric_score_batch_size(cfg),
+                                revision=jm['compact_runtime'])
+        # A malformed judge response is an execution failure, not an NA or a
+        # score. Retry the unchanged Stage-1 request once while retaining the
+        # failed wire evidence in the eventual cached decision. This wrapper
+        # does not alter the criterion or its pinned cache identity.
+        original_review = getattr(scorer, 'review_state', None)
+        if callable(original_review):
+            @wraps(original_review)
+            def retry_invalid_stage1(*args, **kwargs):
+                failed = []
+                for attempt in range(2):
+                    try:
+                        rows = original_review(*args, **kwargs)
+                    except IntegrationUnavailable as exc:
+                        audit = getattr(exc, 'audit', None) or {}
+                        validation = audit.get('validation') or {}
+                        if (attempt == 1 or validation.get('status') != 'execution_error' or
+                                validation.get('kind') not in ('schema', 'evidence_contract', 'json_or_response')):
+                            if failed:
+                                exc.audit = {**audit, 'prior_failed_attempts': failed}
+                            raise
+                        failed.append(audit)
+                        print('Compact applicability execution invalid; retry 1/1', flush=True)
+                        continue
+                    if failed:
+                        for row in rows.values():
+                            row['evidence_validation']['prior_failed_attempts'] = failed
+                    return rows
+                raise AssertionError('unreachable compact applicability retry')
+
+            scorer.review_state = scorer.applicability = retry_invalid_stage1
+        # A judge can omit one of the required public M/C checks while still
+        # returning valid JSON. Retry that incomplete execution; never turn it
+        # into a numeric score, NA, or UNSCORABLE. Keep the scorer protocol and
+        # cached successful decisions unchanged for an in-progress batch.
+        original_batch = scorer.score_behavior_batch
+
+        def retry_incomplete_checks(*args, **kwargs):
+            for attempt in range(5):
+                try:
+                    return original_batch(*args, **kwargs)
+                except IntegrationUnavailable as exc:
+                    validation = getattr(exc, 'audit', {}).get('validation', {})
+                    if (validation.get('kind') != 'evidence_contract' or
+                            validation.get('error') != 'Each public definition needs one check' or
+                            attempt == 4):
+                        raise
+                    print(f'Compact scorer omitted public checks; retry {attempt + 1}/4', flush=True)
+
+        scorer.score_behavior_batch = retry_incomplete_checks
+        return scorer
     if jm.get('scorer_protocol') in (PUBLIC_SCORER_PROTOCOL, PUBLIC_SCORER_PROTOCOL_V2, PUBLIC_SCORER_PROTOCOL_V3):
         from src.online_rl.tree.pilot_evidence_scorer import evidence_scorer
         from src.online_rl.tree.luna import LunaDecisionClient
         app_client=LunaDecisionClient(model=client.model,key=client.key,
             system=(ROOT/jm['applicability_prompt_file']).read_text(),max_tokens=client.max_tokens,
-            post=client.post,sleep=client.sleep,timeout_s=client.timeout_s)
+            post=client.post,sleep=client.sleep,timeout_s=client.timeout_s,
+            provider=getattr(client, 'provider', 'openrouter'))
         return evidence_scorer(client,response_batch_size=rubric_score_batch_size(cfg),
             evidence_contract=jm['scorer_protocol'],applicability_client=app_client)
     if jm.get('scorer_protocol') == EVIDENCE_SCORER_PROTOCOL:
@@ -468,17 +561,52 @@ def make_scorer(cfg: dict, client):
 def make_gate(cfg: dict, client, cases):
     """Keep legacy gating for existing configs; bind evidence gating only by explicit version."""
     from src.online_rl.tree.backends import posthoc_gates
-    if cfg['judges'].get('compact_runtime') == 'v7_1':
+    if cfg['judges'].get('compact_runtime') in ('v7_1', 'v7_5_v7_6'):
+        from functools import wraps
+        from src.common.config import IntegrationUnavailable
         from src.online_rl.tree.quality_gate import public_mc_posthoc_gate
         from src.online_rl.tree.luna import LunaDecisionClient
         jm = cfg['judges']
         blind_client = LunaDecisionClient(model=client.model, key=client.key,
             system=(ROOT/jm['scorer_prompt_file']).read_text(), max_tokens=client.max_tokens,
-            post=client.post, sleep=client.sleep, timeout_s=client.timeout_s)
-        return public_mc_posthoc_gate(client, {c['case_id']:c for c in cases},
+            post=client.post, sleep=client.sleep, timeout_s=client.timeout_s,
+            provider=getattr(client, 'provider', 'openrouter'))
+        original_gate = public_mc_posthoc_gate(client, {c['case_id']:c for c in cases},
             observed_context=bool(cfg['rubric'].get('schema')), protocol=jm['gate_protocol'],
             rubric_quote_protocol=jm.get('gate_quote_protocol'),
             instructions_override=client.system, blind_scorer_override=make_scorer(cfg, blind_client))
+
+        @wraps(original_gate)
+        def gate_with_quote_retry(tin, rubric):
+            audits = []
+            error_kinds = []
+            for attempt in range(3):
+                try:
+                    return original_gate(tin, rubric)
+                except IntegrationUnavailable as exc:
+                    audit = getattr(exc, 'audit', None) or {}
+                    validation = audit.get('validation') or {}
+                    nonliteral_quote = ('Invalid public Gate evidence after one correction:' in str(exc)
+                                        and 'source quote speaker/turn/text differs' in str(exc))
+                    invalid_source_judgment = (validation.get('status') == 'execution_error'
+                        and validation.get('kind') == 'evidence_contract')
+                    if not (nonliteral_quote or invalid_source_judgment):
+                        raise
+                    audits.append(audit)
+                    error_kinds.append('gate_quote' if nonliteral_quote else 'blind_source_evidence')
+                    if attempt < 2:
+                        print(f'Gate judge evidence invalid ({error_kinds[-1]}); '
+                              f'retry {attempt + 1}/2', flush=True)
+            # A repeatedly malformed judge response supplies no quality vote.
+            # Exclude this candidate with an explicit execution-error record;
+            # never admit it or turn it into an observed behavioral score.
+            return {'protocol': jm['gate_protocol'], 'schema': True, 'passed': False,
+                    'status': 'execution_error', 'reasons': ['gate_execution_error'],
+                    'unresolved': error_kinds,
+                    'evidence': {'failed_attempts': audits, 'error_kinds': error_kinds},
+                    'public_criterion_version': rubric.get('criterion_version')}
+
+        return gate_with_quote_retry
     quote_options = ({'rubric_quote_protocol': cfg['judges']['gate_quote_protocol']}
                      if cfg['judges'].get('gate_quote_protocol') is not None else {})
     return posthoc_gates(client, {case['case_id']: case for case in cases},
@@ -551,11 +679,13 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
     context_addendum = (text(cfg['rubric']['state_addendum_file'])
                         if observed_context and cfg['rubric'].get('state_addendum_enabled', True) else None)
     ro, pu, ar = cfg['rollout'], cfg['prompt_update'], cfg['agent_reward']
-    jm = cfg['judges']; key = load_key()
+    jm = cfg['judges']; key = load_key(cfg) if cfg.get('api_provider') == 'openai_direct' else load_key()
+    judge_provider = jm.get('api_provider', cfg.get('api_provider', 'openrouter'))
+    provider_kw = {'provider': judge_provider} if judge_provider != 'openrouter' else {}
     gate_client = judge_client(jm['gate_model'], key, text(jm['gate_prompt_file']),
-        **({'max_tokens': jm['gate_max_tokens']} if 'gate_max_tokens' in jm else {}))
+        **({'max_tokens': jm['gate_max_tokens']} if 'gate_max_tokens' in jm else {}), **provider_kw)
     scorer_client = judge_client(jm['scorer_model'], key, text(jm['scorer_prompt_file']),
-        **({'max_tokens': jm['scorer_max_tokens']} if 'scorer_max_tokens' in jm else {}))
+        **({'max_tokens': jm['scorer_max_tokens']} if 'scorer_max_tokens' in jm else {}), **provider_kw)
     policy = policy if policy is not None else make_policy(cfg, key)
     if (policy.args.rounds, policy.args.doctor_model) != (ro['rounds'], ro['doctor_model']):
         raise RuntimeError('policy/harness rounds or Doctor model differ from rollout config')

@@ -1,0 +1,13 @@
+{
+  "extends": "configs/experiments/train120_v9_fresh_source_case_direct_luna.json",
+  "experiment": {
+    "output_root": "outputs/train120_v9_1_gate8192_first5_20261011",
+    "run_label": "sourcecase_exact_directluna_v9_1_gate8192"
+  },
+  "judges": {
+    "gate_max_tokens": 8192
+  },
+  "notes": {
+    "gate_output_fix": "Fresh first-five run after the v9 Gate quality calls on all five cases hit the 3072-token completion limit. Only the Gate output ceiling changes. Failed v9 output is retained as an incomplete separate run."
+  }
+}

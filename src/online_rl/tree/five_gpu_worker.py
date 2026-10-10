@@ -16,7 +16,11 @@ def initialize(cfg, worker, key, pool_spec=None, existing_policy=None):
         os.environ['CUDA_VISIBLE_DEVICES'] = physical_gpus()[worker]
     os.environ['SHERPA_AGENT_REPLICAS'] = '1'
     os.environ.pop('SHERPA_DOCTOR_ENDPOINTS', None)
-    os.environ['OPENROUTER_API_KEY'] = key
+    if cfg.get('api_provider') == 'openai_direct':
+        os.environ['OPENAI_API_KEY'] = key
+        os.environ.pop('OPENROUTER_API_KEY', None)
+    else:
+        os.environ['OPENROUTER_API_KEY'] = key
     from scripts.online_rl.run_tree import ROOT
     from src.online_rl.tree.idle_eval_hooks import register_worker, training_guard
     register_worker(worker)

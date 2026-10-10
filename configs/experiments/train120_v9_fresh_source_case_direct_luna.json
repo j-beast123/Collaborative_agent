@@ -1,0 +1,30 @@
+{
+  "extends": "configs/experiments/train120_v8_fresh_source_case_exact.json",
+  "api_provider": "openai_direct",
+  "experiment": {
+    "output_root": "outputs/train120_v9_fresh_source_case_direct_luna_20261011",
+    "run_label": "sourcecase_exact_directluna_v9"
+  },
+  "rubric": {
+    "generator_model": "gpt-6-luna",
+    "generation": {
+      "api_provider": "openai_direct"
+    }
+  },
+  "judges": {
+    "api_provider": "openai_direct",
+    "gate_model": "gpt-6-luna",
+    "scorer_model": "gpt-6-luna",
+    "intervention_audit_model": "gpt-6-luna",
+    "luna_canonical_slug": "gpt-6-luna"
+  },
+  "prompt_update": {
+    "enabled": false,
+    "reflection_model": "gpt-6-luna",
+    "refiner_model": "gpt-6-luna"
+  },
+  "notes": {
+    "provider": "All remote rubric-generation and judgment roles use the direct OpenAI gpt-6-luna provider. Prompt evolution is disabled; the configured reflection/refiner model IDs are pinned but unused. The exact-only assignment bypasses semantic matching/consolidation; no automatic semantic merge is enabled.",
+    "restart": "Fresh local Qwen3-8B base plus empty cumulative KEEP bank and new rollout; no prior adapter, rollout, bank, score cache or checkpoint import."
+  }
+}

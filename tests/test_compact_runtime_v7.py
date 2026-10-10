@@ -80,3 +80,107 @@ def test_gate_uses_pinned_prompt_and_blind_compact_scorer():
     assert gate.settings['blind_source_protocol']
     assert gate.settings['contract_sha256']!=make_gate({**cfg,'judges':{**cfg['judges'],'compact_runtime':None}},client,[CASE]).settings['contract_sha256']
     assert evidence_gate_identity(cfg)['contract_sha256']==gate.settings['contract_sha256']
+
+
+def test_missing_public_checks_retry_without_fabricating_a_score(monkeypatch):
+    from src.common.config import IntegrationUnavailable
+    from src.online_rl.tree import compact_runtime
+    from scripts.online_rl.run_tree import make_scorer
+
+    cfg, _, client, _ = setup()
+    calls = []
+
+    def failing_batch(*args, **kwargs):
+        calls.append(1)
+        if len(calls) < 3:
+            error = IntegrationUnavailable('incomplete judge evidence')
+            error.audit = {'validation': {'kind': 'evidence_contract',
+                'error': 'Each public definition needs one check'}}
+            raise error
+        return {'reply': {'rubric': {'hard': 1}}}
+
+    def stub(*args, **kwargs):
+        def scorer(*args, **kwargs):
+            pass
+        scorer.score_behavior_batch = failing_batch
+        scorer.protocol = 'unchanged-protocol'
+        return scorer
+
+    monkeypatch.setattr(compact_runtime, 'compact_scorer', stub)
+    scorer = make_scorer(cfg, client)
+    assert scorer.score_behavior_batch() == {'reply': {'rubric': {'hard': 1}}}
+    assert scorer.protocol == 'unchanged-protocol'
+    assert len(calls) == 3
+
+    def always_incomplete(*args, **kwargs):
+        error = IntegrationUnavailable('incomplete judge evidence')
+        error.audit = {'validation': {'kind': 'evidence_contract',
+            'error': 'Each public definition needs one check'}}
+        raise error
+
+    monkeypatch.setattr(compact_runtime, 'compact_scorer', lambda *a, **k: type('S', (),
+        {'score_behavior_batch': staticmethod(always_incomplete)})())
+    with pytest.raises(IntegrationUnavailable):
+        make_scorer(cfg, client).score_behavior_batch()
+
+
+def test_gate_invalid_source_quote_never_becomes_a_quality_vote(monkeypatch):
+    from src.common.config import IntegrationUnavailable
+    from src.online_rl.tree import quality_gate
+    from scripts.online_rl.run_tree import make_gate
+
+    cfg, _, client, _ = setup()
+    attempts = []
+
+    def fake_public_gate(*args, **kwargs):
+        def gate(tin, rubric):
+            attempts.append(1)
+            error = IntegrationUnavailable('Invalid public Gate evidence after one correction: '
+                                           'mc_anchor_alignment: source quote speaker/turn/text differs')
+            error.audit = {'validation_errors': ['source quote speaker/turn/text differs']}
+            raise error
+        gate.settings = {'identity': 'unchanged'}
+        gate.protocol = 'unchanged-protocol'
+        return gate
+
+    monkeypatch.setattr(quality_gate, 'public_mc_posthoc_gate', fake_public_gate)
+    gate = make_gate(cfg, client, [CASE])
+    result = gate(None, {'criterion_version': 'test'})
+    assert len(attempts) == 3
+    assert gate.protocol == 'unchanged-protocol'
+    assert gate.settings == {'identity': 'unchanged'}
+    assert result['passed'] is False and result['status'] == 'execution_error'
+    assert len(result['evidence']['failed_attempts']) == 3
+
+
+def test_gate_conflicting_blind_source_mc_is_not_a_score(monkeypatch):
+    from src.common.config import IntegrationUnavailable
+    from src.online_rl.tree import quality_gate
+    from scripts.online_rl.run_tree import make_gate
+
+    cfg, _, client, _ = setup()
+    attempts = []
+
+    def fake_public_gate(*args, **kwargs):
+        def gate(tin, rubric):
+            attempts.append(1)
+            error = IntegrationUnavailable('Compact judge execution failed')
+            error.audit = {'validation': {'status': 'execution_error',
+                'kind': 'evidence_contract', 'error': 'C cannot be complete without M'}}
+            raise error
+        gate.settings = {'identity': 'unchanged'}
+        gate.protocol = 'unchanged-protocol'
+        return gate
+
+    monkeypatch.setattr(quality_gate, 'public_mc_posthoc_gate', fake_public_gate)
+    result = make_gate(cfg, client, [CASE])(None, {'criterion_version': 'test'})
+    assert len(attempts) == 3
+    assert result['status'] == 'execution_error'
+    assert result['passed'] is False
+    assert result['unresolved'] == ['blind_source_evidence'] * 3
+
+    def transport_outage(*args, **kwargs):
+        raise IntegrationUnavailable('API unavailable')
+    monkeypatch.setattr(quality_gate, 'public_mc_posthoc_gate', lambda *a, **k: transport_outage)
+    with pytest.raises(IntegrationUnavailable, match='API unavailable'):
+        make_gate(cfg, client, [CASE])(None, {})

@@ -11,6 +11,6 @@
   },
   "notes": {
     "restart": "base plus empty bank; no prior bank, KEEP, score cache, or adapter import",
-    "evaluation": "C65 full 622 runs on cooperative idle GPUs with training priority. The same fixed 200-item subset starts at C30 and is evaluated every two optimizer updates."
+    "evaluation": "C30 then C40,C50,...C120 same fixed 200 cases; C65 old full622 precedes this run"
   }
 }

@@ -27,11 +27,30 @@ def reply_text(response):
 TEXT={'type':'string'}
 SPAN=obj({'turn_id':TEXT,'quote':TEXT})
 
-def app_schema(items):
+# The v7.4 relation audit is part of the public Stage-1 output contract.  It
+# checks what the Doctor actually asked about before the Agent reply exists.
+RELATION_TYPES=('occurrence_risk','diagnostic_evidence','prevention_effect',
+                'mimic_or_differential','other','none','uncertain')
+RELATION_STATUSES=('same','different','uncertain','not_required')
+LIFECYCLES=('open','resolved','absent','uncertain','not_required')
+RELATION=obj({'relation_type':enum(RELATION_TYPES),'subject':TEXT,
+              'object':TEXT,'temporal_target':TEXT})
+RELATION_AUDIT=obj({'condition_relation':RELATION,'visible_relation':RELATION,
+                    'relation_status':enum(RELATION_STATUSES),
+                    'relation_evidence':arr(SPAN),'active_request_required':{'type':'boolean'},
+                    'request_lifecycle':enum(LIFECYCLES),'explanation':TEXT})
+
+def app_schema(items, *, quality=False, relation=False):
+    if relation and not quality:raise ValueError('Relation audit requires v7.3 request-state evidence')
     component=obj({'clause':TEXT,'status':enum(['supported','absent','not_required','unmet','uncertain']),
         'evidence':arr(SPAN),'inspected':arr(TEXT),'note':TEXT})
     side={**arr(component),'minItems':1}
-    return obj({'answers':obj({rid:obj({'doctor_condition':side,'agent_condition':side}) for rid in items})})
+    fields = {'doctor_condition':side,'agent_condition':side}
+    if quality:
+        fields.update(request_state=enum(['not_required','absent','unresolved','resolved','partial','uncertain']),
+                      request_evidence=arr(SPAN), remaining_request=TEXT)
+    if relation:fields['relation_audit']=RELATION_AUDIT
+    return obj({'answers':obj({rid:obj(copy.deepcopy(fields)) for rid in items})})
 
 def score_schema(packet):
     refs=['score_anchors.0','score_anchors.1','score_anchors.2']
@@ -44,7 +63,7 @@ def score_schema(packet):
             'quotes':arr(TEXT),'checks':arr(check),'gap':TEXT,'defect':TEXT})
     return obj({'answers':obj({r['response_id']:obj(copy.deepcopy(fields)) for r in packet['responses']})})
 
-def prepare(payload, *, semantic=False):
+def prepare(payload, *, semantic=False, quality=False, relation=False):
     """Preserve exact criterion/input/model/settings. Replace output contract only,
     then optionally add the separately frozen semantic supplement.
     """
@@ -56,7 +75,7 @@ def prepare(payload, *, semantic=False):
     kind='behavior' if 'responses' in packet else 'applicability'
     if kind=='applicability':
         if 'candidate_rubric' in packet.get('state',{}):raise ValueError('Gate is a separate experiment')
-        schema=app_schema(packet['items'])
+        schema=app_schema(packet['items'], quality=quality, relation=relation)
     else:schema=score_schema(packet)
     contract=(PROMPTS/f'compact_{kind}_contract_v1.txt').read_text()
     supplement=contract
@@ -65,7 +84,7 @@ def prepare(payload, *, semantic=False):
     for item in packet['rubric_items' if kind=='behavior' else 'items'].values():
         item['instructions']=item.get('instructions','')+'\n\n'+supplement
     q['messages'][1]['content']=json.dumps(packet,ensure_ascii=False)
-    q['response_format']={'type':'json_schema','json_schema':{'name':PROTOCOL+'_'+kind,'strict':True,'schema':schema}}
+    q['response_format']={'type':'json_schema','json_schema':{'name':PROTOCOL+'_'+kind+('_quality' if quality else ''),'strict':True,'schema':schema}}
     # No input evidence, old rubric, sampling parameter, or token limit is changed.
     return q
 
@@ -97,13 +116,63 @@ def _catalog(state):
     rows=state.get('case_evidence',[])+state.get('dialogue_before_target_reply',[])
     return {r['turn_id']:r for r in rows}
 
+def _validate_relation(audit, state, judgment, answer):
+    """Port the isolated v7.4 relation check without its frozen-harness imports."""
+    if not audit['explanation'].strip():raise ValueError('Relation audit needs an explanation')
+    required=audit['condition_relation']['relation_type']
+    visible=audit['visible_relation']['relation_type']
+    status=audit['relation_status']
+    doctor_turns={row['turn_id']:row for row in state['dialogue_before_target_reply']
+                  if row['speaker'].lower()=='doctor'}
+    evidence=audit['relation_evidence']
+    if len({(e['turn_id'],e['quote']) for e in evidence})!=len(evidence):
+        raise ValueError('Duplicate relation evidence')
+    for span in evidence:
+        turn=doctor_turns.get(span['turn_id'])
+        if turn is None or not span['quote'].strip() or span['quote'] not in turn['text']:
+            raise ValueError('Relation evidence is not an exact visible Doctor quote')
+    if status=='not_required':
+        if required!='none' or evidence:raise ValueError('A required relation cannot be not_required')
+    elif status=='same':
+        if required in ('none','uncertain') or required!=visible or not evidence:
+            raise ValueError('Same relation needs matching expressed relation')
+    elif status=='different':
+        if required in ('none','uncertain') or visible=='uncertain':
+            raise ValueError('Different relation needs determinate kinds')
+        if audit['condition_relation']==audit['visible_relation']:
+            raise ValueError('Identical relation tuples cannot be different')
+        if visible!='none' and not evidence:
+            raise ValueError('Expressed different relation needs Doctor evidence')
+        if visible=='none' and evidence:
+            raise ValueError('Absent relation cannot cite expressed relation')
+    else:
+        if required=='none':raise ValueError('Uncertain relation requires written relation')
+        if visible!='none' and not evidence:
+            raise ValueError('Uncertain expressed relation needs Doctor evidence')
+        if visible=='none' and evidence:
+            raise ValueError('Absent relation cannot cite invented evidence')
+    doctor_statuses=[part['status'] for part in answer['doctor_condition']]
+    if status=='different' and ('unmet' not in doctor_statuses or judgment['applicable'] is not False):
+        raise ValueError('Different relation must make Doctor condition unmet')
+    if status=='uncertain' and ('uncertain' not in doctor_statuses or judgment['applicable'] is not None):
+        raise ValueError('Material relation uncertainty must remain uncertain')
+    expected={'unresolved':'open','partial':'open','resolved':'resolved',
+              'absent':'absent','uncertain':'uncertain','not_required':'not_required'}[judgment['request_state']]
+    if audit['request_lifecycle']!=expected:
+        raise ValueError('Relation lifecycle contradicts request state')
+    if (audit['active_request_required'] and judgment['request_state']=='resolved'
+            and ('unmet' not in doctor_statuses or judgment['applicable'] is not False)):
+        raise ValueError('Resolved request cannot satisfy required active request')
+    return {**audit,'semantic_accuracy':'independent_review_pending'}
+
 def _app(raw,packet):
     state=packet['state'];catalog=_catalog(state)
     prefix_ids=[r['turn_id'] for r in state['dialogue_before_target_reply']]
     answers={}
     for rid,assessment in raw['answers'].items():
         statuses=[];bound={}
-        for side,components in assessment.items():
+        for side in ('doctor_condition', 'agent_condition'):
+            components = assessment[side]
             definition=packet['items'][rid][side];bound[side]=[]
             for part in components:
                 clause=part['clause'];status=part['status'];statuses.append(status)
@@ -122,9 +191,43 @@ def _app(raw,packet):
                     raise ValueError('Absence requires whole prefix and no invented speech')
                 if status=='not_required' and evidence:raise ValueError('No required state must not invent speech')
                 bound[side].append({**part,'evidence':evidence})
-        applicable=False if 'unmet' in statuses else None if 'uncertain' in statuses else True
-        answers[rid]={'applicable':applicable,'status':'unresolved' if applicable is None else 'applicable' if applicable else 'not_applicable',
+        request_state = assessment.get('request_state')
+        if request_state is not None:
+            if request_state not in ('not_required','absent','unresolved','resolved','partial','uncertain'):
+                raise ValueError('Invalid request state')
+            request_evidence = assessment['request_evidence']
+            if request_state in ('unresolved','resolved','partial','uncertain') and not request_evidence:
+                raise ValueError('Request state needs exact prefix evidence')
+            if request_state in ('absent','not_required') and request_evidence:
+                raise ValueError('Absent/non-required request cannot cite invented evidence')
+            for quote in request_evidence:
+                source = catalog.get(quote['turn_id'])
+                if (quote['turn_id'] not in prefix_ids or not source or
+                        not quote['quote'].strip() or quote['quote'] not in source['text']):
+                    raise ValueError('Request-state quote is not exact prefix evidence')
+            remaining = assessment['remaining_request'].strip()
+            if (request_state in ('unresolved','partial','uncertain')) != bool(remaining):
+                raise ValueError('Request residual contradicts request state')
+            if request_state == 'uncertain' and 'uncertain' not in statuses:
+                raise ValueError('Materially uncertain request must remain uncertain')
+            if request_state in ('resolved','partial') and len({q['turn_id'] for q in request_evidence}) < 2:
+                raise ValueError('Resolution/partial handling must cite request and later handling')
+            if any(part['inspected'] != prefix_ids for part in assessment['doctor_condition']):
+                raise ValueError('Doctor condition must inspect the full visible prefix')
+        # Necessary clauses are a conjunction: a definite unmet clause stays
+        # false even when another clause is uncertain (isolated v7.4b fix).
+        applicable = False if 'unmet' in statuses else None if 'uncertain' in statuses else True
+        answers[rid]={'applicable':applicable,
+            'status':('uncertain' if request_state is not None else 'unresolved') if applicable is None
+                     else 'applicable' if applicable else 'not_applicable',
             'conditions':bound,'coverage_requires_semantic_review':True}
+        if request_state is not None:
+            answers[rid]['request_state'] = request_state
+            answers[rid]['request_evidence'] = [{**q, 'speaker': catalog[q['turn_id']]['speaker']} for q in request_evidence]
+            answers[rid]['remaining_request'] = assessment['remaining_request']
+        if 'relation_audit' in assessment:
+            answers[rid]['relation_audit']=_validate_relation(assessment['relation_audit'],state,
+                                                               answers[rid],assessment)
     return {'status':'valid_execution_contract','applicability':answers}
 
 def _behavior(raw,packet):
@@ -148,7 +251,17 @@ def _behavior(raw,packet):
             uncertain=any(checks[f'score_anchors.{i}']['met'] is None for i in range(3))
             level=row['level']
             if level=='UNSCORABLE':
-                if not row['defect'].strip() or (len(matched)==1 and not uncertain):raise ValueError('UNSCORABLE without an actual declared gap/overlap/uncertainty')
+                mc_conflict = False
+                if 'minimum_performance' in checks:
+                    m = checks['minimum_performance']['met']; c = checks['completion_condition']['met']
+                    if m is None or c is None:
+                        mc_conflict = True
+                    elif c and not m:
+                        mc_conflict = True
+                    elif len(matched) == 1 and matched[0] != str(2 if m and c else 1 if m else 0):
+                        mc_conflict = True
+                if not row['defect'].strip() or (len(matched)==1 and not uncertain and not mc_conflict):
+                    raise ValueError('UNSCORABLE without an actual declared gap/overlap/uncertainty')
                 score=None;status='rubric_unscorable'
             else:
                 if matched!=[level] or uncertain or row['defect']:raise ValueError('Numeric score contradicts anchor matches')

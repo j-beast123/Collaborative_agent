@@ -24,7 +24,7 @@ from __future__ import annotations
 import dataclasses, json
 from pathlib import Path
 from typing import Callable, Optional
-from src.online_rl.integrated.records import sha256_json
+from src.online_rl.integrated.records import sha256_json, to_dict
 from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.decisions import Strategies
 from src.online_rl.tree.effectiveness import evaluate_rubric
@@ -32,12 +32,21 @@ from src.online_rl.tree.posthoc import TRANSCRIPT_FORMAT, generate_rubric, traje
 from src.online_rl.tree.records import CanonicalSupport, Leaf, RubricAssignment, RubricEffectiveness, TrajectoryRubric, TrajectoryRubricInput
 
 ASSIGNMENT_VERSION = 'assign_or_create_v1'
+EXACT_SOURCE_CASE_PROTOCOL = 'exact_generated_source_case_v1'
+EXACT_DUPLICATE_ASSIGNMENT = 'GENERATED_EXACT_DUPLICATE'
 BATCH_VERSION = 'snapshot_match8_new_recheck_v1'
 ASSIGNMENT_CACHE_VERSION = 'member_intervention_specs_v1'
 MARKER = '[Assign or create]'
 CHECKS = ('same_construct', 'applicability_visible', 'same_required_behavior', 'same_direction', 'score_semantics_apply', 'no_new_premise')
 STRATA = (('failure', 0.0), ('success', 1.0))
 VISIBLE = ('name', 'applicability_condition', 'required_behavior', 'scores')
+
+
+class _ExactSourceCallCache:
+    """Keep generation, repair and Gate evidence separate from older assignment runs."""
+    def __init__(self, underlying): self.underlying = underlying
+    def call(self, kind, identity, fn):
+        return self.underlying.call(kind, {**identity, 'assignment_protocol': EXACT_SOURCE_CASE_PROTOCOL}, fn)
 
 
 class PromptPackageError(ValueError):
@@ -79,10 +88,110 @@ def _member_spec(rub: TrajectoryRubric, tin: TrajectoryRubricInput, assignment: 
     elif assignment == 'REUSED_EXISTING':
         turn = (decision or {}).get('selected_agent_turn_id')
         instruction, origin = (decision or {}).get('intervention_instruction'), 'matched'
+    elif assignment == EXACT_DUPLICATE_ASSIGNMENT:
+        proof = (decision or {}).get('generated_candidate_proof')
+        turn = (proof or {}).get('selected_agent_turn_id')
+        instruction, origin = (decision or {}).get('intervention_instruction'), 'generated_exact_duplicate'
+        from src.online_rl.tree.member_intervention import EXACT_SOURCE_CASE_VERSION
+        return make_member_intervention(rub, tin, selected_agent_turn_id=turn,
+                                        intervention_instruction=instruction, origin=origin,
+                                        version=EXACT_SOURCE_CASE_VERSION, generated_candidate_proof=proof)
     else:
         raise ValueError(f'Unknown rubric assignment {assignment!r}')
     return make_member_intervention(rub, tin, selected_agent_turn_id=turn,
                                     intervention_instruction=instruction, origin=origin)
+
+
+def build_exact_generated_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubricInput],
+                                prompt_text: str, prompt_sha256: str, generate_fn: Callable,
+                                gate_fn: Callable, cache: CallCache, *, source_stage1_for: Callable,
+                                parallel_strata: bool = False) -> tuple[dict[str, TrajectoryRubric], list[RubricAssignment], list[TrajectoryRubric]]:
+    """Generate and check *every* source trajectory, then collapse exact public criteria only.
+
+    A duplicate's own generated turn and guide remain attached to that member. The
+    complete original candidates are returned for durable audit and resume checks.
+    No semantic matcher or prior-case bank is consulted here.
+    """
+    from src.online_rl.tree.cumulative_bank import content_hash
+    from src.online_rl.tree.member_intervention import EXACT_SOURCE_CASE_VERSION, make_member_intervention
+    if not callable(gate_fn) or not callable(source_stage1_for):
+        raise ValueError('Exact source-case assignment requires Gate and source applicability checks')
+    create_text = prompt_sections(prompt_text)[0]
+    generation_cache = _ExactSourceCallCache(cache)
+
+    def one_stratum(stratum, outcome):
+        canonical, assignments, candidates = {}, [], []
+        by_content = {}
+        ordered = sorted((leaf for leaf in leaves if leaf.outcome == outcome), key=lambda leaf: leaf.leaf_id)
+        for order, leaf in enumerate(ordered):
+            tin = tins[leaf.leaf_id]
+            candidate = generate_rubric(create_text, prompt_sha256, tin, generate_fn, generation_cache, gate_fn,
+                                        source_stage1=source_stage1_for(leaf))
+            if candidate.leaf_id != leaf.leaf_id:
+                raise RuntimeError('Generated candidate source trajectory differs from its input')
+            if any(row.rubric_id == candidate.rubric_id for row in candidates):
+                raise RuntimeError('Generated rubric_id collision; candidate provenance would be overwritten')
+            candidates.append(candidate)
+            candidate_sha = sha256_json(to_dict(candidate))
+            fb_sha = sha256_json(tin.feedback)
+            if not candidate.valid:
+                canonical[candidate.rubric_id] = candidate
+                assignments.append(RubricAssignment(leaf.leaf_id, case['case_id'], stratum, order,
+                    candidate.rubric_id, 'CREATE_REJECTED',
+                    {'protocol': EXACT_SOURCE_CASE_PROTOCOL, 'candidate_sha256': candidate_sha},
+                    'generated rubric rejected: ' + ', '.join(candidate.problems or _gate_reasons(candidate.gate)),
+                    fb_sha, None))
+                continue
+            source = candidate.source_check or {}
+            stage = source.get('second') if source.get('status') == 'REPAIRED_PASS' else source.get('first')
+            if ((candidate.gate or {}).get('passed') is not True or source.get('status') not in ('PASS', 'REPAIRED_PASS')
+                    or (stage or {}).get('applicable') is not True):
+                raise RuntimeError('A valid generated candidate lacks Gate and source applicability proof')
+            if not isinstance(candidate.intervention_instruction, str) or not candidate.intervention_instruction.strip():
+                raise RuntimeError('A valid generated candidate lacks its own intervention instruction')
+            digest = content_hash(candidate.rubric)
+            turn = (((candidate.rubric or {}).get('source_provenance') or {}).get('analysis') or {}).get('selected_agent_turn_id')
+            if digest not in by_content:
+                by_content[digest] = candidate.rubric_id
+                canonical[candidate.rubric_id] = candidate
+                spec = make_member_intervention(candidate, tin, selected_agent_turn_id=turn,
+                                                intervention_instruction=candidate.intervention_instruction,
+                                                origin='generated', version=EXACT_SOURCE_CASE_VERSION)
+                kind, canonical_id = 'CREATED_NEW', candidate.rubric_id
+                decision = {'protocol': EXACT_SOURCE_CASE_PROTOCOL, 'candidate_sha256': candidate_sha,
+                            'content_sha256': digest}
+            else:
+                canonical_id = by_content[digest]
+                proof = {'candidate_rubric_id': candidate.rubric_id, 'candidate_sha256': candidate_sha,
+                         'content_sha256': digest, 'selected_agent_turn_id': turn,
+                         'intervention_instruction_sha256': sha256_json(candidate.intervention_instruction)}
+                decision = {'protocol': EXACT_SOURCE_CASE_PROTOCOL, 'generated_candidate_proof': proof,
+                            'intervention_instruction': candidate.intervention_instruction}
+                spec = _member_spec(canonical[canonical_id], tin, EXACT_DUPLICATE_ASSIGNMENT, decision)
+                kind = EXACT_DUPLICATE_ASSIGNMENT
+            assignments.append(RubricAssignment(leaf.leaf_id, case['case_id'], stratum, order,
+                                                canonical_id, kind, decision, '', fb_sha, spec))
+        return canonical, assignments, candidates
+
+    if parallel_strata:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(len(STRATA)) as pool:
+            parts = list(pool.map(lambda so: one_stratum(*so), STRATA))
+    else:
+        parts = [one_stratum(*so) for so in STRATA]
+    canonical = {}
+    for group, _, _ in parts:
+        for rubric_id, rubric in group.items():
+            if rubric_id in canonical:
+                raise RuntimeError('Generated rubric_id collision across outcome strata')
+            canonical[rubric_id] = rubric
+    assignments = [a for _, rows, _ in parts for a in rows]
+    candidates = [r for _, _, rows in parts for r in rows]
+    if sorted(a.leaf_id for a in assignments) != sorted(l.leaf_id for l in leaves if l.outcome in (0.0, 1.0)):
+        raise AssertionError('Every eligible decided trajectory requires exactly one generated candidate')
+    if len({r.rubric_id for r in candidates}) != len(candidates):
+        raise RuntimeError('Generated rubric_id collision across candidates')
+    return canonical, assignments, candidates
 
 
 def _validate_member_decision(decision, bank, tin):
@@ -247,14 +356,19 @@ def canonical_support(canon: dict[str, TrajectoryRubric], assignments: list[Rubr
     return out
 
 
-def assignment_telemetry(canon: dict, assignments: list[RubricAssignment]) -> dict:
+def assignment_telemetry(canon: dict, assignments: list[RubricAssignment], *, candidates: Optional[list[TrajectoryRubric]] = None) -> dict:
     """Consolidation counts only (no verification quantities)."""
     by = {s: [a for a in assignments if a.stratum == s] for s, _ in STRATA}
+    exact = candidates is not None
     return {'trajectories': len(assignments), **{f'{s}_trajectories': len(v) for s, v in by.items()},
             'created_new': sum(a.assignment == 'CREATED_NEW' for a in assignments), 'reused_existing': sum(a.assignment == 'REUSED_EXISTING' for a in assignments),
+            'exact_generated_duplicates': sum(a.assignment == EXACT_DUPLICATE_ASSIGNMENT for a in assignments),
             'create_rejected': sum(a.assignment == 'CREATE_REJECTED' for a in assignments),
-            'generation_calls': sum(a.assignment != 'REUSED_EXISTING' for a in assignments), 'match_decisions': sum(a.decision is not None for a in assignments),
-            'gate_pass': sum(1 for r in canon.values() if r.valid), 'gate_reject': sum(1 for r in canon.values() if not r.valid)}
+            'generation_calls': len(candidates) if exact else sum(a.assignment != 'REUSED_EXISTING' for a in assignments),
+            'match_decisions': 0 if exact else sum(a.decision is not None for a in assignments),
+            'semantic_matcher_calls': 0 if exact else sum(a.decision is not None for a in assignments),
+            'gate_pass': sum(1 for r in (candidates if exact else canon.values()) if r.valid),
+            'gate_reject': sum(1 for r in (candidates if exact else canon.values()) if not r.valid)}
 
 
 def bank_telemetry(canon: dict, assignments: list[RubricAssignment], support: dict[str, CanonicalSupport]) -> dict:

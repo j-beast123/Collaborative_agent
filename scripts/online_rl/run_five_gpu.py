@@ -196,7 +196,7 @@ def run(cfg, max_batches=None, eval_only=False):
     os.environ['API_USAGE_LOG'] = str(out/'api_usage.jsonl')
     os.environ['SHERPA_API_WORKERS'] = str(fg.get('api_workers',3))
     record_runtime(out,cfg)
-    key = load_key()
+    key = load_key(cfg)
     local = copy.deepcopy(cfg)
     local['rollout']['doctor_backend']['endpoint'] = fg['doctor_urls'][4]
     torch.manual_seed(cfg['schedule']['seed'])

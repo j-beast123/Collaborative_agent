@@ -94,12 +94,16 @@ class TreeTrainer:
         self.backend, self.policy_sha, self.protocol_sha, self.fb_sha, self.updater = search_backend, policy_sha, protocol_sha, feedback_prompt_sha256, updater
         self.every = (cfg.get('evaluation') or {}).get('checkpoint_every_cases'); self.evaluator = evaluator
         self.rubric_on = cfg['rubric'].get('enabled', True); self.fb_model = (cfg.get('feedback') or {}).get('model')
-        self.reuse = cfg['rubric'].get('reuse') == RB.ASSIGNMENT_VERSION
+        self.assignment_protocol = cfg['rubric'].get('assignment_protocol')
+        if self.assignment_protocol not in (None, RB.EXACT_SOURCE_CASE_PROTOCOL):
+            raise ValueError(f'unknown rubric.assignment_protocol {self.assignment_protocol!r}')
+        self.exact_source_case = self.assignment_protocol == RB.EXACT_SOURCE_CASE_PROTOCOL
+        self.reuse = cfg['rubric'].get('reuse') == RB.ASSIGNMENT_VERSION or self.exact_source_case
         self.cumulative_bank = cfg['rubric'].get('cumulative_bank') or None
-        from src.online_rl.tree.member_intervention import MEMBER_INTERVENTION_VERSION
-        self.member_intervention_version = (MEMBER_INTERVENTION_VERSION if self.rubric_on and
+        from src.online_rl.tree.member_intervention import MEMBER_INTERVENTION_VERSION, EXACT_SOURCE_CASE_VERSION
+        self.member_intervention_version = ((EXACT_SOURCE_CASE_VERSION if self.exact_source_case else MEMBER_INTERVENTION_VERSION) if self.rubric_on and
             cfg['rubric'].get('generation', {}).get('output_contract') == 'trajectory_analysis_candidate_v2_with_intervention' else None)
-        if self.member_intervention_version and self.reuse and getattr(env.assign_fn, 'member_intervention_version', None) != self.member_intervention_version:
+        if self.member_intervention_version and self.reuse and not self.exact_source_case and getattr(env.assign_fn, 'member_intervention_version', None) != self.member_intervention_version:
             raise ValueError('joint rubric reuse requires a matcher that produces per-trajectory intervention instructions')
         ex = cfg.get('execution') or {}                                # execution only: same values, more threads
         self.doctor_workers, self.rerun_workers = int(ex.get('doctor_workers', 1)), int(ex.get('rerun_workers', 1))
@@ -108,7 +112,9 @@ class TreeTrainer:
         self.agent_workers, self.api_workers, self.member_workers = (int(rx.get(k, 1)) for k in ('agent_workers', 'api_workers', 'member_workers'))
         self.before_case = before_case                                 # e.g. Agent replica sync + hash barrier
         if cfg['rubric'].get('reuse') not in (None, RB.ASSIGNMENT_VERSION): raise ValueError(f"unknown rubric.reuse {cfg['rubric']['reuse']!r}")
-        if self.reuse and self.rubric_on and getattr(env, 'assign_fn', None) is None: raise ValueError('rubric.reuse needs env.assign_fn')
+        if self.reuse and not self.exact_source_case and self.rubric_on and getattr(env, 'assign_fn', None) is None: raise ValueError('rubric.reuse needs env.assign_fn')
+        if self.exact_source_case and self.rubric_on and (not self.member_intervention_version or not callable(env.gate_fn)):
+            raise ValueError('exact source-case assignment requires joint generated guides and Gate')
         if not self.rubric_on and cfg['prompt_update']['enabled']: raise ValueError('prompt evolution needs the rubric pipeline (rubric.enabled)')
         self.verification = (cfg.get('verification') or {}).get('mode', 'exhaustive_members_v1')     # training-time rubric verification
         from src.online_rl.tree.instruction_audit import PROTOCOL as INSTRUCTION_AUDIT_PROTOCOL
@@ -123,6 +129,8 @@ class TreeTrainer:
         elif env.intervention_audit_fn is not None:
             raise ValueError('An intervention auditor is bound without a pinned config protocol')
         if self.verification not in ('exhaustive_members_v1', *W.PROTOCOLS): raise ValueError(f'unknown verification.mode {self.verification!r}')
+        if self.exact_source_case and self.rubric_on and self.verification not in W.PROTOCOLS:
+            raise ValueError('exact source-case assignment requires bounded witness verification')
         if self.verification == W.ALL_MEMBERS_PROTOCOL and cfg['verification'].get('max_valid_supports') is not None:
             raise ValueError('all_members_witness_v1 has no max_valid_supports cap')
         if self.verification == W.RANDOM10_PROTOCOL and (cfg['verification'].get('max_valid_supports') != 10 or
@@ -142,7 +150,7 @@ class TreeTrainer:
             from src.online_rl.tree import cumulative_bank as CB
             if (self.cumulative_bank.get('protocol') != CB.VERSION or not self.rubric_on or not self.reuse
                     or self.verification not in W.PROTOCOLS or cfg['prompt_update']['enabled']
-                    or not self.member_intervention_version or not callable(env.bank_matcher)):
+                    or not self.member_intervention_version or (not self.exact_source_case and not callable(env.bank_matcher))):
                 raise ValueError('cumulative bank requires fixed P0, consolidated witness verification and a bank matcher')
         if (cfg.get('feedback') or {}).get('protocol') in ('behavior_observer_v4','behavior_observer_v5') and self.rubric_on and not self.reuse:
             raise ValueError('behavior-observer feedback (invalid feedback excluded from rubric mapping) needs rubric.reuse')
@@ -156,6 +164,8 @@ class TreeTrainer:
         if self.source_consistency and self.rubric_on and (self.verification not in W.PROTOCOLS or not (cfg.get('feedback') or {}).get('behavioral_locus')
                                                            or getattr(env.generate_fn, 'repair', None) is None):
             raise ValueError('rubric.source_consistency needs bounded witness verification, the feedback locus and a generator with repair')
+        if self.exact_source_case and self.rubric_on and not self.source_consistency:
+            raise ValueError('exact source-case assignment requires source_locus_v1 checking for every valid candidate')
         import os; self.parallel_strata = os.environ.get('SHERPA_PARALLEL_STRATA') == '1'     # execution only: identical banks
         self.opening_spec = (cfg.get('rollout') or {}).get('doctor_opening')
         if self.opening_spec:                                          # never a silent fallback to generating D1
@@ -326,7 +336,7 @@ class TreeTrainer:
             nodes = {n.node_id: n for n in tree.nodes}
             if self.reuse and self.verification in W.PROTOCOLS:       # consolidation + bounded causal-witness verification (witness.py)
                 tin_of = {t.leaf_id: t for t in tins}
-                if cumulative_snapshot is not None:
+                if cumulative_snapshot is not None and not self.exact_source_case:
                     def match_existing(tin):
                         return CB.match_existing(tin, cumulative_snapshot, e.bank_matcher, self.cache,
                                                  top_k=int(self.cumulative_bank.get('retrieval_top_k', 8)))
@@ -343,10 +353,16 @@ class TreeTrainer:
                     ruled = [leaf for leaf in ruled if leaf.leaf_id not in reused_ids]
                 ssf = (lambda leaf: W.source_stage1_for(case, nodes, leaf, tin_of[leaf.leaf_id].target_reply_id, e.scorer.applicability, self.cache)
                        ) if self.source_consistency else None             # v2.1: source-self-applicability before the quality gate
-                canon, assignments = RB.build_banks(case, ruled, tin_of, prompt, s.prompt_sha256, e.generate_fn,
-                                                    e.assign_fn, e.gate_fn, self.cache, parallel_strata=self.parallel_strata, source_stage1_for=ssf)
+                if self.exact_source_case:
+                    canon, assignments, generated_candidates = RB.build_exact_generated_banks(
+                        case, ruled, tin_of, prompt, s.prompt_sha256, e.generate_fn, e.gate_fn,
+                        self.cache, source_stage1_for=ssf, parallel_strata=self.parallel_strata)
+                else:
+                    canon, assignments = RB.build_banks(case, ruled, tin_of, prompt, s.prompt_sha256, e.generate_fn,
+                                                        e.assign_fn, e.gate_fn, self.cache, parallel_strata=self.parallel_strata, source_stage1_for=ssf)
+                    generated_candidates = None
                 rubrics = list(canon.values()); assignments_raw = [to_dict(a) for a in assignments]
-                telemetry = {**RB.assignment_telemetry(canon, assignments),
+                telemetry = {**RB.assignment_telemetry(canon, assignments, candidates=generated_candidates),
                              'protocol': self.verification,
                              'locus': dict(__import__('collections').Counter((f.locus or {}).get('status') for f in feedback)),
                              'feedback_invalid': invalid_fb,
@@ -354,10 +370,12 @@ class TreeTrainer:
                                                              for st, o in (('success', 1.0), ('failure', 0.0))},
                              'feedback_by_stratum': {st: sum(1 for f in feedback if f.outcome == o) for st, o in (('success', 1.0), ('failure', 0.0))},
                              'feedback_leakage_first_try': sum(bool(((f.locus or {}).get('leakage') or {}).get('first')) for f in feedback),
-                             'source_check': dict(__import__('collections').Counter((r.source_check or {}).get('status') for r in canon.values()
+                             'source_check': dict(__import__('collections').Counter((r.source_check or {}).get('status') for r in (generated_candidates if generated_candidates is not None else canon.values())
                                                                                      if r.source_check is not None))}
                 bank = {'assignments': assignments_raw, 'witness': [], 'telemetry': telemetry,
                         'member_intervention_version': self.member_intervention_version,
+                        **({'assignment_protocol': RB.EXACT_SOURCE_CASE_PROTOCOL,
+                            'generated_candidates': [to_dict(r) for r in generated_candidates]} if generated_candidates is not None else {}),
                         'verification_pending': bool(defer_verification)}
                 if not defer_verification:
                     wit = self._verify_bounded(case, tree, feedback, ruled, canon, assignments)
@@ -487,12 +505,62 @@ class TreeTrainer:
         if (len(canon) != len(record['trajectory_rubrics']) or
                 {a['canonical_rubric_id'] for a in bank['assignments']} != set(canon)):
             raise RuntimeError('saved joint bank canonical rubrics and assignments differ')
+        exact_candidates = None
+        if getattr(self, 'exact_source_case', False):
+            from src.online_rl.tree.cumulative_bank import content_hash
+            if bank.get('assignment_protocol') != RB.EXACT_SOURCE_CASE_PROTOCOL:
+                raise RuntimeError('saved bank is not the exact generated source-case protocol')
+            raw_candidates = bank.get('generated_candidates')
+            if not isinstance(raw_candidates, list):
+                raise RuntimeError('saved exact source-case bank lacks generated candidates')
+            exact_candidates = {raw['leaf_id']: from_dict(TrajectoryRubric, raw) for raw in raw_candidates}
+            if (len(exact_candidates) != len(raw_candidates) or set(exact_candidates) != eligible or
+                    len({raw['rubric_id'] for raw in raw_candidates}) != len(raw_candidates)):
+                raise RuntimeError('saved generated candidates do not cover eligible trajectories exactly once')
+            for candidate in exact_candidates.values():
+                if candidate.valid:
+                    source = candidate.source_check or {}
+                    stage = source.get('second') if source.get('status') == 'REPAIRED_PASS' else source.get('first')
+                    if ((candidate.gate or {}).get('passed') is not True or
+                            source.get('status') not in ('PASS', 'REPAIRED_PASS') or
+                            (stage or {}).get('applicable') is not True):
+                        raise RuntimeError('saved generated candidate lacks its Gate/source proof')
         for raw in bank['assignments']:
             assignment = from_dict(RubricAssignment, raw)
             rubric = canon[assignment.canonical_rubric_id]
             leaf = leaves[assignment.leaf_id]
             if assignment.case_id != tree.case_id or assignment.stratum != ('success' if leaf.outcome == 1.0 else 'failure'):
                 raise RuntimeError('saved joint assignment differs from its member case or outcome stratum')
+            if exact_candidates is not None:
+                candidate = exact_candidates[assignment.leaf_id]
+                decision = assignment.decision or {}
+                if decision.get('protocol') != RB.EXACT_SOURCE_CASE_PROTOCOL:
+                    raise RuntimeError('saved assignment has another matching protocol')
+                if assignment.assignment in ('CREATED_NEW', 'CREATE_REJECTED'):
+                    if (candidate.rubric_id != assignment.canonical_rubric_id or
+                            to_dict(candidate) != to_dict(rubric) or
+                            decision.get('candidate_sha256') != sha256_json(to_dict(candidate))):
+                        raise RuntimeError('saved generated source candidate differs from its canonical record')
+                    if assignment.assignment == 'CREATED_NEW' and (not candidate.valid or
+                            decision.get('content_sha256') != content_hash(candidate.rubric)):
+                        raise RuntimeError('saved generated source candidate is not an exact valid criterion')
+                    if assignment.assignment == 'CREATE_REJECTED' and (candidate.valid or assignment.intervention_spec is not None):
+                        raise RuntimeError('saved rejected candidate has a valid score or member guide')
+                elif assignment.assignment == RB.EXACT_DUPLICATE_ASSIGNMENT:
+                    proof = decision.get('generated_candidate_proof') or {}
+                    source_turn = (((candidate.rubric or {}).get('source_provenance') or {}).get('analysis') or {}).get('selected_agent_turn_id')
+                    if (not candidate.valid or not rubric.valid or
+                            content_hash(candidate.rubric) != content_hash(rubric.rubric) or
+                            proof.get('candidate_rubric_id') != candidate.rubric_id or
+                            proof.get('candidate_sha256') != sha256_json(to_dict(candidate)) or
+                            proof.get('content_sha256') != content_hash(candidate.rubric) or
+                            proof.get('selected_agent_turn_id') != source_turn or
+                            proof.get('intervention_instruction_sha256') != sha256_json(candidate.intervention_instruction) or
+                            decision.get('intervention_instruction') != candidate.intervention_instruction or
+                            (assignment.intervention_spec or {}).get('origin') != 'generated_exact_duplicate'):
+                        raise RuntimeError('saved exact duplicate guide or criterion differs from its generated source')
+                else:
+                    raise RuntimeError('saved exact source-case bank contains a semantic matching assignment')
             if assignment.assignment == 'CREATE_REJECTED' or not rubric.valid: continue
             if not rubric.intervention_instruction:
                 raise RuntimeError('joint rubric record is missing its generated instruction')

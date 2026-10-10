@@ -340,7 +340,7 @@ def match_existing(tin, snapshot, matcher, cache, top_k=8):
 
 def api_bank_matcher(key, model, settings, prompt_text):
     """Same generator provider, plain JSON plus strict local checks and one repair."""
-    from src.online_rl.tree.backends import RubricOutputIncomplete, _openrouter_json
+    from src.online_rl.tree.backends import RubricOutputIncomplete, _generator_json
     settings = {**settings, 'response_format': None, 'cumulative_bank_protocol': VERSION,
                 'matcher_prompt_sha256': sha256_text(prompt_text)}
     schema = {'type': 'object', 'additionalProperties': False, 'required': sorted(DECISION_FIELDS),
@@ -359,11 +359,13 @@ def api_bank_matcher(key, model, settings, prompt_text):
         for attempt in range(2):
             raw = None; meta = {}
             try:
-                raw, meta = _openrouter_json(key, model, prompt_text, user, settings, call_schema,
+                raw, meta = _generator_json(key, model, prompt_text, user, settings, call_schema,
                                             'cumulative_bank_match', 'rubric_matcher')
                 parsed = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', raw.strip()))
                 value = _validate_decision(parsed, payload)
             except (ValueError, TypeError, AttributeError, RubricOutputIncomplete) as exc:
+                if getattr(exc, 'audit', None) and not meta:
+                    meta = exc.audit
                 attempts.append({'user': user, 'raw': raw, 'meta': meta, 'error': str(exc)})
                 if attempt:
                     error = RubricOutputIncomplete(f'Cumulative bank matcher failed after one correction: {exc}')

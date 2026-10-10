@@ -10,9 +10,12 @@ from src.online_rl.tree.records import to_dialogue
 
 VERSION = 'trajectory_member_instruction_v1'
 MEMBER_INTERVENTION_VERSION = VERSION
+EXACT_SOURCE_CASE_VERSION = 'trajectory_member_instruction_exact_source_case_v1'
 FIELDS = {'version', 'leaf_id', 'case_id', 'canonical_rubric_id', 'rubric_sha256',
           'selected_agent_turn_id', 'intervention_instruction', 'requested_level',
           'prefix_sha256', 'origin'}
+EXACT_PROOF_FIELDS = {'candidate_rubric_id', 'candidate_sha256', 'content_sha256',
+                      'selected_agent_turn_id', 'intervention_instruction_sha256'}
 
 
 def visible_prefix(prefix):
@@ -38,13 +41,33 @@ def _level(outcome):
 
 
 def _make(rub, *, leaf_id, case_id, dialogue, outcome, selected_agent_turn_id,
-          intervention_instruction, origin):
+          intervention_instruction, origin, version=VERSION, generated_candidate_proof=None):
     if not getattr(rub, 'intervention_instruction', None):
         raise ValueError('A member instruction requires a joint canonical rubric')
     if not isinstance(intervention_instruction, str) or not intervention_instruction.strip():
         raise ValueError('Member intervention_instruction must be a nonblank string')
-    if origin not in ('generated', 'matched'):
+    if version == VERSION:
+        allowed_origins = ('generated', 'matched')
+    elif version == EXACT_SOURCE_CASE_VERSION:
+        allowed_origins = ('generated', 'generated_exact_duplicate')
+    else:
+        raise ValueError('Unknown member instruction version')
+    if origin not in allowed_origins:
         raise ValueError('Unknown member instruction origin')
+    if origin == 'generated_exact_duplicate':
+        from src.online_rl.tree.cumulative_bank import content_hash
+        proof = generated_candidate_proof
+        if not isinstance(proof, dict) or set(proof) != EXACT_PROOF_FIELDS:
+            raise ValueError('Exact duplicate requires a complete generated candidate proof')
+        if (proof['candidate_rubric_id'] == rub.rubric_id or
+                not isinstance(proof['candidate_rubric_id'], str) or not proof['candidate_rubric_id'] or
+                not isinstance(proof['candidate_sha256'], str) or len(proof['candidate_sha256']) != 64 or
+                proof['content_sha256'] != content_hash(rub.rubric) or
+                proof['selected_agent_turn_id'] != selected_agent_turn_id or
+                proof['intervention_instruction_sha256'] != sha256_json(intervention_instruction)):
+            raise ValueError('Exact duplicate proof disagrees with canonical criterion or member guide')
+    elif generated_candidate_proof is not None:
+        raise ValueError('Only exact generated duplicates may carry candidate proof')
     provenance = (rub.rubric or {}).get('source_provenance') or {}
     source_leaf = provenance.get('source_trajectory_id')
     if source_leaf is not None and source_leaf != rub.leaf_id:
@@ -62,17 +85,22 @@ def _make(rub, *, leaf_id, case_id, dialogue, outcome, selected_agent_turn_id,
         if selected_agent_turn_id != source_turn or intervention_instruction != rub.intervention_instruction:
             raise ValueError('Generated member instruction must preserve its jointly generated source guide and turn')
     prefix = _prefix_at(dialogue, selected_agent_turn_id)
-    return {'version': VERSION, 'leaf_id': leaf_id, 'case_id': case_id,
+    spec = {'version': version, 'leaf_id': leaf_id, 'case_id': case_id,
             'canonical_rubric_id': rub.rubric_id, 'rubric_sha256': sha256_json(rub.rubric),
             'selected_agent_turn_id': selected_agent_turn_id,
             'intervention_instruction': intervention_instruction, 'requested_level': _level(outcome),
             'prefix_sha256': sha256_json(prefix), 'origin': origin}
+    if generated_candidate_proof is not None:
+        spec['generated_candidate_proof'] = dict(generated_candidate_proof)
+    return spec
 
 
-def make_member_intervention(rub, tin, *, selected_agent_turn_id, intervention_instruction, origin):
+def make_member_intervention(rub, tin, *, selected_agent_turn_id, intervention_instruction, origin,
+                             version=VERSION, generated_candidate_proof=None):
     return _make(rub, leaf_id=tin.leaf_id, case_id=tin.case_id, dialogue=tin.dialogue,
                  outcome=tin.outcome, selected_agent_turn_id=selected_agent_turn_id,
-                 intervention_instruction=intervention_instruction, origin=origin)
+                 intervention_instruction=intervention_instruction, origin=origin, version=version,
+                 generated_candidate_proof=generated_candidate_proof)
 
 
 def source_member_intervention(rub, leaf):
@@ -89,11 +117,12 @@ def resolve_member_intervention(rub, leaf, member_spec=None, node=None):
     if not getattr(rub, 'intervention_instruction', None):
         if member_spec is not None: raise ValueError('Legacy rubric cannot carry a joint member instruction')
         return None
-    if not isinstance(member_spec, dict) or set(member_spec) != FIELDS:
+    if not isinstance(member_spec, dict) or set(member_spec) != (FIELDS | ({'generated_candidate_proof'} if member_spec.get('origin') == 'generated_exact_duplicate' else set())):
         raise ValueError('Joint verification requires a complete member intervention_spec; legacy assignments cannot be reused')
     expected = _make(rub, leaf_id=leaf.leaf_id, case_id=leaf.case_id, dialogue=leaf.dialogue,
                      outcome=leaf.outcome, selected_agent_turn_id=member_spec['selected_agent_turn_id'],
-                     intervention_instruction=member_spec['intervention_instruction'], origin=member_spec['origin'])
+                     intervention_instruction=member_spec['intervention_instruction'], origin=member_spec['origin'],
+                     version=member_spec['version'], generated_candidate_proof=member_spec.get('generated_candidate_proof'))
     if member_spec != expected:
         raise ValueError('Member intervention identity differs from its trajectory, rubric, outcome, or prefix')
     turn = member_spec['selected_agent_turn_id']

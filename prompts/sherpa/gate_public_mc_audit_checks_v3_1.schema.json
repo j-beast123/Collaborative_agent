@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sherpa:public_mc_gate_audit_checks_v3_1",
+  "type": "object",
+  "required": ["protocol", "source_outcome", "expected_source_level", "applicability", "source_behavior", "rubric_quality", "intervention_quality", "quality_model_output", "quality_prompt_sha256", "model_settings", "final_schema_sha256", "audit_schema_sha256", "module_sha256", "candidate_namespace", "candidate_generator_model", "candidate_content_sha256", "input_sha256", "decision_computed_locally"],
+  "properties": {
+    "protocol": {"const": "public_mc_gate_compact_v3_1"},
+    "source_outcome": {"enum": ["success", "failure"]},
+    "expected_source_level": {"enum": [0, 2]},
+    "applicability": {"type": "object", "required": ["supported", "request_state", "raw_request_state", "evidence", "conditions", "prefix_sha256"],
+      "properties": {"supported": {"type": "boolean"}, "request_state": {"enum": ["active", "absent", "resolved", "uncertain"]}, "raw_request_state": {"type": "string"}, "evidence": {"type": "array"}, "conditions": {"type": "object"}, "prefix_sha256": {"type": "string", "minLength": 64}}},
+    "source_behavior": {"type": "object", "required": ["independent_level", "score_unique", "anchor_matches", "anchor_checks", "evidence", "task_frame", "raw_decision_sha256", "normalized_stage2_sha256", "blind_protocol"],
+      "properties": {"independent_level": {"enum": ["0", "1", "2", "UNSCORABLE"]}, "score_unique": {"type": "boolean"}, "anchor_matches": {"type": "array"}, "anchor_checks": {"type": "array"}, "evidence": {"type": "array"}, "task_frame": {"type": ["object", "null"]}, "raw_decision_sha256": {"type": "string", "minLength": 64}, "normalized_stage2_sha256": {"type": "string", "minLength": 64}, "blind_protocol": {"type": "string"}}},
+    "rubric_quality": {"type": "object", "additionalProperties": false,
+      "required": ["mc_anchor_alignment", "meaningful_partial", "boundary_coverage", "source_grounding", "unsupported_premise", "source_claim_strength", "concise_sufficiency", "conclusion_neutrality", "observability"],
+      "properties": {"mc_anchor_alignment": {"type": "boolean"}, "meaningful_partial": {"type": "boolean"}, "boundary_coverage": {"type": "boolean"}, "source_grounding": {"type": "boolean"}, "unsupported_premise": {"type": "boolean"}, "source_claim_strength": {"type": "boolean"}, "concise_sufficiency": {"type": "boolean"}, "conclusion_neutrality": {"type": "boolean"}, "observability": {"type": "boolean"}}},
+    "intervention_quality": {"type": "object", "required": ["quality", "answer", "state_sha256", "audit_protocol"],
+      "properties": {"quality": {"type": "object", "additionalProperties": false,
+        "required": ["instruction_aligned", "no_unsupported_context_premise", "no_conclusion_prescribed"],
+        "properties": {"instruction_aligned": {"type": "boolean"}, "no_unsupported_context_premise": {"type": "boolean"}, "no_conclusion_prescribed": {"type": "boolean"}}}, "answer": {"type": "object"}, "state_sha256": {"type": "string", "minLength": 64}, "audit_protocol": {"type": "string"}}},
+    "quality_model_output": {"type": "object"},
+    "quality_prompt_sha256": {"type": "string", "minLength": 64},
+    "model_settings": {"type": "object"},
+    "final_schema_sha256": {"type": "string", "minLength": 64},
+    "audit_schema_sha256": {"type": "string", "minLength": 64},
+    "module_sha256": {"type": "string", "minLength": 64},
+    "candidate_namespace": {"type": "string", "minLength": 1},
+    "candidate_generator_model": {"type": "string", "minLength": 1},
+    "candidate_content_sha256": {"type": "string", "minLength": 64},
+    "input_sha256": {"type": "string", "minLength": 64},
+    "decision_computed_locally": {"const": true}
+  }
+}

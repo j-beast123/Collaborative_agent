@@ -538,8 +538,24 @@ def public_mc_posthoc_gate(client, cases, observed_context=False, rubric_quote_p
         # No quality checks, probes, outcomes, expected levels, analysis or
         # reflection are included in this separate blind behavioral assessment.
         visible = {**state['candidate_rubric'], 'rubric_id': 'source_criterion'}
-        source = blind_scorer.score_behavior(state['case_context'], state['dialogue_before_target_turn'],
-                                             [visible], state['source_agent_reply']['text'])['source_criterion']
+        try:
+            source = blind_scorer.score_behavior(state['case_context'], state['dialogue_before_target_turn'],
+                                                 [visible], state['source_agent_reply']['text'])['source_criterion']
+        except IntegrationUnavailable as exc:
+            # A contradictory numeric answer from the blind source scorer is
+            # not an execution outage and must never become a score. Treat
+            # this candidate as unscorable so Gate can reject it and the
+            # surrounding training batch can continue. Other API/schema/quote
+            # failures still propagate as operational errors.
+            audit = getattr(exc, 'audit', None) or {}
+            validation = audit.get('validation') or {}
+            if (validation.get('status') != 'execution_error' or
+                    validation.get('kind') != 'evidence_contract' or
+                    validation.get('error') != 'Numeric score contradicts anchor matches'):
+                raise
+            source = {'stage2': {'level': 'UNSCORABLE',
+                                 'defect': 'Blind source scorer returned internally conflicting anchor matches; no numeric score assigned.'},
+                      'evidence_validation': audit}
         observed = source['stage2']['level']
         expected = '2' if tin.outcome == 'success' else '0'
         reasons = [name for name, check in answer['checks'].items() if not check['passed']]

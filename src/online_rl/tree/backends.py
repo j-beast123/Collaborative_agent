@@ -233,6 +233,11 @@ def generation_settings(rubric_cfg: dict) -> dict:
             'response_format': g.get('response_format'), 'output_contract': g.get('output_contract'),
             'local_schema_file': g.get('local_schema_file'), 'local_schema_sha256': g.get('local_schema_sha256'),
             'selected_turn_policy': g.get('selected_turn_policy', 'feedback_locus_v1')}
+    provider = g.get('api_provider')
+    if provider is not None:
+        if provider not in ('openrouter', 'openai_direct'):
+            raise ValueError(f'Unknown rubric generation API provider: {provider}')
+        settings['api_provider'] = provider
     # Do not add a null/default key to legacy settings: these identify old caches.
     if feedback_check_protocol is not None:
         settings['feedback_check_protocol'] = feedback_check_protocol
@@ -465,6 +470,18 @@ def _openrouter_json(key: str, model: str, system: str, user: str, settings: dic
     return raw, meta
 
 
+def _generator_json(key: str, model: str, system: str, user: str, settings: dict,
+                    schema: dict, name: str, role: str) -> tuple[str, dict]:
+    """Select the pinned provider without changing legacy OpenRouter requests."""
+    provider = settings.get('api_provider', 'openrouter')
+    if provider == 'openrouter':
+        return _openrouter_json(key, model, system, user, settings, schema, name, role)
+    if provider == 'openai_direct':
+        from src.online_rl.tree.openai_direct import responses_json
+        return with_role(role, lambda: responses_json(key, model, system, user, settings, schema, name, role))
+    raise ValueError(f'Unknown rubric generation API provider: {provider}')
+
+
 def api_rubric_generator(key: str, model: str, settings: dict | None = None, context_addendum: str | None = None):
     """CREATE: trajectory + feedback -> one rubric. With strict-schema settings a non-parsing output is an operational error."""
     from src.prompt_opt import harness as H
@@ -554,10 +571,10 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
     def generate(prompt_text, tin):
         from dataclasses import replace
         user = trajectory_message(replace(tin, target_reply_id=None) if turn_policy == 'generator_v1' else tin)
-        raw, meta = _openrouter_json(key, model, system(prompt_text), user, settings, schema, 'rubric', 'rubric_generator')
+        raw, meta = _generator_json(key, model, system(prompt_text), user, settings, schema, 'rubric', 'rubric_generator')
         parsed_output, err = H.parse_rubric(raw)
         rubric, err = normalize(raw, parsed_output, err, tin)
-        raw_attempts = [raw]; usages = [meta.get('usage')]
+        raw_attempts = [raw]; usages = [meta.get('usage')]; api_attempts = [meta]
         # Preserve the fixed prompt verbatim. If its output violates deterministic provenance
         # checks, issue one bounded correction call with the same system prompt and explicit
         # field-level feedback; never silently coerce model output into a rubric. This correction
@@ -582,15 +599,16 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
                           'Do not omit analysis fields, substitute empty analysis, '
                           'or infer missing fields from the supplied locus. Return the complete required JSON object only.\n\n'
                           'Previous JSON:\n' + raw)
-            raw, meta = _openrouter_json(key, model, system(prompt_text), correction, settings, schema, 'rubric', 'rubric_generator')
-            raw_attempts.append(raw); usages.append(meta.get('usage'))
+            raw, meta = _generator_json(key, model, system(prompt_text), correction, settings, schema, 'rubric', 'rubric_generator')
+            raw_attempts.append(raw); usages.append(meta.get('usage')); api_attempts.append(meta)
             parsed_output, err = H.parse_rubric(raw)
             rubric, err = normalize(raw, parsed_output, err, tin)
         if err and settings.get('response_format') == 'json_schema_strict': raise RubricOutputIncomplete(f'{model}: schema output did not parse after bounded correction: {err}')
         return {'raw': raw, 'raw_attempts': raw_attempts, 'rubric': rubric,
                 'intervention_instruction': (parsed_output or {}).get('intervention_instruction') if output_contract == 'trajectory_analysis_candidate_v2_with_intervention' and not err else None,
                 'parse_error': err,
-                'usage': usages[-1], 'usage_attempts': usages}
+                'usage': usages[-1], 'usage_attempts': usages,
+                **({'api_attempts': api_attempts} if settings.get('api_provider') == 'openai_direct' else {})}
 
     def repair(prompt_text, tin, rubric, stage1):
         """v2.1 source-consistency repair (one call): the same trajectory input (with its behavioral locus), the rubric that was
@@ -613,11 +631,12 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
                 f"\n\nAt the behavioral locus (Agent reply {tin.target_reply_id}) its applicability condition was judged NOT met: "
                 f"{stage1.get('missing_requirement') or 'the situation before the locus reply does not satisfy the condition'}\n\n{principle}\n"
                 'Return ONE rubric in the required JSON format.')
-        raw, meta = _openrouter_json(key, model, system(prompt_text), user, settings, schema, 'rubric', 'rubric_generator')
+        raw, meta = _generator_json(key, model, system(prompt_text), user, settings, schema, 'rubric', 'rubric_generator')
         rubric2, err = H.parse_rubric(raw)
         rubric2, err = normalize(raw, rubric2, err, tin)
         if err and settings.get('response_format') == 'json_schema_strict': raise RubricOutputIncomplete(f'{model}: repair output did not parse: {err}')
-        return {'raw': raw, 'rubric': rubric2, 'parse_error': err, 'usage': meta.get('usage')}
+        return {'raw': raw, 'rubric': rubric2, 'parse_error': err, 'usage': meta.get('usage'),
+                **({'api_attempts': [meta]} if settings.get('api_provider') == 'openai_direct' else {})}
     generate.model = model; generate.settings = settings; generate.repair = repair
     if context_addendum:
         from src.online_rl.integrated.records import sha256_text
@@ -758,7 +777,7 @@ def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: s
         for attempt in range(2):
             raw, meta = None, {}
             try:
-                raw, meta = _openrouter_json(key, model, package, request_user, settings,
+                raw, meta = _generator_json(key, model, package, request_user, settings,
                                             output_schema, name, 'rubric_matcher')
                 try:
                     parsed = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', raw.strip()))
@@ -766,6 +785,8 @@ def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: s
                     raise RubricOutputIncomplete(f'{model}: matcher JSON schema parse error: {exc}') from exc
                 value = validate(parsed)
             except RubricOutputIncomplete as exc:
+                if getattr(exc, 'audit', None) and not meta:
+                    meta = exc.audit
                 attempts.append({'attempt': attempt + 1, 'raw': raw, 'meta': meta, 'error': str(exc)})
                 if attempt:
                     failure = RubricOutputIncomplete(f'{model}: matcher schema correction failed: {exc}')
@@ -785,6 +806,8 @@ def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: s
                 continue
             attempts.append({'attempt': attempt + 1, 'raw': raw, 'meta': meta, 'error': None})
             result = {**value, 'usage': meta.get('usage')}
+            if settings.get('api_provider') == 'openai_direct':
+                result['api_attempts'] = attempts
             if attempt:
                 result['match_correction_audit'] = {'contract': MATCH_CORRECTION_CONTRACT,
                                                    'system': package, 'user': user,

@@ -27,6 +27,12 @@ class ScoringContractError(RuntimeError):
     """An incomplete/invalid judge response must not become NA or a reward."""
 
 
+class ApplicabilityUncertain(RuntimeError):
+    """A valid but unresolved Stage-1 judgment blocks scoring without becoming NA."""
+
+    scoring_status = 'applicability_uncertain'
+
+
 def _reviewer(reviewer):
     """Prefer the exact callable exposed to the source and witness paths."""
     callback = getattr(reviewer, 'applicability', None)
@@ -47,9 +53,14 @@ def _validate(value, rubric_id):
     if not isinstance(value, dict) or set(value) != {rubric_id}:
         raise ScoringContractError(f'{rubric_id}: state applicability must contain exactly the requested rubric ID')
     row = value[rubric_id]
-    if not isinstance(row, dict) or type(row.get('applicable')) is not bool or row.get('error'):
+    if not isinstance(row, dict) or row.get('error'):
         raise ScoringContractError(f'{rubric_id}: invalid state applicability result')
-    if row.get('stage1_contract') == 'compact_condition_v7_1':
+    quality_uncertain = (row.get('stage1_contract') in ('compact_condition_v7_3', 'compact_condition_v7_5') and
+                         row.get('applicable') is None and row.get('applicability_status') == 'uncertain')
+    if type(row.get('applicable')) is not bool and not quality_uncertain:
+        raise ScoringContractError(f'{rubric_id}: invalid state applicability result')
+    if row.get('stage1_contract') in ('compact_condition_v7_1', 'compact_condition_v7_3',
+                                      'compact_condition_v7_5'):
         if not isinstance(row.get('stage1'), dict):
             raise ScoringContractError('Missing compact condition evidence')
         return value
@@ -112,26 +123,34 @@ not change the judge context or create competing decisions for the same item.
         row['provenance'] = {'cache_kind': APPLICABILITY_CACHE_KIND,
                              'cache_key': sha256_json([APPLICABILITY_CACHE_KIND, identity]), 'identity': identity}
         return row
-    if evidence_contract == 'compact_condition_v7_1':
+    if evidence_contract in ('compact_condition_v7_1', 'compact_condition_v7_3',
+                             'compact_condition_v7_5'):
         from src.online_rl.tree.compact_audit import _app, app_schema
         from jsonschema import validate as validate_schema
         canonical = {**visible, 'rubric_id': 'criterion'}
         state = condition_state(view, prefix)
         items = condition_items([canonical])
         identity = {'contract': evidence_contract,
-            'state_sha256': sha256_json([view, prefix, (node.trace or {}).get('pre_response_belief')]),
-            'policy': node.policy_sha256,
+            'state_sha256': sha256_json([view, prefix] if evidence_contract in (
+                                        'compact_condition_v7_3', 'compact_condition_v7_5')
+                                        else [view, prefix, (node.trace or {}).get('pre_response_belief')]),
             'rubric_sha256': sha256_json({k:v for k,v in visible.items() if k != 'rubric_id'}),
             'model': model, 'protocol': protocol, 'review_identity': review_identity}
+        if evidence_contract == 'compact_condition_v7_1':
+            identity['policy'] = node.policy_sha256
         def checked(value):
             _validate(value, 'criterion')
             row = value['criterion']
             if row.get('stage1_contract') != evidence_contract:
                 raise ScoringContractError('Missing compact applicability contract')
             raw = {'answers': {'criterion': row['stage1']}}
-            validate_schema(raw, app_schema(items))
+            validate_schema(raw, app_schema(items,
+                quality=evidence_contract in ('compact_condition_v7_3', 'compact_condition_v7_5'),
+                relation=evidence_contract == 'compact_condition_v7_5'))
             judged = _app(raw, {'state': state, 'items': items})['applicability']['criterion']
-            if type(judged['applicable']) is not bool or judged['applicable'] != row['applicable']:
+            if judged['applicable'] != row['applicable'] or (
+                    evidence_contract in ('compact_condition_v7_3', 'compact_condition_v7_5') and
+                    judged['status'] != row.get('applicability_status')):
                 raise ScoringContractError('Contradictory compact applicability')
             return value
         value = cache.call(APPLICABILITY_CACHE_KIND, identity,
@@ -139,6 +158,10 @@ not change the judge context or create competing decisions for the same item.
         row = deepcopy(checked(value)['criterion'])
         row['provenance'] = {'cache_kind': APPLICABILITY_CACHE_KIND,
             'cache_key': sha256_json([APPLICABILITY_CACHE_KIND, identity]), 'identity': identity}
+        if row['applicable'] is None:
+            error = ApplicabilityUncertain('Uncertain compact applicability; no rubric reward')
+            error.audit = {'applicability': row, 'provenance': row['provenance']}
+            raise error
         return row
     identity = {
         'contract': APPLICABILITY_CONTRACT,

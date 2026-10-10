@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sherpa:public_mc_gate_compact_result_v3",
+  "title": "Locally assembled compact public Gate result v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision", "source_level", "failure_codes", "evidence", "reason"],
+  "properties": {
+    "decision": {"type": "string", "enum": ["pass", "reject", "unscorable"]},
+    "source_level": {"type": ["integer", "null"], "enum": [0, 1, 2, null]},
+    "failure_codes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "MC_ANCHOR_ALIGNMENT", "MEANINGFUL_PARTIAL", "BOUNDARY_COVERAGE",
+          "SOURCE_GROUNDING", "UNSUPPORTED_PREMISE", "SOURCE_CLAIM_STRENGTH",
+          "CONCISE_SUFFICIENCY", "CONCLUSION_NEUTRALITY", "OBSERVABILITY",
+          "CRITERION_UNCERTAIN", "SOURCE_ANCHOR_MISMATCH", "SOURCE_UNSCORABLE",
+          "APPLICABILITY_UNSUPPORTED", "REQUEST_NOT_ACTIVE",
+          "INSTRUCTION_ALIGNMENT", "UNSUPPORTED_CONTEXT_PREMISE", "CONCLUSION_PRESCRIBED"
+        ]
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["turn_id", "quote"],
+        "properties": {
+          "turn_id": {"type": "string", "minLength": 1},
+          "quote": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "reason": {"type": "string", "minLength": 1}
+  },
+  "allOf": [
+    {"if": {"properties": {"decision": {"const": "pass"}}},
+     "then": {"properties": {"failure_codes": {"maxItems": 0}, "source_level": {"type": "integer"}}}},
+    {"if": {"properties": {"decision": {"const": "unscorable"}}},
+     "then": {"properties": {"source_level": {"type": "null"},
+                             "failure_codes": {"contains": {"const": "SOURCE_UNSCORABLE"}}}}}
+  ]
+}

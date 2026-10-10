@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 from typing import Optional
 from src.online_rl.integrated.records import sha256_json
@@ -17,7 +18,7 @@ OUTCOME_ONLY_TAG = 'outcomeonly'             # zero rubric weight: no rubric pro
 MODEL_TAGS = {'anthropic/claude-4.6-sonnet-20260217': 'sonnet46', 'anthropic/claude-4.5-haiku-20251001': 'haiku45',
               'ollama/gemma3:12b-it-q8_0@997a7c2c0975': 'gemma3doctor'}
 EXPERIMENT_KEYS = ('family', 'reward_weight_rubric', 'reward_weight_outcome', 'prompt_mode', 'pfinal_artifact',
-                   'feedback_model', 'seed', 'train_order_sha256', 'output_root', 'output_dir')
+                   'feedback_model', 'seed', 'train_order_sha256', 'output_root', 'output_dir', 'run_label')
 PFINAL_SCHEMA = 'sherpa_pfinal_v2'
 PFINAL_KEYS = ('source_run_id', 'source_output_dir', 'source_checkpoint', 'source_batch', 'source_completed_cases',
                'prompt_sha256', 'prompt_text_path', 'parent_prompt_sha256', 'p0_sha256', 'adoption_history',
@@ -143,10 +144,15 @@ def apply_prompt_mode(cfg: dict, mode: str, pfinal_artifact: Optional[str]) -> O
 
 
 def run_id(exp: dict, prompt_sha256: str) -> str:
+    label = exp.get('run_label')
+    if label is not None and (not isinstance(label, str) or
+                              re.fullmatch(r'[a-z0-9_]{1,48}', label) is None):
+        raise ValueError('experiment.run_label must be 1..48 lowercase letters, digits or underscores')
     mode = (OUTCOME_ONLY_TAG if exp['reward_weight_rubric'] == 0 else
             MODE_TAGS[exp['prompt_mode']] + (f'_{prompt_sha256[:8]}' if exp['prompt_mode'] == 'pfinal_fixed' else ''))
-    return '__'.join((mixture_tag(exp['reward_weight_rubric'], exp['reward_weight_outcome']), mode,
-                      model_tag(exp['feedback_model']), f"seed{exp['seed']}"))
+    parts = (mixture_tag(exp['reward_weight_rubric'], exp['reward_weight_outcome']), mode,
+             model_tag(exp['feedback_model']), f"seed{exp['seed']}")
+    return '__'.join((*parts, label) if label else parts)
 
 
 def resolve(raw: dict) -> dict:
@@ -180,6 +186,8 @@ def fingerprint(cfg: dict) -> Optional[str]:
     """Research identity a checkpoint must share to be resumed; runtime devices/paths excluded. None without an experiment block."""
     if 'experiment' not in cfg: return None
     return sha256_json({'reward': {k: cfg['agent_reward'][k] for k in ('w_outcome', 'w_rubric')},
+                        **({'run_label': cfg['experiment']['run_label']}
+                           if cfg['experiment'].get('run_label') is not None else {}),
                         'rubric_pipeline': cfg['rubric']['enabled'], 'prompt_mode': cfg['experiment']['prompt_mode'],
                         'rubric_prompt_sha256': cfg['rubric']['prompt_sha256'], 'prompt_evolution': cfg['prompt_update']['enabled'],
                         'feedback': {k: cfg['feedback'][k] for k in ('model', 'prompt_sha256')},

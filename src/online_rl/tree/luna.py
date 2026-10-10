@@ -1,4 +1,4 @@
-"""Hard-label decisions from an OpenRouter chat model (Luna): the same typed choice questions as the Jev decisions API,
+"""Hard-label decisions from an OpenRouter or direct OpenAI chat model (Luna): the same typed choice questions as the Jev decisions API,
 answered with exactly one allowed option per question through strict structured output, without probabilities.
 Output alignment only: trivial representation differences are canonicalised; a malformed, incomplete or out-of-enum
 answer gets ONE repair request to the same model with the same input plus a schema correction; a second failure is an
@@ -12,6 +12,8 @@ from src.common.config import IntegrationUnavailable
 from src.online_rl.integrated.records import sha256_json, sha256_text
 
 URL = 'https://openrouter.ai/api/v1/chat/completions'
+OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
+PROVIDERS = {'openrouter', 'openai_direct'}
 
 
 def http_post(url: str, payload: dict, key: str, timeout: float) -> dict:
@@ -44,30 +46,51 @@ class LunaDecisionClient:
     """decide(state, questions, purpose) -> ({qid: {'value', 'probabilities': None, 'confidence': None}}, record), like JevClient."""
 
     def __init__(self, *, model: str, key: str, system: str, max_tokens: int = 2000, post: Callable = http_post,
-                 sleep: Callable = time.sleep, timeout_s: float = 180.0):
+                 sleep: Callable = time.sleep, timeout_s: float = 180.0, provider: str = 'openrouter'):
+        if provider not in PROVIDERS: raise ValueError(f'Unknown Luna provider: {provider}')
         self.model, self.key, self.system, self.max_tokens, self.post, self.sleep = model, key, system, max_tokens, post, sleep
-        self.timeout_s, self.protocol_sha256, self.log = timeout_s, sha256_text(system), []
+        self.provider = provider
+        # The provider and wire contract are part of the judge/cache identity.
+        # Keep the historical OpenRouter fingerprint byte-for-byte compatible.
+        protocol = (sha256_text(system) if provider == 'openrouter' else
+                    sha256_json({'system': system, 'provider': provider, 'api': 'chat_completions_v1'}))
+        self.timeout_s, self.protocol_sha256, self.log = timeout_s, protocol, []
 
     def _chat(self, messages: list[dict], schema: dict, purpose: str, max_tokens: Optional[int] = None, *, return_body=False):
-        payload = {'model': self.model, 'messages': messages, 'max_tokens': max_tokens or self.max_tokens,
+        direct = self.provider == 'openai_direct'
+        payload = {'model': self.model, 'messages': messages,
+                   'max_completion_tokens' if direct else 'max_tokens': max_tokens or self.max_tokens,
                    'response_format': {'type': 'json_schema', 'json_schema': {'name': 'decisions', 'strict': True, 'schema': schema}}}
-        retry = Retry(f'OpenRouter {self.model} ({purpose})', sleep=self.sleep)        # src/common/retry.py: bounded, larger for 429
+        retry = Retry(f'{"OpenAI" if direct else "OpenRouter"} {self.model} ({purpose})', sleep=self.sleep)
         started = time.monotonic(); request_seconds = 0.0; retry_wait_seconds = 0.0
         request_started = None
         while True:
             try:
                 request_started = time.monotonic()
-                body = self.post(URL, payload, self.key, self.timeout_s)
+                body = self.post(OPENAI_URL if direct else URL, payload, self.key, self.timeout_s)
                 request_seconds += time.monotonic() - request_started
                 request_started = None
                 usage.record(purpose, body.get('model', self.model), body.get('usage'), retry.attempts,
                              latency_seconds=time.monotonic()-started, request_seconds=request_seconds,
                              retry_wait_seconds=retry_wait_seconds); retry.succeeded()
+                if direct:
+                    try:
+                        choice = body['choices'][0]
+                        finish = choice['finish_reason']
+                        message = choice['message']
+                        if finish != 'stop' or message.get('refusal') or not message.get('content'):
+                            raise ValueError(f'finish_reason={finish!r}, refusal={bool(message.get("refusal"))}, content={bool(message.get("content"))}')
+                    except (KeyError, IndexError, TypeError, ValueError) as exc:
+                        error = IntegrationUnavailable(f'OpenAI {self.model} ({purpose}) returned an incomplete completion: {exc}')
+                        error.audit = {'response': body, 'finish_reason': body.get('choices', [{}])[0].get('finish_reason') if isinstance(body.get('choices'), list) and body['choices'] else None,
+                                       'usage': body.get('usage'), 'request_sha256': sha256_json(payload)}
+                        raise error from exc
                 return body if return_body else (body['choices'][0]['message'].get('content') or '')
             except urllib.error.HTTPError as e:
                 if request_started is not None:
                     request_seconds += time.monotonic()-request_started;request_started=None
                 text = e.read().decode('utf-8', errors='replace') if e.fp is not None else ''
+                if self.key: text = text.replace(self.key, '[redacted]')
                 if e.code not in RETRYABLE_STATUS: raise
                 wait_started=time.monotonic()
                 should_retry=retry.wait('rate_limit' if rate_limited(e.code, text) else 'transient', f'HTTP {e.code} {text[:300]}',
@@ -81,6 +104,16 @@ class LunaDecisionClient:
                 retry_wait_seconds += time.monotonic()-wait_started
                 if not should_retry: raise
 
+    def _answer(self, messages: list[dict], schema: dict, purpose: str, *, max_tokens: Optional[int] = None):
+        """Return text and this exact response's metadata, safe under concurrent workers."""
+        body = self._chat(messages, schema, purpose, max_tokens=max_tokens, return_body=True)
+        choice = body['choices'][0]
+        meta = {'finish_reason': choice.get('finish_reason'),
+                'native_finish_reason': choice.get('native_finish_reason'),
+                'usage': body.get('usage'), 'response_model': body.get('model', self.model),
+                'response_id': body.get('id')}
+        return choice['message'].get('content') or '', meta
+
     def decide(self, state: str, questions: dict[str, dict], purpose: str = 'luna') -> tuple[dict, dict]:
         allowed = {qid: [str(o) for o in q['criteria']] for qid, q in questions.items()}
         schema = {'type': 'object', 'additionalProperties': False, 'required': ['answers'],
@@ -90,15 +123,19 @@ class LunaDecisionClient:
                            'questions': {qid: {'instructions': q.get('instructions'), 'criteria': q.get('criteria')} for qid, q in questions.items()}},
                           ensure_ascii=False)
         messages = [{'role': 'system', 'content': self.system}, {'role': 'user', 'content': user}]
-        raw = [self._chat(messages, schema, purpose)]; parsed, err = parse(raw[0], allowed); errors = [err] if err else []
+        first, first_meta = self._answer(messages, schema, purpose)
+        raw, completions = [first], [first_meta]
+        parsed, err = parse(raw[0], allowed); errors = [err] if err else []
         if err:
             fix = (f'Your previous output was not valid: {err}. Return only JSON of the form {{"answers": {{question_id: option}}}} with exactly '
                    f'these question ids, each answered with one of its allowed options: {json.dumps(allowed)}.')
-            raw.append(self._chat(messages + [{'role': 'assistant', 'content': raw[0]}, {'role': 'user', 'content': fix}], schema, purpose))
+            repaired, repaired_meta = self._answer(messages + [{'role': 'assistant', 'content': raw[0]}, {'role': 'user', 'content': fix}], schema, purpose)
+            raw.append(repaired); completions.append(repaired_meta)
             parsed, err = parse(raw[1], allowed)
             if err: errors.append(err)
         rec = {'purpose': purpose, 'model': self.model, 'protocol_sha256': self.protocol_sha256, 'raw': raw, 'parsed': parsed,
                'repaired': len(raw) > 1, 'repair_ok': len(raw) > 1 and err is None, 'errors': errors}
+        if self.provider == 'openai_direct': rec.update(provider=self.provider, completions=completions)
         self.log.append(rec)
         if err or parsed is None: raise IntegrationUnavailable(f'{self.model} returned no valid {purpose} decision after one repair: {err}')
         return {qid: {'value': v, 'probabilities': None, 'confidence': None} for qid, v in parsed.items()}, rec
@@ -114,15 +151,19 @@ class LunaDecisionClient:
                                                                 'properties': fields} for i in items}}}}
         user = json.dumps({'stage': stage, 'state': state, 'items': items}, ensure_ascii=False)
         messages = [{'role': 'system', 'content': self.system}, {'role': 'user', 'content': user}]
-        raw = [self._chat(messages, schema, purpose)]; parsed, err = parse_objects(raw[0], list(items), fields); errors = [err] if err else []
+        first, first_meta = self._answer(messages, schema, purpose)
+        raw, completions = [first], [first_meta]
+        parsed, err = parse_objects(raw[0], list(items), fields); errors = [err] if err else []
         if err:
             fix = (f'Your previous output was not valid: {err}. Return only JSON {{"answers": {{item_id: object}}}} with exactly these item ids '
                    f'{list(items)} and, in each object, exactly these fields: {json.dumps(fields)}.')
-            raw.append(self._chat(messages + [{'role': 'assistant', 'content': raw[0]}, {'role': 'user', 'content': fix}], schema, purpose))
+            repaired, repaired_meta = self._answer(messages + [{'role': 'assistant', 'content': raw[0]}, {'role': 'user', 'content': fix}], schema, purpose)
+            raw.append(repaired); completions.append(repaired_meta)
             parsed, err = parse_objects(raw[1], list(items), fields)
             if err: errors.append(err)
         rec = {'purpose': purpose, 'stage': stage, 'model': self.model, 'protocol_sha256': self.protocol_sha256, 'raw': raw, 'parsed': parsed,
                'repaired': len(raw) > 1, 'repair_ok': len(raw) > 1 and err is None, 'errors': errors}
+        if self.provider == 'openai_direct': rec.update(provider=self.provider, completions=completions)
         self.log.append(rec)
         if err or parsed is None:
             error = IntegrationUnavailable(f'{self.model} returned no valid {purpose} decision after one repair: {err}')
@@ -203,7 +244,8 @@ class LunaDecisionClient:
                         checked[name] = item
                     parsed[response_id][item_id] = checked
             return parsed
-        raw = [self._chat(messages, schema, purpose, max_tokens=token_budget)]
+        first, first_meta = self._answer(messages, schema, purpose, max_tokens=token_budget)
+        raw, completions = [first], [first_meta]
         errors = []
         try: parsed = parse_batch(raw[0])
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
@@ -212,8 +254,9 @@ class LunaDecisionClient:
             fix = ('Return exactly one JSON object shaped as {"answers": {response_id: {rubric_id: {field: value}}}}. '
                    'Include every requested response ID, rubric ID and field, with no extras. '
                    f'Previous output error: {errors[-1]}.')
-            raw.append(self._chat(messages + [{'role': 'assistant', 'content': raw[0]},
-                {'role': 'user', 'content': fix}], schema, purpose, max_tokens=token_budget))
+            repaired, repaired_meta = self._answer(messages + [{'role': 'assistant', 'content': raw[0]},
+                {'role': 'user', 'content': fix}], schema, purpose, max_tokens=token_budget)
+            raw.append(repaired); completions.append(repaired_meta)
             try: parsed = parse_batch(raw[1])
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 errors.append(str(exc)); parsed = None
@@ -222,6 +265,7 @@ class LunaDecisionClient:
                'rubrics_per_response': {rid: len(items) for rid in response_ids},
                'max_tokens': token_budget, 'raw': raw, 'parsed': parsed,
                'repaired': len(raw) > 1, 'errors': errors}
+        if self.provider == 'openai_direct': rec.update(provider=self.provider, completions=completions)
         self.log.append(rec)
         if parsed is None: raise IntegrationUnavailable(f'{self.model} returned invalid batch scoring output: {errors[-1]}')
         return parsed, rec

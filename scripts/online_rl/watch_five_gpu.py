@@ -829,7 +829,8 @@ def render_dashboard(s):
     batch=s.get('batch') or 'no batch'
     lines=[f'{s["time"]}  {batch} · run {duration(s.get("run_elapsed_seconds"))} · '
            f'batch {duration(s.get("batch_elapsed_seconds"))} · '
-           f'API ${api.get("recorded_usd",0):.2f} · {api.get("calls",0)} calls']
+           f'API recorded ${api.get("recorded_usd",0):.2f} · {api.get("calls",0)} calls'
+           f'{" · unpriced " + str(api["unpriced_calls"]) if api.get("unpriced_calls") else ""}']
     leaves=s.get('leaves',{})
     if leaves.get('trees_total'):
         lines.append(f'Cases {s.get("completed_cases",0)}/{s.get("total_cases",0)} · '
@@ -937,7 +938,8 @@ def render_compact_dashboard(s):
     batch=s.get('batch') or 'no batch'
     lines=[f'{s["time"]} {batch} · run {duration(s.get("run_elapsed_seconds"))} · '
            f'batch {duration(s.get("batch_elapsed_seconds"))} · '
-           f'${api.get("recorded_usd",0):.2f} · {api.get("calls",0)} API calls']
+           f'recorded ${api.get("recorded_usd",0):.2f} · {api.get("calls",0)} API calls'
+           f'{" · unpriced " + str(api["unpriced_calls"]) if api.get("unpriced_calls") else ""}']
     if leaves.get('trees_total'):
         done=p.get('phase_complete',{})
         lines.append(f'Cases {s.get("completed_cases",0)}/{s.get("total_cases",0)} · '

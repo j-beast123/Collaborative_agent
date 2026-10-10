@@ -1,4 +1,21 @@
-# SHERPA — active 120-case, two-turn training
+# SHERPA — 120-case training and rubric research
+
+This branch contains the direct-Luna v9.1 first-batch configuration at
+`configs/experiments/train120_v9_1_gate8192_first5.json`. It starts with a base
+policy and empty KEEP bank, fixes P0, limits the conversation to two Agent turns,
+and scores against the complete frozen bank. The direct OpenAI `gpt-6-luna`
+provider handles rubric generation and judgments. Applicability uses the v7.5
+supplement and behavior scoring uses v7.6. No API key, rollout, bank, score
+cache, or checkpoint is committed here.
+
+The versioned `compact_quality_gate_v3_2.py` module and matching prompt/schemas
+are an **isolated offline Gate contract**, not wired into the training runner.
+They require the actual prefix-grounded applicability clauses, while recording
+whether an earlier request remains open without imposing `request_state=active`
+on every rubric. Seven of 29 pilot candidates completed Gate review; one passed,
+then changed the Doctor outcome in 0/3 witness reruns and was not KEEP. The
+pilot did not update the active bank or policy. The v2.2 notes below describe
+an earlier configuration.
 
 This branch packages the current fixed-P0 training setup. Start with
 [`configs/experiments/train120_max2_fixed_p0.json`](configs/experiments/train120_max2_fixed_p0.json)

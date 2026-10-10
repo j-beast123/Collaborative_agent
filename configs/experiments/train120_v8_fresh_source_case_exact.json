@@ -1,0 +1,38 @@
+{
+  "extends": "configs/experiments/train120_v7_fresh.json",
+  "experiment": {
+    "output_root": "outputs/train120_v8_fresh_source_case_exact_20261011",
+    "run_label": "sourcecase_exact_v8"
+  },
+  "policy": {
+    "init_adapter": null
+  },
+  "supervision_handoff": null,
+  "schedule": {
+    "cases": 120
+  },
+  "rubric": {
+    "assignment_protocol": "exact_generated_source_case_v1"
+  },
+  "judges": {
+    "compact_runtime": "v7_5_v7_6",
+    "compact_prompt_sha256": {
+      "prompts/sherpa/compact_applicability_semantics_v3.txt": "12a679fd795f7c0ac43a7d7358dd5e39766dec557d03b24c7bd8c571eb5df18a",
+      "prompts/sherpa/compact_behavior_semantics_v3.txt": "42a55e920d5941a1d559378004f1bde426302f9aded3bfd18294df345ce9e98f",
+      "prompts/sherpa/compact_applicability_relation_v7_4.txt": "ffe3f97f34708fd8cdd325a2432f3b19796f4e50cb58b0d8b6ced7f38106a056",
+      "prompts/sherpa/compact_applicability_referent_v7_5.txt": "7c4af94678acd56b10b37eeffc0ccd5fe40767d071a0146e7f9d4503c6916470",
+      "prompts/sherpa/compact_behavior_referent_v7_6.txt": "82bb2c03160e640d030798d834c1f715500a00761500d635e226c28bda96cb14"
+    }
+  },
+  "five_gpu": {
+    "checkpoint_evaluation_enabled": false,
+    "base_evaluation": {
+      "enabled": false
+    }
+  },
+  "notes": {
+    "pilot": "Run once with --max-batches 1 to commit exactly five cases, then inspect the committed recovery checkpoint before resuming the same 120-case config. Do not change schedule.cases between pilot and continuation.",
+    "rubric_scope": "New base adapter and initially empty cumulative bank. Generate per eligible trajectory without pre-generation semantic matching, deduplicate only exact public criterion content within the source case and outcome stratum, run the existing random-5 witness, add KEEP criteria to the cumulative bank, then score each case against the same full bank frozen for its five-case batch.",
+    "evaluation": "No checkpoint or base evaluation is executed. The pinned evaluation file remains a preflight train/eval overlap guard only."
+  }
+}
