@@ -82,8 +82,28 @@ def load_config(path=CONFIG, *, learning_rate=None, run_name=None):
 
 
 def validate_resume_identity(state, cfg, source_sha):
-    if state and (state['config_sha256'] != sha256_json(cfg) or state['source_sha256'] != source_sha):
-        raise RuntimeError('Config/code changed (including learning rate); resume requires the original run settings')
+    if not state: return None
+    message = 'Config/code changed (including learning rate); resume requires the original run settings'
+    if state['config_sha256'] != sha256_json(cfg): raise RuntimeError(message)
+    if state['source_sha256'] == source_sha: return None
+    # A narrowly pinned operational fix may preserve previously VALID cached
+    # results. Reconstruct the entire old source identity, not a general bypass.
+    path = ROOT / 'maintenance/consolidate_repair_compatibility.json'
+    if path.is_file():
+        receipt = json.loads(path.read_text())
+        if (receipt.get('protocol') == 'consolidate_validation_repair_v1'
+                and receipt.get('old_source_sha256') == state['source_sha256']):
+            files = sorted([*ROOT.glob('src/**/*.py'), *ROOT.glob('scripts/online_rl/*.py')])
+            current = {str(p.relative_to(ROOT)): file_sha(p) for p in files}
+            old = dict(current)
+            matches = bool(receipt.get('changed_files')) and sha256_json(current) == source_sha
+            for name, hashes in receipt.get('changed_files', {}).items():
+                matches = matches and current.get(name) == hashes.get('new_sha256')
+                old[name] = hashes.get('old_sha256')
+            if matches and sha256_json(old) == state['source_sha256']:
+                return {**receipt, 'effective_source_sha256': source_sha,
+                        'config_sha256': state['config_sha256']}
+    raise RuntimeError(message)
 
 
 def file_sha(path):
@@ -246,6 +266,7 @@ def configure_execution(cfg, out):
     os.environ['API_USAGE_LOG'] = str(out / 'api_usage.jsonl')
     os.environ['SHERPA_RETRY_AUDIT'] = str(out / 'retry_audit.jsonl')
     os.environ['SHERPA_HTTP_AUDIT'] = str(out / 'http_attempts.jsonl')
+    os.environ['SHERPA_CONSOLIDATE_AUDIT'] = str(out / 'diagnostics/consolidate_validation.jsonl')
     os.environ['SHERPA_HF_DOCTOR_AUDIT'] = str(out / 'hf_doctor_calls.jsonl')
     os.environ['HF_HUB_OFFLINE'] = '1'
     os.environ['TOKENIZERS_PARALLELISM'] = 'false'
@@ -338,7 +359,19 @@ def run(cfg, *, max_batches=None, evaluate=False):
         config_sha, source_sha = sha256_json(cfg), code_identity()
         path = out / 'run_state.json'
         state = json.loads(path.read_text()) if path.exists() else None
-        validate_resume_identity(state, cfg, source_sha)
+        compatibility = validate_resume_identity(state, cfg, source_sha)
+        if compatibility:
+            receipt_path = out / 'diagnostics' / ('code_compatibility_' + source_sha + '.json')
+            if not receipt_path.exists():
+                from datetime import datetime, timezone
+                atomic_write_json(receipt_path, {**compatibility,
+                    'resumed_at_utc': datetime.now(timezone.utc).isoformat(),
+                    'completed_cases': state['case_cursor'], 'policy_sha256': state['policy_sha256']})
+            # Keep the original identity for an already-published pending update
+            # proof; separately record the code actually executing this run.
+            state = {**state, 'execution_source_sha256': source_sha}
+            print(json.dumps({'stage': 'compatible_code_resume', 'repair': compatibility['protocol'],
+                              'completed_cases': state['case_cursor'], 'receipt': str(receipt_path)}), flush=True)
         if evaluate and (not state or state['case_cursor'] != 120):
             raise RuntimeError('Final evaluation requires all 120 training cases committed')
         if state is None and any((out / 'checkpoints').glob('*')):

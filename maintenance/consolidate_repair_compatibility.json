@@ -1,0 +1,17 @@
+{
+  "protocol": "consolidate_validation_repair_v1",
+  "old_commit": "44ded5af09822a47ef9632fd5429556d5c772175",
+  "old_source_sha256": "a6d75face559b65bbd5306b3cc8180c0cdc53372778f9d805246e62567553489",
+  "changed_files": {
+    "src/online_rl/tree/parallel_bank.py": {
+      "old_sha256": "6d4a9cc51333a7ee5ea0756d277a7eebca8a1f542cada660c4fba22b8eceaf49",
+      "new_sha256": "7639b7fd9705ac9d23801c8b3a2d432252d5faf0deb6657d84f7ce494f44fac4"
+    },
+    "src/online_rl/tree/b200_runner.py": {
+      "old_sha256": "181862e1599a60c13f5c8347db8357a96c4460619f1476f217ddd7abd177d4b3",
+      "new_sha256": "dec8d293bbbaae89fbecd4a25ef52c282e941a80ff628b983c9b66f514f37072"
+    }
+  },
+  "reason": "Only bounded validation repair/audit and exact-code resume compatibility; initial requests, accepted partitions, scientific config and valid cache identity unchanged.",
+  "source_identity_note": "Original state/checkpoint source_sha256 retained for pending update proofs; effective code hash saved in diagnostics/code_compatibility_<hash>.json and execution_source_sha256."
+}

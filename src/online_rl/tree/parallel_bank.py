@@ -8,6 +8,9 @@ from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import asdict
 import json
+import os
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.online_rl.integrated.records import sha256_json
@@ -19,29 +22,41 @@ VERSION = 'parallel_candidates_consolidate_v1'
 CHECKS = ('same_need', 'same_applicability', 'same_required_behavior',
           'same_score_semantics', 'public_evidence_clear', 'no_new_premise')
 ROOT = Path(__file__).resolve().parents[3]
+CONSOLIDATE_REPAIR_ATTEMPTS = 2
+_validation_audit_lock = threading.Lock()
+
+def validation_audit(record):
+    path = os.environ.get('SHERPA_CONSOLIDATE_AUDIT')
+    if path:
+        with _validation_audit_lock:
+            target = Path(path); target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open('a') as stream:
+                stream.write(json.dumps(record, ensure_ascii=False) + '\n')
 
 
 def validate_partition(result, candidates):
     """No missing, invented, duplicated, cross-stratum or uncertain membership."""
     if not isinstance(result, dict) or set(result) != {'clusters', 'excluded'}:
         raise ValueError('Consolidate must return clusters and excluded')
+    if not isinstance(result['clusters'], list) or not isinstance(result['excluded'], list):
+        raise ValueError('Consolidate clusters/excluded must be arrays')
     ids = {c['candidate_id']: c for c in candidates}
     seen = []
     for cluster in result['clusters']:
-        if set(cluster) != {'candidate_ids', 'checks', 'reason'}:
+        if not isinstance(cluster, dict) or set(cluster) != {'candidate_ids', 'checks', 'reason'}:
             raise ValueError('Consolidate cluster cannot rewrite a rubric')
         members = cluster['candidate_ids']
-        if not members or any(m not in ids for m in members):
+        if not isinstance(members, list) or not members or any(not isinstance(m, str) or m not in ids for m in members):
             raise ValueError('Unknown/empty consolidate cluster')
         if len({ids[m]['stratum'] for m in members}) != 1:
             raise ValueError('Consolidate cannot merge success and failure strata')
-        if set(cluster['checks']) != set(CHECKS) or any(cluster['checks'][k] is not True for k in CHECKS):
+        if not isinstance(cluster['checks'], dict) or set(cluster['checks']) != set(CHECKS) or any(cluster['checks'][k] is not True for k in CHECKS):
             raise ValueError('Uncertain equivalence/evidence must be split or explicitly excluded')
         if not isinstance(cluster['reason'], str) or not cluster['reason'].strip():
             raise ValueError('Consolidate needs an evidence-grounded reason')
         seen.extend(members)
     for item in result['excluded']:
-        if set(item) != {'candidate_id', 'reason'} or item['candidate_id'] not in ids or not isinstance(item['reason'], str) or not item['reason'].strip():
+        if not isinstance(item, dict) or set(item) != {'candidate_id', 'reason'} or item['candidate_id'] not in ids or not isinstance(item['reason'], str) or not item['reason'].strip():
             raise ValueError('Every consolidate exclusion needs an original ID and reason')
         seen.append(item['candidate_id'])
     if sorted(seen) != sorted(ids):
@@ -57,13 +72,43 @@ def api_consolidator(key, cfg):
         raise ValueError('Consolidate prompt hash mismatch')
     settings = {k: cfg[k] for k in ('max_tokens', 'temperature', 'reasoning_effort', 'strict_provider_parameters')}
     if 'api_provider' in cfg: settings['api_provider'] = cfg['api_provider']
-    # JSON mode is locally checked; bounded transport retry is the shared backend's.
+    # Successful input/output and cache identity stay unchanged. Only invalid
+    # output takes the bounded repair path; never split/drop candidates in code.
     def consolidate(candidates):
-        raw, _ = _openrouter_json(key, cfg['model'], text, json.dumps(candidates, ensure_ascii=False, sort_keys=True),
-                                 settings, {}, 'case_consolidation', 'rubric_consolidate')
-        try: return validate_partition(json.loads(raw), candidates)
-        except (ValueError, TypeError, KeyError) as exc:
-            raise RuntimeError('Invalid consolidate JSON/partition; stop and resume, never silently drop candidates') from exc
+        original = json.dumps(candidates, ensure_ascii=False, sort_keys=True)
+        user, attempts = original, []
+        for attempt in range(CONSOLIDATE_REPAIR_ATTEMPTS + 1):
+            raw, meta = _openrouter_json(key, cfg['model'], text, user,
+                                         settings, {}, 'case_consolidation', 'rubric_consolidate')
+            error = None
+            try: result = validate_partition(json.loads(raw), candidates)
+            except (ValueError, TypeError, KeyError) as exc: error = str(exc)
+            record = {'protocol': 'consolidate_validation_repair_v1',
+                      'time': datetime.now(timezone.utc).isoformat(),
+                      'input_sha256': sha256_json(candidates), 'attempt': attempt + 1,
+                      'model': cfg['model'], 'api_provider': settings.get('api_provider', 'openrouter'),
+                      'request_sha256': sha256_json(user), 'raw': raw, 'validation_error': error,
+                      'accepted': error is None, 'repair_attempts_limit': CONSOLIDATE_REPAIR_ATTEMPTS}
+            attempts.append(record)
+            validation_audit(record)
+            if error is None: return result
+            # Fixed originals, source IDs and strata remain authoritative. No
+            # reward/verification outcome is used to choose a replacement source.
+            user = json.dumps({'original_candidates': candidates, 'previous_response': raw,
+                'validation_error': error,
+                'instruction': 'Correct the JSON partition against the SAME original candidates. '
+                    'Return only clusters and excluded, with every original candidate exactly once. '
+                    'Never merge success and failure strata. A mixed cluster must be reconsidered separately '
+                    'within each stratum; merge only when every equivalence check is actually supported. '
+                    'Keep distinct criteria separate; singletons are allowed. Do not invent IDs, rewrite criteria, '
+                    'change source/anchor/stratum, or exclude a candidate merely to repair JSON. '
+                    'Exclusion still requires an actual evidence/anchor problem with an explicit reason.'},
+                ensure_ascii=False, sort_keys=True)
+        failure = RuntimeError('Invalid consolidate JSON/partition after two repair requests; '
+                               'stop and resume, never silently drop candidates: ' + error)
+        failure.audit = {'protocol': 'consolidate_validation_repair_v1', 'attempts': attempts,
+                         'input_sha256': sha256_json(candidates)}
+        raise failure
     consolidate.model = cfg['model']
     consolidate.settings = {**settings, 'prompt_sha256': cfg['prompt_sha256'], 'version': VERSION}
     return consolidate

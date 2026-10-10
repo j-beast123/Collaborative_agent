@@ -159,3 +159,47 @@ SHERPA_PYTHON=.venv/bin/python bash scripts/online_rl/launch_b200_v7.sh --action
 
 기존 학습/재개/5-case barrier/early-majority 테스트에 V7 fake API 검증을 추가합니다.
 실제 모델의 의미적 판단 품질, GPU 메모리/속도, 원격 API 지원 여부는 CPU 테스트로 입증하지 않습니다.
+
+
+## Consolidate partition 오류 후 재개 (44ded5a에서 시작한 run)
+
+`Consolidate cannot merge success and failure strata`는 모델이 성공/실패 후보를
+한 cluster에 넣어 validator가 거부한 것입니다. 해당 batch의 update 전 실패이며,
+이미 commit된 checkpoint와 성공 cache는 유지됩니다.
+
+수정 버전은 첫 요청·모델·prompt·정상 partition/cache identity를 유지하고, 잘못된
+JSON/partition에 한해 같은 원본 후보와 검증 오류를 넣어 최대 2회 수정 요청합니다.
+세 번의 응답 모두 유효하지 않으면 다시 중단합니다. 후보를 코드로 임의 분할/삭제하거나
+검증 실패를 0점으로 바꾸지 않습니다. 추가 요청 비용은 기존 API usage에 포함되며
+`diagnostics/consolidate_validation.jsonl`에 각 응답·오류·수정 시행 수를 기록합니다.
+
+기존 run을 새로 만들 필요는 없습니다. `maintenance/consolidate_repair_compatibility.json`에
+명시한 원본 커밋의 전체 코드 hash와 이번 수정 파일 hash가 정확히 맞고 config가 같은
+경우에만 재개합니다. 다른 코드/LR/config 변경은 계속 거부합니다.
+원래 checkpoint의 source identity는 유지하며 실제 실행 코드는 별도의
+`execution_source_sha256` 및 `diagnostics/code_compatibility_<hash>.json`에 기록합니다.
+기존 valid cache/완료 case는 그대로 쓰고 미완료 consolidate부터 필요한 작업을 다시 합니다.
+
+공유 checkout을 사용하는 **두 서버의 프로세스를 먼저 중단**한 뒤 한 곳에서 pull:
+
+```bash
+cd /NHNHOME/shkim/SHERPA/Collaborative_agent-sherpa
+git pull --ff-only origin sherpa-jh
+```
+
+각 터미널의 환경/키는 그대로 사용합니다. 기존 run name/LR을 반드시 유지하세요.
+
+```bash
+# 서버 A (아래 이름으로 시작한 경우)
+bash scripts/online_rl/launch_b200_v7.sh --action train \
+  --run-name gemma-bf16-v7-rubric-lr1e5-run01 --learning-rate 1e-5
+
+# 서버 B (아래 이름으로 시작한 경우)
+bash scripts/online_rl/launch_b200_v7.sh --action train \
+  --run-name gemma-bf16-v7-rubric-lr5e6-run01 --learning-rate 5e-6
+```
+
+기존에 다른 이름을 사용했다면 위 이름 대신 실제 기존 이름을 사용합니다.
+호환 재개에서는 `stage: compatible_code_resume`과 완료 case 수가 출력됩니다.
+모델/데이터 재다운로드, cache 삭제, 초기 adapter 재설정은 필요 없습니다.
+CPU 회귀 검증: `python -m pytest -q tests/test_consolidate_repair.py tests/test_parallel_bank.py tests/test_b200_v7.py tests/test_b200_runner.py`.
