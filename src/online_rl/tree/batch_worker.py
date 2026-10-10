@@ -75,7 +75,7 @@ def components(case,out):
     scorer=two_stage_scorer(judge);gate=posthoc_gates(judge,{case['case_id']:case});pu=cfg['prompt_update']
     backend=sol_backend(key,text(pu['feedback_prompt_file']),text(pu['refiner_prompt_file']),generate,gate,scorer,
                         feedback_model=pu['feedback_model'],refiner_model=pu['refiner_model'])
-    return cache,doctor,iv,generate,scorer,gate,backend,team_strategies(None,cfg['agent_reward']['w_outcome'],cfg['agent_reward']['w_rubric'])
+    return cache,doctor,iv,generate,scorer,gate,backend,team_strategies(None,cfg['agent_reward']['w_outcome'],cfg['agent_reward']['w_rubric'],cfg['agent_reward'].get('credit','shared'))
 
 
 def rollout_one(job):

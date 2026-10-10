@@ -52,7 +52,7 @@ def update_batch(updater, records, expected, actual):
         nodes = {n.node_id: n for n in tree.nodes}
         for parent, ids in sorted(record['agent_targets']['groups'].items()):
             group = [{'trajectory_id': nid, 'case_id': f'{tree.case_id}|{parent}',
-                      'reward': record['agent_targets']['nodes'][nid]['reward'],
+                      'reward': record['agent_targets']['nodes'][nid]['reward'], 'loss_segments': record['agent_targets'].get('loss_segments'),
                       'rollout_policy_sha256': nodes[nid].policy_sha256,
                       'agent_traces': [nodes[nid].trace]} for nid in ids]
             assert_single_prompt(group)

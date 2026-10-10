@@ -54,6 +54,11 @@ class SharedPolicy:
         self.doctor = make_doctor(ro, self.doctor_system)              # None: legacy OpenRouter Doctor
         import threading; self.gen_lock = threading.RLock()            # one generation at a time on the shared model
         self.precommit = ro.get('agent_protocol') == 'precommit_v1'
+        # rollout.agent_thinking (absent = False = the frozen rendering): Qwen3 native thinking for every Agent call. The reasoning is part
+        # of the sampled completion (stored, scored and trained like any other token) and gets its own token budget; only the text after
+        # </think> is used as the hidden assessment / the visible reply.
+        self.thinking = bool(ro.get('agent_thinking', False)); self.think_budget = int(ro.get('agent_think_budget', 2048)) if self.thinking else 0
+        if self.thinking and not self.precommit: raise ValueError('rollout.agent_thinking needs agent_protocol precommit_v1')
         if ro.get('agent_protocol') not in (None, 'precommit_v1'): raise ValueError(f"unknown rollout.agent_protocol {ro['agent_protocol']!r}")
         self._init_replicas(base_model=p['base_model'], lc=lc, init_adapter=p.get('init_adapter'))
 
@@ -296,6 +301,7 @@ class SharedPolicy:
         (src/online_rl/agent_protocol.py): a blind private assessment z, then the visible reply conditioned on the state and
         z; both are segments of the same action."""
         user = self.agent_user_prompt(case, prefix, turn); base = self.ST.chat_prompt(self.tok, self.agent_system, user)
+        if getattr(self, 'thinking', False): return self._agent_turn_thinking(case, prefix, turn, seed, user, base)
         if not self.precommit:
             return {'stage': f'A{turn}', 'prompt_text': base, 'seed': seed, **self._generate(base, self.args.max_completion_length, seed)}
         from src.online_rl import agent_protocol as AP
@@ -308,6 +314,29 @@ class SharedPolicy:
         return {'stage': f'A{turn}', 'prompt_text': pb, 'seed': seed, **r, 'private_assessment': z['completion_text'],
                 'state_prompt_hash': AP.state_hash(z['prompt_input_ids'], base), 'agent_protocol': AP.VERSION,
                 'segments': [seg('private_assessment', pa, z, sa), seg('visible_reply', pb, r, sb)]}
+
+    def answer_after_thinking(self, completion_ids) -> tuple[str, int, bool]:
+        """(answer text after </think>, reasoning tokens, closed). An unclosed reasoning block has no answer: ''."""
+        ids = [int(i) for i in completion_ids]; end = self.tok.convert_tokens_to_ids('</think>')
+        if end not in ids: return '', len(ids), False
+        cut = ids.index(end); return self.tok.decode(ids[cut + 1:], skip_special_tokens=True).strip(), cut, True
+
+    def _agent_turn_thinking(self, case, prefix, turn, seed, user, base) -> dict:
+        """precommit_v1 with native thinking: same prompts, seeds and segment structure as agent_turn; both segments keep their FULL
+        sampled completion (reasoning + answer) for the loss, and only the answers flow into the hidden block and the dialogue."""
+        from src.online_rl import agent_protocol as AP
+        sa, sb = AP.stage_seeds(seed, case['case_id'])
+        pa = self.ST.chat_prompt(self.tok, AP.ASSESS_SYSTEM, AP.blind_case_prompt(case), thinking=True)
+        z = self._generate(pa, AP.ASSESS_MAX_TOKENS + self.think_budget, sa, *_segment(self, f'A{turn}/private_assessment'))
+        z_answer, z_think, z_closed = self.answer_after_thinking(z['completion_ids'])
+        pb = self.ST.chat_prompt(self.tok, self.agent_system, user + AP.HIDDEN_BLOCK.format(assessment=z_answer), thinking=True)
+        r = self._generate(pb, self.args.max_completion_length + self.think_budget, sb, *_segment(self, f'A{turn}/visible_reply'))
+        r_answer, r_think, r_closed = self.answer_after_thinking(r['completion_ids'])
+        seg = lambda role, prompt, t, s, ans, n, ok: {'role': role, 'prompt_text': prompt, 'seed': s, 'answer_text': ans, 'think_tokens': n, 'thinking_closed': ok,
+                                                     **{k: t[k] for k in ('prompt_input_ids', 'completion_ids', 'old_policy_logprobs', 'completion_text')}}
+        return {'stage': f'A{turn}', 'prompt_text': pb, 'seed': seed, **r, 'completion_text': r_answer, 'raw_completion_text': r['completion_text'],
+                'private_assessment': z_answer, 'state_prompt_hash': AP.state_hash(z['prompt_input_ids'], base), 'agent_protocol': AP.VERSION, 'agent_thinking': True,
+                'segments': [seg('private_assessment', pa, z, sa, z_answer, z_think, z_closed), seg('visible_reply', pb, r, sb, r_answer, r_think, r_closed)]}
 
     def agent_text(self, case, prefix, turn, seed) -> str:
         """The visible reply of agent_turn (continuations, evaluation episodes)."""

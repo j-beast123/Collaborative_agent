@@ -16,6 +16,16 @@ def repeated_agent_reply(prefix, reply):
     return bool(current) and any(d.get('speaker')=='agent' and norm(d.get('text',''))==current for d in prefix)
 
 
+PRIVATE_OPTION = re.compile(r'(?m)^\**OPTION:\**\s*\(?([A-E])\b')
+
+
+def with_private_outcome(trace: dict, case: dict, outcome_fn: Callable) -> dict:
+    """precommit actions: the option of the private assessment and outcome_fn(case, option) (None when no option was written)."""
+    if 'private_assessment' not in trace: return trace
+    m = PRIVATE_OPTION.findall(trace['private_assessment'] or ''); opt = m[-1] if m else None
+    return {**trace, 'private_option': opt, 'private_outcome': outcome_fn(case, opt) if opt else None}
+
+
 def build_tree(case: dict, *, max_agent_turns: int, branching: int, run_seed: int, policy_sha256: str, protocol_sha256: str,
                agent, doctor, stop_rule: Callable, final_option: Callable, outcome_fn: Callable, cache: CallCache,
                behavior_logprobs: Optional[Callable] = None, workers: int = 1, opening: Optional[Callable] = None, agent_workers: int = 1,
@@ -42,7 +52,7 @@ def build_tree(case: dict, *, max_agent_turns: int, branching: int, run_seed: in
                 def sample(prefix=prefix, seed=seed, depth=depth):
                     tr = agent.sample(case, prefix, depth, seed)
                     if behavior_logprobs is not None: tr = {**tr, 'behavior_logprobs': behavior_logprobs([tr])[0]}   # pi_old, before any update
-                    return tr
+                    return with_private_outcome(tr, case, outcome_fn)
                 trace = cache.call('agent', {**ident, 'path': cpath, 'seed': seed}, sample)
                 reply = trace['completion_text']
                 dialogue = prefix + [{'speaker': 'agent', 'stage': f'A{depth}', 'round': depth, 'text': reply}]
@@ -104,7 +114,7 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
             def sample():
                 tr = agent.sample(case, prefix, depth, seed)
                 if behavior_logprobs is not None: tr = {**tr, 'behavior_logprobs': behavior_logprobs([tr])[0]}   # pi_old, before any update
-                return tr
+                return with_private_outcome(tr, case, outcome_fn)
             return cache.call('agent', {**ident, 'path': cpath, 'seed': seed}, sample)
         for (cpath, nid, parent, prefix, prev_status, seed), trace in zip(specs, amap(traced, specs)):
             reply = trace['completion_text']

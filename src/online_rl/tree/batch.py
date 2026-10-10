@@ -28,7 +28,7 @@ def sibling_groups(tree, targets):
     nodes={n.node_id:n for n in tree.nodes};groups=[]
     for parent,ids in sorted(targets['groups'].items()):
         records=[{'trajectory_id':nid, 'case_id':f'{tree.case_id}|{parent}',
-                  'reward':targets['nodes'][nid]['reward'],
+                  'reward':targets['nodes'][nid]['reward'], 'loss_segments':targets.get('loss_segments'),
                   'rollout_policy_sha256':nodes[nid].policy_sha256,
                   'agent_traces':[nodes[nid].trace]} for nid in ids]
         from src.online_rl.integrated.episode import assert_single_prompt

@@ -8,10 +8,10 @@ from src.collaboration.generator import case_text, dialogue_text, doctor_call, f
 POLICY_LOGPROB_SEMANTICS = "raw_policy_before_sampling_warpers_v1"
 
 
-def chat_prompt(tokenizer: Any, system: str, user: str) -> str:
+def chat_prompt(tokenizer: Any, system: str, user: str, thinking: bool = False) -> str:
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     try:
-        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=bool(thinking))
     except TypeError:
         return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
