@@ -23,12 +23,15 @@ def batch_slots(start, remaining, workers=4, cases_per_worker=3):
             for i in range(min(remaining, workers*cases_per_worker))]
 
 
+from src.online_rl.tree.team import branch_fields
+
+
 def sibling_groups(tree, targets):
     """Keep each case/state distinct even when batches contain root siblings."""
     nodes={n.node_id:n for n in tree.nodes};groups=[]
     for parent,ids in sorted(targets['groups'].items()):
         records=[{'trajectory_id':nid, 'case_id':f'{tree.case_id}|{parent}',
-                  'reward':targets['nodes'][nid]['reward'], 'loss_segments':targets.get('loss_segments'),
+                  'reward':targets['nodes'][nid]['reward'], 'loss_segments':targets.get('loss_segments'), **branch_fields(targets, nid),
                   'rollout_policy_sha256':nodes[nid].policy_sha256,
                   'agent_traces':[nodes[nid].trace]} for nid in ids]
         from src.online_rl.integrated.episode import assert_single_prompt

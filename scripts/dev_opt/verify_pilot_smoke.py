@@ -35,21 +35,37 @@ def main():
     C['parser: private option recorded on every action'] = all('private_option' in n['trace'] and 'private_outcome' in n['trace'] for n in nodes)
     notes['private option parsed'] = f"{sum(n['trace']['private_option'] is not None for n in nodes)} / {len(nodes)}"
     notes['Doctor FINAL parsed'] = f"{sum(l['final_option'] not in (None, '') for r in recs for l in r['tree']['leaves'])} / {sum(len(r['tree']['leaves']) for r in recs)}"
-    ok_reward = True; used_tokens = 0; used = 0
+    ok_reward = True; used_tokens = 0; used = 0; exp_tok = {'decision': 0, 'collaboration': 0}; exp_grp = {'decision': 0, 'collaboration': 0}
     for r in recs:
         t = r['agent_targets']; nd = {n['node_id']: n for n in r['tree']['nodes']}
         for nid, v in t['nodes'].items():
-            exp = float(nd[nid]['trace']['private_outcome'] or 0.0) if credit == 'decision_only' else compose_reward(v['outcome_component'], v['R_A'], **w)
+            rd = float(nd[nid]['trace']['private_outcome'] or 0.0)
+            exp = rd if credit == 'decision_only' else compose_reward(rd, v['R_A'], **w) if credit == 'separated' else compose_reward(v['outcome_component'], v['R_A'], **w)
+            if credit == 'separated': ok_reward &= v['decision_reward'] == rd and v['collab_reward'] == v['R_A']
             ok_reward &= (v['reward'] is None and exp is None) or (v['reward'] is not None and exp is not None and abs(v['reward'] - exp) < EPS)
-        ok_reward &= (t.get('loss_segments') == [0] and t.get('credit') == 'decision_only') if credit == 'decision_only' else ('loss_segments' not in t)
+        ok_reward &= ((t.get('loss_segments') == [0] and t.get('credit') == 'decision_only') if credit == 'decision_only' else
+                      (t.get('credit') == 'separated' and t.get('branch_coefficients') == {'decision': w['w_outcome'], 'collaboration': w['w_rubric']} and 'loss_segments' not in t) if credit == 'separated' else ('loss_segments' not in t))
+        if credit == 'separated':
+            for ids in t['groups'].values():
+                rd = [t['nodes'][i]['decision_reward'] for i in ids]; ra = [t['nodes'][i]['collab_reward'] for i in ids if t['nodes'][i]['collab_reward'] is not None]
+                if len(set(rd)) > 1: exp_tok['decision'] += sum(len(nd[i]['trace']['segments'][0]['completion_ids']) for i in ids); exp_grp['decision'] += 1
+                if len(ra) >= 2 and max(ra) - min(ra) > EPS: exp_tok['collaboration'] += sum(len(nd[i]['trace']['segments'][1]['completion_ids']) for i in ids if t['nodes'][i]['collab_reward'] is not None); exp_grp['collaboration'] += 1
         for ids in t['groups'].values():
             rew = [t['nodes'][i]['reward'] for i in ids if t['nodes'][i]['reward'] is not None]
             if len(rew) >= 2 and max(rew) - min(rew) > EPS:
                 used += 1; used_tokens += sum(len(s['completion_ids']) for i in ids if t['nodes'][i]['reward'] is not None for k, s in enumerate(nd[i]['trace']['segments']) if credit != 'decision_only' or k == 0)
-    C[f"reward path: {'R_D = private option correct, private segment only' if credit == 'decision_only' else 'configured Outcome/R_A mixture on both segments'}"] = ok_reward
+    C[f"reward path: {'R_D = private option correct, private segment only' if credit == 'decision_only' else 'separate R_D (private) and R_A (visible) branch rewards' if credit == 'separated' else 'configured Outcome/R_A mixture on both segments'}"] = ok_reward
     if credit == 'decision_only': C['E2: rubric pipeline did not run'] = not any(r.get('feedback') or r.get('response_scores') for r in recs)
     bu = recs[-1].get('batch_update') or {}; notes['batch_update'] = {k: bu.get(k) for k in ('optimizer_step', 'skip_reason', 'grad_norm', 'kl_loss', 'used_agent_completions', 'groups_used', 'groups_skipped')}
     notes['groups with nonzero advantage (expected used)'] = used
+    if credit == 'separated' and bu.get('optimizer_step'):
+        br = bu['branches']; notes['branches'] = {b: {k: br[b].get(k) for k in ('groups', 'rewarded_groups', 'usable_groups', 'nonzero_groups', 'skip_reasons', 'actions', 'var_A', 'mean_abs_A', 'optimized_tokens', 'grad_norm', 'loss', 'coefficient', 'loss_contribution')} for b in br}
+        notes['grad_cosine_decision_collaboration'] = bu.get('grad_cosine_decision_collaboration'); notes['combined_grad_norm'] = bu['grad_norm']
+        C['separated: A_D and A_C computed independently (branch group counts match the logs)'] = all(br[b]['nonzero_groups'] == exp_grp[b] for b in exp_grp)
+        C['separated token masks: private tokens only in L_D, visible tokens only in L_C'] = all(br[b]['optimized_tokens'] == exp_tok[b] for b in exp_tok); notes['expected branch tokens'] = exp_tok
+        C['separated: finite branch gradients and cosine logged'] = all(br[b]['grad_norm'] is None or math.isfinite(br[b]['grad_norm']) for b in br) and (bu.get('grad_cosine_decision_collaboration') is not None or any(br[b]['grad_norm'] is None for b in br))
+        C['separated: coefficients 0.5 / 0.5 applied once'] = all(abs(br[b]['loss_contribution'] - 0.5 * (br[b]['loss'] or 0.0)) < 1e-12 for b in br) and abs(bu['loss'] - sum(br[b]['loss_contribution'] for b in br)) < 1e-12
+        used_tokens = sum(exp_tok.values())
     if bu.get('optimizer_step'):
         C['on-policy ratio: exactly 1 at the update'] = bu['ratio']['max_abs_deviation'] <= 1e-3
         C['gradient: finite norm'] = math.isfinite(bu['grad_norm']) and bu['grad_norm'] > 0

@@ -1,0 +1,20 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "rollout": {
+    "agent_thinking": true,
+    "agent_think_budget": 2048
+  },
+  "agent_reward": {
+    "credit": "separated"
+  },
+  "schedule": {
+    "cases": 60
+  },
+  "notes": "PILOT E3-private (2026-10-10; frozen before any E1/E2 pilot result): thinking ON + credit-separated SHERPA 5:5. Decision branch: R_D = 1[private option == gold], centred within each sibling group, GRPO loss on the private completion only (reasoning + OPTION + KEY_REASON). Collaboration branch: R_A, centred over the scored siblings of the same group (grouping A), GRPO loss on the visible reply only. Objective 0.5 L_D + 0.5 L_C (equal objective coefficients; no gradient balancing). Same rollout protocol, cases, order, initialization, lr and update schedule as E1 / E2.",
+  "experiment": {
+    "reward_weight_rubric": 0.5,
+    "reward_weight_outcome": 0.5,
+    "output_root": "outputs/fixed_t2_pilot",
+    "variant": "t2p_e3sep"
+  }
+}

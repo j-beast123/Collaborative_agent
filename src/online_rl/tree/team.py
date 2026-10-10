@@ -31,13 +31,16 @@ def compose_reward(outcome: Optional[float], ra: Optional[float], w_outcome: flo
     return w_outcome * outcome + (w_rubric * ra if ra is not None else 0.0)
 
 
-CREDIT_MODES = ('shared', 'decision_only')
+CREDIT_MODES = ('shared', 'decision_only', 'separated')
 
 
 def node_credit(w_outcome: float, w_rubric: float, credit_mode: str = 'shared'):
     """shared (the frozen rule): one reward per action, applied to both of its segments.
     decision_only (diagnostic E2): reward = R_D = 1[the action's private option is the gold option] (0 when no option was written),
-    and only the private segment (segment 0) enters the loss; no outcome or rubric term, no visible-reply loss."""
+    and only the private segment (segment 0) enters the loss; no outcome or rubric term, no visible-reply loss.
+    separated (credit-separated SHERPA, E3-private): two independent branches on the same sibling groups. Decision: R_D on the private
+    segment. Collaboration: R_A on the visible segment (unscored responses are left out of that branch only). The objective is
+    w_outcome * L_D + w_rubric * L_C; 'reward' is then only the logged summary w_outcome * R_D + w_rubric * R_A, never a loss input."""
     if credit_mode not in CREDIT_MODES: raise ValueError(f'agent_reward.credit must be one of {CREDIT_MODES}')
 
     def credit(tree: Tree, leaf_outcomes: dict[str, float], node_r_a: dict[str, Optional[float]]) -> dict:
@@ -52,11 +55,22 @@ def node_credit(w_outcome: float, w_rubric: float, credit_mode: str = 'shared'):
             if credit_mode == 'decision_only':
                 if 'private_outcome' not in trace: raise RuntimeError(f'decision_only credit needs a precommit action at {n.node_id}')
                 nodes[n.node_id]['reward'] = nodes[n.node_id]['R_D']
+            if credit_mode == 'separated':
+                if 'private_outcome' not in trace: raise RuntimeError(f'separated credit needs a precommit action at {n.node_id}')
+                nodes[n.node_id].update(decision_reward=nodes[n.node_id]['R_D'], collab_reward=ra, reward=compose_reward(nodes[n.node_id]['R_D'], ra, w_outcome, w_rubric))
             groups.setdefault(n.parent_id or 'root', []).append(n.node_id)
         out = {'nodes': nodes, 'groups': groups, 'reward_weights': {'w_outcome': w_outcome, 'w_rubric': w_rubric}}
         if credit_mode == 'decision_only': out.update(credit='decision_only', loss_segments=[0])
+        if credit_mode == 'separated': out.update(credit='separated', branch_coefficients={'decision': w_outcome, 'collaboration': w_rubric})
         return out
     return credit
+
+
+def branch_fields(targets: dict, nid: str) -> dict:
+    """Per-record inputs of the separated objective (empty for every other credit rule)."""
+    if targets.get('credit') != 'separated': return {}
+    x = targets['nodes'][nid]
+    return {'branch_rewards': {'decision': x['decision_reward'], 'collaboration': x['collab_reward']}, 'branch_coefficients': targets['branch_coefficients']}
 
 
 def sibling_grpo_update(updater):
@@ -65,6 +79,7 @@ def sibling_grpo_update(updater):
         by_id = {n.node_id: n for n in tree.nodes}; groups = []
         for key, ids in sorted(targets['groups'].items()):
             recs = [{'trajectory_id': nid, 'case_id': f'{tree.case_id}|{key}', 'reward': targets['nodes'][nid]['reward'], 'loss_segments': targets.get('loss_segments'),
+                     **branch_fields(targets, nid),
                      'rollout_policy_sha256': by_id[nid].policy_sha256, 'agent_traces': [by_id[nid].trace]} for nid in ids]
             assert_single_prompt(recs); groups.append(recs)
         return updater.update_groups(groups)

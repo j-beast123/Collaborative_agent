@@ -136,3 +136,107 @@ def test_unclosed_thinking_yields_no_answer():
 def test_default_rendering_has_thinking_off():
     from src.online_rl import environment as ST
     assert ST.chat_prompt(ThinkTok(), 's', 'u').startswith('<THINK_OFF>') and ST.chat_prompt(ThinkTok(), 's', 'u', thinking=True).startswith('<THINK_ON>')
+
+
+# ---------------------------------------------------------------- credit-separated SHERPA (E3-private)
+def sep_setup(rd, ra, coef=(0.5, 0.5), n_groups=1):
+    """n_groups sibling groups of len(rd) joint actions each; returns (torch, model, updater, groups, captured gradient holder)."""
+    torch, model, up = tiny(); up.o['grad_clip'] = 1e9                                  # no clipping: the applied gradient is the combined one
+    from src.online_rl.integrated.continuation import adapter_sha256
+    sha = adapter_sha256(model); groups = []
+    for gi in range(n_groups):
+        traces = [joint_trace(j + 3 * gi) for j in range(len(rd))]
+        for t, lp in zip(traces, up.behavior_logprobs(traces)): t['behavior_logprobs'] = lp
+        groups.append([{'trajectory_id': f'g{gi}t{j}', 'case_id': f'c|{gi}', 'reward': None, 'rollout_policy_sha256': sha, 'agent_traces': [t],
+                        'branch_rewards': {'decision': rd[j], 'collaboration': ra[j]}, 'branch_coefficients': {'decision': coef[0], 'collaboration': coef[1]}}
+                       for j, t in enumerate(traces)])
+    cap = {}
+    def step():                                                                         # capture the gradient the optimizer would apply; do not move the weights
+        cap['g'] = {n: (p.grad.clone() if p.grad is not None else torch.zeros_like(p)) for n, p in model.named_parameters() if p.requires_grad}
+    up.optimizer.step = step
+    return torch, model, up, groups, cap
+
+
+def branch_grad(torch, model, recs, adv, seg):
+    from src.online_rl.integrated.grpo import grpo_loss
+    model.zero_grad(); out = grpo_loss(model, [{**r, 'loss_segments': [seg]} for r in recs], adv, 0.04, 0.2, 16)
+    g = {n: (p.grad.clone() if p.grad is not None else torch.zeros_like(p)) for n, p in model.named_parameters() if p.requires_grad}; model.zero_grad(); return g, out
+
+
+def centred(xs): m = sum(xs) / len(xs); return [x - m for x in xs]
+
+
+def test_separated_objective_is_half_decision_plus_half_collaboration_applied_once():
+    rd, ra = [1.0, 0.0, 0.0, 1.0], [1.0, 0.5, 0.0, 0.5]
+    torch, model, up, groups, cap = sep_setup(rd, ra); g = groups[0]
+    gD, oD = branch_grad(torch, model, g, centred(rd), 0); gC, oC = branch_grad(torch, model, g, centred(ra), 1)
+    out = up.update_groups(groups)
+    for n in gD: assert torch.allclose(cap['g'][n], 0.5 * gD[n] + 0.5 * gC[n], atol=1e-7), n          # L = 0.5 L_D + 0.5 L_C, coefficient applied once
+    assert out['optimizer_step'] and out['credit'] == 'separated' and abs(out['loss'] - (0.5 * oD['loss'] + 0.5 * oC['loss'])) < 1e-9
+    b = out['branches']; assert b['decision']['optimized_tokens'] == 4 * 3 and b['collaboration']['optimized_tokens'] == 4 * 2     # private vs visible completion tokens only
+    assert abs(b['decision']['loss_contribution'] - 0.5 * oD['loss']) < 1e-12 and abs(b['collaboration']['loss_contribution'] - 0.5 * oC['loss']) < 1e-12
+    norm = lambda d: sum(float((v ** 2).sum()) for v in d.values()) ** .5
+    assert abs(b['decision']['grad_norm'] - norm(gD)) < 1e-6 and abs(b['collaboration']['grad_norm'] - norm(gC)) < 1e-6       # logged branch gradients are the uncombined ones
+    dot = sum(float((gD[n] * gC[n]).sum()) for n in gD); assert abs(out['grad_cosine_decision_collaboration'] - dot / (norm(gD) * norm(gC))) < 1e-6
+    assert out['ratio']['max_abs_deviation'] <= 1e-3                                       # on-policy at the update
+
+
+@pytest.mark.parametrize('coef, seg, key', [((1.0, 0.0), 0, 'decision'), ((0.0, 1.0), 1, 'collaboration')])
+def test_separated_with_one_coefficient_reproduces_the_single_branch(coef, seg, key):
+    rd, ra = [1.0, 0.0, 0.0, 1.0], [1.0, 0.5, 0.0, 0.5]
+    torch, model, up, groups, cap = sep_setup(rd, ra, coef); g = groups[0]
+    ref, _ = branch_grad(torch, model, g, centred(rd if seg == 0 else ra), seg); up.update_groups(groups)
+    for n in ref: assert torch.allclose(cap['g'][n], ref[n], atol=1e-7), n
+    if key == 'decision':                                                                  # (1, 0) = the decision-only rule of E2 (reward R_D, private segment)
+        torch2, model2, up2, groups2, cap2 = sep_setup(rd, ra)
+        dec = [[{k: v for k, v in r.items() if not k.startswith('branch_')} | {'reward': rd[j], 'loss_segments': [0]} for j, r in enumerate(groups2[0])]]
+        up2.update_groups(dec)
+        for n in ref: assert torch.allclose(cap2['g'][n], ref[n], atol=1e-7), n
+
+
+def test_each_segment_receives_only_its_own_advantage():
+    rd = [1.0, 0.0, 0.0, 1.0]
+    torch, model, up, groups, cap = sep_setup(rd, [1.0, 0.5, 0.0, 0.5]); a = up.update_groups(groups)['branches']
+    torch2, model2, up2, groups2, cap2 = sep_setup(rd, [0.0, 0.0, 1.0, 0.5]); b = up2.update_groups(groups2)['branches']      # other R_A, same R_D
+    assert abs(a['decision']['grad_norm'] - b['decision']['grad_norm']) < 1e-7 and abs(a['collaboration']['grad_norm'] - b['collaboration']['grad_norm']) > 1e-7
+    torch3, model3, up3, groups3, cap3 = sep_setup([0.0, 1.0, 1.0, 0.0], [1.0, 0.5, 0.0, 0.5]); c = up3.update_groups(groups3)['branches']   # other R_D, same R_A
+    assert abs(a['collaboration']['grad_norm'] - c['collaboration']['grad_norm']) < 1e-7
+    assert a['decision']['optimized_tokens'] + a['collaboration']['optimized_tokens'] == 4 * (3 + 2)                         # completion tokens only: prompts / hidden block never enter
+
+
+def test_zero_variance_decision_reward_gives_no_decision_gradient():
+    rd, ra = [1.0, 1.0, 1.0, 1.0], [1.0, 0.5, 0.0, 0.5]
+    torch, model, up, groups, cap = sep_setup(rd, ra); gC, _ = branch_grad(torch, model, groups[0], centred(ra), 1); out = up.update_groups(groups)
+    d = out['branches']['decision']; assert d['grad_norm'] is None and d['nonzero_groups'] == 0 and d['skip_reasons'] == {'zero_variance_reward': 1} and d['optimized_tokens'] == 0
+    for n in gC: assert torch.allclose(cap['g'][n], 0.5 * gC[n], atol=1e-7), n               # only the collaboration branch, still with its 0.5
+    assert out['grad_cosine_decision_collaboration'] is None
+
+
+def test_unscored_rubric_only_affects_the_collaboration_branch():
+    rd, ra = [1.0, 0.0, 0.0, 1.0], [1.0, None, 0.0, 0.5]
+    torch, model, up, groups, cap = sep_setup(rd, ra); g = groups[0]
+    gD, _ = branch_grad(torch, model, g, centred(rd), 0); scored = [r for r in g if r['branch_rewards']['collaboration'] is not None]
+    gC, _ = branch_grad(torch, model, scored, centred([1.0, 0.0, 0.5]), 1); out = up.update_groups(groups); b = out['branches']
+    assert b['decision']['actions'] == 4 and b['collaboration']['actions'] == 3
+    for n in gD: assert torch.allclose(cap['g'][n], 0.5 * gD[n] + 0.5 * gC[n], atol=1e-7), n
+    torch2, model2, up2, groups2, cap2 = sep_setup(rd, [None, None, None, 0.5]); o2 = up2.update_groups(groups2)             # one scored sibling: no collaboration group
+    assert o2['branches']['collaboration']['skip_reasons'] == {'fewer_than_two_rewarded_responses': 1} and o2['branches']['decision']['nonzero_groups'] == 1
+    torch3, model3, up3, groups3, cap3 = sep_setup([0.0] * 4, [None] * 4); o3 = up3.update_groups(groups3)
+    assert o3['optimizer_step'] is False and o3['skip_reason'] == 'no_group_with_nonzero_advantage_in_either_branch' and 'g' not in cap3
+
+
+def test_separated_credit_rule_fields_and_missing_option():
+    tree = tree_with([1.0, 0.0, None, 1.0], [0.0, 1.0, 1.0, 0.0]); lo = {l.leaf_id: l.outcome for l in tree.leaves}
+    t = node_credit(0.5, 0.5, 'separated')(tree, lo, {'c/0': 1.0, 'c/1': 0.5, 'c/3': None})
+    assert [t['nodes'][f'c/{j}']['decision_reward'] for j in range(4)] == [1.0, 0.0, 0.0, 1.0]                       # no option written = wrong
+    assert [t['nodes'][f'c/{j}']['collab_reward'] for j in range(4)] == [1.0, 0.5, None, None]
+    assert t['credit'] == 'separated' and t['branch_coefficients'] == {'decision': 0.5, 'collaboration': 0.5} and 'loss_segments' not in t
+    assert [t['nodes'][f'c/{j}']['outcome_component'] for j in range(4)] == [0.0, 1.0, 1.0, 0.0]                      # the team outcome is logged, not a loss input
+
+
+def test_e3_config_differs_from_e1_only_in_the_credit_rule():
+    e1, e3 = (flat(X.load_config(f'{T2}/pilot/{n}.json')) for n in ('e1_think_shared', 'e3_think_separated'))
+    assert research_diff(e1, e3) == {'agent_reward.credit'} and e3['agent_reward.credit'] == 'separated'
+    assert (e3['agent_reward.w_outcome'], e3['agent_reward.w_rubric']) == (0.5, 0.5) and e3['rubric.enabled'] is True and e3['rollout.agent_thinking'] is True
+    assert research_diff(flat(X.load_config(f'{T2}/pilot/smoke_e3.json')), e3) == {'schedule.cases'}
+    assert len({X.fingerprint(X.load_config(f'{T2}/pilot/{n}.json')) for n in ('e1_think_shared', 'e2_think_decision', 'e3_think_separated')}) == 3
