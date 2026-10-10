@@ -92,7 +92,7 @@ def validate_resume_identity(state, cfg, source_sha):
     if path.is_file():
         manifest = json.loads(path.read_text())
         for receipt in [manifest, *manifest.get('additional_sources', [])]:
-            if (receipt.get('protocol') in ('consolidate_validation_repair_v1', 'bounded_output_repairs_v2')
+            if (receipt.get('protocol') in ('consolidate_validation_repair_v1', 'bounded_output_repairs_v2', 'optional_doctor_batch_v1')
                     and receipt.get('old_source_sha256') == state['source_sha256']):
                 files = sorted([*ROOT.glob('src/**/*.py'), *ROOT.glob('scripts/online_rl/*.py')])
                 current = {str(p.relative_to(ROOT)): file_sha(p) for p in files}
@@ -100,7 +100,8 @@ def validate_resume_identity(state, cfg, source_sha):
                 matches = bool(receipt.get('changed_files')) and sha256_json(current) == source_sha
                 for name, hashes in receipt.get('changed_files', {}).items():
                     matches = matches and current.get(name) == hashes.get('new_sha256')
-                    old[name] = hashes.get('old_sha256')
+                    if hashes.get('old_sha256') is None: old.pop(name, None)
+                    else: old[name] = hashes['old_sha256']
                 if matches and sha256_json(old) == state['source_sha256']:
                     return {**receipt, 'effective_source_sha256': source_sha,
                             'config_sha256': state['config_sha256']}
@@ -152,6 +153,16 @@ def preflight(cfg, *, resources=True):
         errors.append('Consolidate prompt missing or hash mismatch')
     expected = {'doctor_gpu': 0, 'assistant_gpu': 1, 'assistant_replicas': 1, 'doctor_replicas': 1,
                 'case_workers': 5, 'batch_cases': 5, 'agent_batch_size': 4, 'doctor_concurrency': 1, 'evaluation_workers': 4}
+    if cfg.get('doctor_batching'):
+        batch = cfg['doctor_batching']
+        expected['doctor_concurrency'] = batch.get('max_batch_size')
+        db = cfg['rollout']['doctor_backend']
+        if db['engine'] != 'hf_local': errors.append('Doctor batching requires hf_local')
+        if db.get('batching') != batch or db.get('sampling_protocol') != 'hf_doctor_batched_per_request_rng_v1': errors.append('Doctor backend batching identity differs')
+        if cfg.get('execution', {}).get('doctor_workers') != batch.get('max_batch_size'): errors.append('Doctor workers must match configured batching capacity')
+        if type(batch.get('max_batch_size')) is not int or not 1 <= batch['max_batch_size'] <= 32: errors.append('Doctor batch size must be 1..32')
+        if type(batch.get('max_padded_tokens')) is not int or batch['max_padded_tokens'] < 8192: errors.append('Doctor padded token budget must be >=8192')
+        if type(batch.get('wait_ms')) is not int or not 0 <= batch['wait_ms'] <= 100: errors.append('Doctor batching wait_ms must be 0..100')
     if cfg.get('two_gpu') != expected: errors.append('Two-GPU topology/concurrency differs from the validated configuration')
     if cfg['schedule']['cases'] != 120 or cfg['rollout']['rounds'] != 4 or cfg['rollout']['branching'] != 4:
         errors.append('Requires train120, max4, branching4')
@@ -258,7 +269,7 @@ def configure_execution(cfg, out):
     configure(cfg.get('execution', {}).get('global_api_max_in_flight', 100))
     os.environ['SHERPA_AGENT_REPLICAS'] = '1'
     os.environ['SHERPA_AGENT_BATCH_SIZE'] = '4'
-    os.environ['SHERPA_DOCTOR_CONCURRENCY'] = '1'
+    os.environ['SHERPA_DOCTOR_CONCURRENCY'] = str(cfg['two_gpu']['doctor_concurrency'])
     os.environ['SHERPA_RUBRIC_SCORE_BATCH_SIZE'] = '4'
     os.environ['SHERPA_API_WORKERS'] = str(cfg['five_gpu']['api_workers'])
     os.environ['SHERPA_MEMBER_WORKERS'] = '1'
@@ -453,6 +464,7 @@ def run(cfg, *, max_batches=None, evaluate=False):
                 sync_barrier(out)
         finally:
             if hasattr(policy, '_batcher'): policy._batcher.close()
+            if callable(getattr(policy.doctor, 'close', None)): policy.doctor.close()
             atomic_write_json(out / 'api_usage_summary.json', usage_report(out / 'api_usage.jsonl'))
 
 

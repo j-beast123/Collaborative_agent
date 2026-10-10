@@ -1,7 +1,7 @@
 """Local, unquantized Gemma Doctor. No model/network/GPU work on construction.
 
 Reuse the Doctor discussion/FINAL/halting methods. One frozen BF16 model on
-cuda:0 serializes all Doctor roles. Per-call RNG touches only Doctor's GPU.
+cuda:0 serves all Doctor roles; optional microbatching uses request-local RNG. Per-call RNG touches only Doctor's GPU.
 """
 from contextlib import contextmanager
 import json
@@ -67,6 +67,17 @@ class HFDoctor(OllamaDoctor):
         self.protocol = sha256_json(self.identity)
         self._lock = threading.RLock(); self._chat_metadata = threading.local()
         self._net = self._tok = None; self._verified = False
+        self._batcher = None; self._audit_lock = threading.Lock()
+        self.batching = backend.get("batching")
+        if self.batching:
+            from src.online_rl.doctor_batch import VERSION
+            if backend["sampling_protocol"] != VERSION: raise ValueError("Doctor batching protocol mismatch")
+            if (type(self.batching.get('max_batch_size')) is not int or not 1 <= self.batching['max_batch_size'] <= 32
+                    or type(self.batching.get('wait_ms')) is not int or not 0 <= self.batching['wait_ms'] <= 100
+                    or type(self.batching.get('max_padded_tokens')) is not int or self.batching['max_padded_tokens'] < 8192):
+                raise ValueError('Invalid Doctor batching limits')
+            self.identity["batching"] = dict(self.batching)
+            self.protocol = sha256_json(self.identity)
 
     def verify(self, require_loaded=False):
         from importlib.metadata import version
@@ -116,6 +127,7 @@ class HFDoctor(OllamaDoctor):
         budget = self.max_tokens if max_tokens is None else max_tokens
         if type(budget) is not int or budget < 1: raise ValueError('Doctor token budget must be a positive integer')
         messages = [{'role': 'user', 'content': f'{system}\n\n{user}'}]
+        if self.batching: return self._batched_chat(messages, seed, budget)
         start = time.monotonic()
         with self._lock:
             self._load()
@@ -151,3 +163,37 @@ class HFDoctor(OllamaDoctor):
                         stream.write(json.dumps({'model': self.model, 'stage': usage.current_stage(),
                             'seed': seed, 'messages_sha256': sha256_json(messages), 'max_tokens': budget,
                             **self._chat_metadata.last}) + '\n')
+
+    def _batched_chat(self, messages, seed, budget):
+        from src.online_rl.doctor_batch import GenerationBatcher, Request, decode
+        started = time.monotonic(); result = {}; error = None
+        try:
+            with self._lock:
+                self._load()
+                if self._batcher is None:
+                    self._batcher = GenerationBatcher(
+                        lambda rs: decode(self._net, self._tok, rs, context=self.options['num_ctx'],
+                                          token_budget=self.batching['max_padded_tokens']),
+                        max_batch=self.batching['max_batch_size'], wait_ms=self.batching['wait_ms'])
+                prompt = self._tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            result = self._batcher.submit(Request(prompt, seed, budget))
+            return result['body']
+        except Exception as exc:
+            error = type(exc).__name__ + ': ' + str(exc)
+            raise DoctorUnavailable('HF Doctor batched generation failed: ' + error) from exc
+        finally:
+            row = {k: v for k, v in result.items() if k not in ('body', 'batch_started_monotonic')}
+            row.update(transport_retries=0, retry_wait_seconds=0., error=error,
+                queue_wait_seconds=max(0., result.get('batch_started_monotonic', started)-started))
+            self._chat_metadata.last = row
+            usage.record('collaboration', self.model, {'prompt_tokens': row.get('input_tokens'),
+                'completion_tokens': row.get('output_tokens'), 'cost': 0.},
+                latency_seconds=time.monotonic()-started, request_seconds=row.get('request_seconds'))
+            path = os.environ.get('SHERPA_HF_DOCTOR_AUDIT')
+            if path:
+                with self._audit_lock, open(path, 'a') as stream:
+                    stream.write(json.dumps({'model': self.model, 'stage': usage.current_stage(),
+                        'seed': seed, 'messages_sha256': sha256_json(messages), 'max_tokens': budget, **row}) + '\n')
+
+    def close(self):
+        if self._batcher is not None: self._batcher.close()

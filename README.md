@@ -276,3 +276,7 @@ active max2 run:
 ```text
 b6475b72d7f8bd5892008bcf2af1d6b8f7402fbb26b0beef9eb0ebf28a248d6a
 ```
+
+B200의 frozen Doctor를 최대 8개 요청씩 배치 추론하는 별도 실행 설정과 명령은
+[Doctor 동시 요청 안내](docs/B200_DOCTOR_BATCH.md)를 참고하세요. 기존 V7 설정은 보존하며,
+배치 추론은 별도 sampling identity와 새 run 이름을 사용합니다.

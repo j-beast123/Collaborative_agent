@@ -100,6 +100,10 @@ def apply_receipt(cfg):
                    torch_dtype='bfloat16', transformers_version=TRANSFORMERS_VERSION, device='cuda:0',
                    attention_implementation='sdpa', sampling_protocol='hf_single_gpu_seeded_v1',
                    local_files_only=True, file_manifest=row['files'])
+    if cfg.get('doctor_batching'):
+        from src.online_rl.doctor_batch import VERSION
+        backend['batching'] = copy.deepcopy(cfg['doctor_batching'])
+        backend['sampling_protocol'] = VERSION
     label = f"{ENGINE}/{row['model_path']}@{row['model_digest'][:12]}"
     cfg['rollout']['doctor_backend'] = backend
     cfg['rollout']['doctor_model'] = cfg['feedback']['model'] = cfg['experiment']['feedback_model'] = label

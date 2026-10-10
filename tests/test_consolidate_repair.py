@@ -83,7 +83,8 @@ def test_actual_pinned_code_allows_only_this_operational_fix():
     current=R.code_identity()
     got=R.validate_resume_identity(state,cfg,current)
     assert got['effective_source_sha256']==current
-    assert set(got['changed_files'])=={'src/online_rl/tree/parallel_bank.py','src/online_rl/tree/b200_runner.py','src/online_rl/tree/backends.py'}
+    assert set(got['changed_files'])=={'src/online_rl/tree/parallel_bank.py','src/online_rl/tree/b200_runner.py','src/online_rl/tree/backends.py',
+        'src/online_rl/hf_doctor.py','src/online_rl/doctor_batch.py','src/online_rl/tree/hf_doctor_setup.py'}
     for source in receipt.get('additional_sources', []):
         got=R.validate_resume_identity({**state,'source_sha256':source['old_source_sha256']},cfg,current)
         assert got['effective_source_sha256']==current
@@ -95,7 +96,7 @@ def test_actual_pinned_code_allows_only_this_operational_fix():
     assert R.validate_resume_identity({**state,'source_sha256':current},cfg,current) is None
 
 
-@pytest.mark.parametrize('edited',['src/online_rl/tree/parallel_bank.py','src/online_rl/tree/team.py'])
+@pytest.mark.parametrize('edited',['src/online_rl/tree/parallel_bank.py','src/online_rl/tree/team.py','src/online_rl/doctor_batch.py'])
 def test_compatibility_cannot_hide_any_other_edit(monkeypatch,edited):
     receipt=json.loads((R.ROOT/'maintenance/consolidate_repair_compatibility.json').read_text())
     cfg=R.load_config();state={'config_sha256':sha256_json(cfg),'source_sha256':receipt['old_source_sha256']}
