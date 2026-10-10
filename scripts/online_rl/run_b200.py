@@ -30,6 +30,8 @@ def main():
                       'topology': cfg['two_gpu'], 'gpu_mapping': physical_devices() if not errors else None,
                       'train_cases': cfg['schedule']['cases'], 'reward': cfg['agent_reward'],
                       'learning_rate': cfg['optimizer']['learning_rate'],
+                      'doctor_need_enabled': bool(cfg.get('doctor_need', {}).get('enabled')),
+                      'feedback_protocol': cfg['feedback']['protocol'],
                       'api': cfg.get('api'),
                       'api_models': {role: cfg[section][field] for role, section, field in
                           [('generator','rubric','generator_model'),('gate','judges','gate_model'),('scorer','judges','scorer_model')]},

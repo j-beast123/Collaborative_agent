@@ -5,6 +5,49 @@
 이 서버에서 다른 작업이 해당 GPU/포트를 사용한다면 먼저 별도 자원을 정해야 합니다.
 아래 명령은 사용자가 실행합니다. 구현 과정에서는 설치·다운로드·API·GPU 실행을 하지 않았습니다.
 
+## 사전 private need 제거 후 새 실험 시작
+
+Doctor 사전 `private_need` 생성은 비활성화했습니다. 원래 공개 발화와 hidden STATUS만
+생성하고, terminal FINAL 이후 같은 Doctor가 `helpful`/`unresolved` 소감을 기록합니다.
+기존 512-token reflection과 한 번의 형식 재시도를 사용하며 need ID/인용 연결은 없습니다.
+Agent private assessment, rubric-only + fixed accuracy, 5-case update, max4/branch4,
+continuation verification 조기 판정, OpenAI gpt-6-luna 네 역할과 요청 상한50은 유지합니다.
+
+두 서버는 코드를 공유하므로 **두 학습 프로세스를 중단한 상태에서** 한 번만 업데이트합니다.
+이전 실패 로그/출력은 삭제하지 않습니다. 새 Doctor 대화 프로토콜이므로 기존 run의
+checkpoint/cache를 복사하거나 해시 검사를 우회하지 않습니다.
+
+```bash
+cd /NHNHOME/shkim/SHERPA/Collaborative_agent-sherpa
+git pull --ff-only
+```
+
+모델 경로와 OPENAI_API_KEY/HF_TOKEN이 설정된 각 서버의 같은 터미널에서 실행합니다.
+새 터미널이면 아래 환경 준비 절차를 먼저 수행합니다.
+
+**기존 LR 서버:**
+```bash
+export SHERPA_RUN_NAME=gemma-bf16-posthoc-lr1e5-run01
+export SHERPA_LEARNING_RATE=1e-5
+bash scripts/online_rl/launch_b200.sh --action preflight &&
+bash scripts/online_rl/launch_b200.sh --action train
+```
+
+**5e-6 서버:**
+```bash
+export SHERPA_RUN_NAME=gemma-bf16-posthoc-lr5e6-run01
+export SHERPA_LEARNING_RATE=5e-6
+bash scripts/online_rl/launch_b200.sh --action preflight &&
+bash scripts/online_rl/launch_b200.sh --action train
+```
+
+Preflight의 `doctor_need_enabled: false`,
+`feedback_protocol: physician_post_final_reflection_v1`, `doctor_backend.engine: hf_local`,
+서로 다른 output/run_id를 확인합니다. 출력은 `outputs/runs/<새 이름>/`, HF는
+`runs/<새 이름>/`으로 분리됩니다. 새 run 안에서 중단 후 재개할 때는 같은 이름/LR에서
+`--action train`을 다시 실행합니다. 완료 후 `--action evaluate`로 최종 checkpoint만
+한 번 평가합니다. 첫 배치만 확인하려면 train 명령에 `--max-batches 1`을 추가합니다.
+
 ## 현재 서버 preflight 환경 수정
 
 모델 이름 변경과 API 제공자 변경은 별개입니다. 현재 B200 config는 generator,
@@ -40,12 +83,12 @@ if [ -z "${HF_TOKEN:-}" ]; then
   read -rsp 'HF_TOKEN (model repo write): ' HF_TOKEN; printf '\n'
   export HF_TOKEN
 fi
-export SHERPA_RUN_NAME=gemma-bf16-lr5e6-run01
+export SHERPA_RUN_NAME=gemma-bf16-posthoc-lr5e6-run01
 export SHERPA_LEARNING_RATE=5e-6
 bash scripts/online_rl/launch_b200.sh --action preflight
 ```
 
-다른 서버는 `SHERPA_RUN_NAME=gemma-bf16-lr1e5-run01`, `SHERPA_LEARNING_RATE=1e-5`로
+다른 서버는 `SHERPA_RUN_NAME=gemma-bf16-posthoc-lr1e5-run01`, `SHERPA_LEARNING_RATE=1e-5`로
 설정합니다. 각 서버에서 `blockers: []`, `api.provider: openai`, API 모델 모두
 `gpt-6-luna`, `global_api_max_in_flight: 50`, `doctor_backend.engine: hf_local`,
 Qwen 경로와 LR/output을 확인한 다음 실행합니다.
@@ -114,7 +157,7 @@ export OPENAI_API_KEY HF_TOKEN
 bash scripts/online_rl/launch_b200.sh --action preflight
 ```
 
-서버 A는 `gemma-bf16-lr1e5-run01`, `1e-5`; 서버 B는 `gemma-bf16-lr5e6-run01`, `5e-6`을 입력합니다.
+서버 A는 `gemma-bf16-posthoc-lr1e5-run01`, `1e-5`; 서버 B는 `gemma-bf16-posthoc-lr5e6-run01`, `5e-6`을 입력합니다.
 둘 다 train120 전체를 같은 순서로 학습합니다. 모델 교체 전 run의 이름/cache를 재사용하지 않습니다.
 
 ```bash

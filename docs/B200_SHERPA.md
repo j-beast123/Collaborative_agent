@@ -1,4 +1,4 @@
-# SHERPA: prospective needs, fixed accuracy, linear verification
+# SHERPA: terminal reflection, fixed accuracy, linear verification
 
 This version is implemented in branch `sherpa-jh`. Implementation and CPU checks
 do not start training, inference, API requests or Ollama services. Run the commands
@@ -22,7 +22,7 @@ The standalone configuration records its source config and hash under `notes`.
 | Batch/update | Five cases on the same frozen policy; all original sibling groups then at most one optimizer step |
 | GRPO | lr1e-5, beta.04, clip.2, gradient clip1, mean centering; existing pi_old/pi_ref/group filters |
 | Reward | Outcome0, rubric1; equal-weight normalized rubric scores |
-| Generator | Fixed need-aware P0; no prompt optimization or P1 |
+| Generator | Fixed posthoc-only P0; no prompt optimization or P1 |
 | Checkpoints | Initial, every30 cases, final120; recovery checkpoint every5-case batch |
 | Evaluation | No base or intermediate test; explicit final120 checkpoint on test622 once |
 
@@ -56,47 +56,30 @@ different server's base weights match; reuse the original Qwen snapshot there.
 
 ## Execution order and prompts
 
-1. Build each case's ordinary tree. Every Doctor discussion call jointly emits
-   `public_reply` and `private_need`. The original public system prompt remains
-   `prompts/user_simulator_v4_final_label.txt`; the additional structured contract
-   is `prompts/sherpa/doctor_prospective_need_v1.txt`. Only the parsed public text
-   enters subsequent dialogue history. Existing hidden STATUS stays separate.
-2. Store the prospective need before generating the next Agent siblings. It has
-   `current_uncertainty`, `information_needed`, public turn-ID/quote evidence and
-   status `present`, `none` or `insufficient_public_evidence`. Four siblings share
-   that one stored need. Gold, correctness and future text are not in this request.
-   Needs are not fed back into Doctor discussion or shown to the Agent.
-3. Agent responses use unchanged `prompts/agent.txt` and the existing private
-   assessment prompt in `src/online_rl/runtime.py`. Private assessment is neither
-   public discussion nor a scoring input.
-4. Each parsed terminal conversation receives the existing local Doctor reflection
-   using `prompts/sherpa/doctor_post_final_reflection_v1.txt` plus the fixed
-   need-link schema in `src/online_rl/tree/doctor_reflection.py`. The original
-   need and retrospective reflection occupy separate fields. Every Agent reply
-   links its original need ID to helped/hindered/no_effect, reason and public
-   evidence. Invalid IDs, changed need IDs and fabricated quotations are rejected.
-5. Independently generate one candidate per eligible terminal using fixed
-   `prompts/sherpa/trajectory_rubric_generator_v3_need.txt`, its public trajectory,
-   prospective needs and linked reflection. Submit chunks of8 trajectories in
-   parallel (one request per trajectory); each chunk completes before the next.
-   Candidate tasks persist only their own results, not a canonical bank. Missing
-   public need/evidence excludes a candidate with a recorded reason.
-   After all candidates finish, sort by stable candidate ID and run one case
-   consolidation with `prompts/sherpa/consolidate_partner_bank_v1.txt`. The input
-   contains candidate rubrics/provenance/needs, not a concatenation of all raw
-   terminal conversations. The model partitions original IDs into equivalence
-   clusters or explicit exclusions. All inputs must be accounted for once.
-   Clusters cannot mix success/failure strata. Distinct needs, applicability,
-   required behaviors or score semantics remain separate. Conservative singletons
-   are preferred to uncertain merges. Semantic equivalence remains an LLM
-   judgment; schema/membership/stratum/quote/ID constraints are checked in code.
-   No rewritten rubric or new medical claim is accepted. The smallest stable
-   candidate ID in each cluster supplies the **verbatim** canonical rubric,
-   original source trajectory, anchor and intervention instruction. All originals
-   and mappings are retained. This selection is deterministic and occurs before
-   gate or verification outcomes. Evidence-unclear exclusions never reach gate
-   or verification. Apply the existing source consistency and
-   `prompts/sherpa/luna_gate_need_v1.txt` gate only once per canonical rubric.
+1. Build the ordinary tree with `prompts/user_simulator_v4_final_label.txt`.
+   Doctor replies are plain public text plus the original hidden STATUS. No
+   prospective private need is requested, parsed, cached or shown to any role.
+2. Four Agent siblings share the same public Doctor prefix. Agent responses keep
+   `prompts/agent.txt` and the existing private-assessment/visible-reply protocol.
+   This Agent private assessment is unchanged and is not a scorer input.
+3. After each eligible terminal FINAL, the same local Doctor reflects using
+   `prompts/sherpa/doctor_post_final_reflection_v1.txt`. The two-field JSON has
+   `helpful` and `unresolved` arrays, each with zero or one reply-linked experience.
+   The original512-token budget and one bounded format repair apply. No
+   `need_assessment` or prior private need is supplied or required. Reflection
+   sees the visible case/discussion/recorded FINAL, never correctness or gold.
+4. Independently generate candidates with the fixed
+   `prompts/sherpa/trajectory_rubric_generator_v4_posthoc.txt`. Audit every
+   retrospective claim against public dialogue. Missing prospective records are
+   not a rejection condition. Keep the public clinician-side/assistant-side
+   applicability, response-only anchors and fixed-accuracy duplicate exclusion.
+   Candidate scheduling remains chunks of8 across the same five frozen cases.
+5. Sort candidates by stable ID and consolidate once per case using
+   `prompts/sherpa/consolidate_partner_bank_posthoc_v1.txt`. No private need IDs
+   are required. Keep original provenance/anchors, success/failure strata,
+   verbatim canonical representatives and deterministic source selection.
+   Gate each canonical rubric with `prompts/sherpa/luna_gate_posthoc_v1.txt`.
+   Public evidence must establish applicability; hidden preferences cannot.
 6. Verify each valid canonical partner rubric once on its **creator trajectory**.
    This is a deterministic source-selection rule, not a random search: source seed
    is explicitly null, rule and run seed are recorded. Rubric reuse cannot search
@@ -108,7 +91,7 @@ different server's base weights match; reuse the original Qwen snapshot there.
    the anchored visible response. Private assessment and later responses use their
    normal prompts. Failure sources get level2, success sources level0. Existing
    prefix plus generated turns totals at most4 Agent turns; normal early stops apply.
-   Follow-up Doctors use the same joint private-need protocol. Verification needs
+   Follow-up Doctors use the same ordinary public/STATUS protocol. Verification dialogues
    are audit records only: no reflection/generator/scorer is run on this dialogue,
    and no verification action is added to GRPO.
 8. Run planned trials0 and1 concurrently, collect them in index order. Two flips
@@ -203,7 +186,7 @@ Original filters still skip groups with too few valid responses or no variation.
 
 Existing bounded transport retry policies are retained (see `src/common/retry.py`
 and `src/online_rl/doctor.py`). Authentication/nonretryable failures stop the batch.
-Doctor need JSON/evidence gets one deterministic format repair, then aborts with
+The optional legacy Doctor need protocol (disabled in this run) gets one deterministic format repair, then aborts with
 raw validation evidence. Reflection retains its one format repair; persistent
 format errors abort. Existing semantic-invalid reflection exclusion remains.
 FINAL parse failures remain None, are recorded and never count as an
@@ -216,10 +199,10 @@ remaining valid criteria (including accuracy) may contribute. Errors are never
 silently converted to N/A/0. If fixed accuracy is also masked and nothing remains,
 the group supplies no training reward. See response scoring evidence and errors.
 
-Successful Doctor outputs (public text and need together), tree calls, source
+Successful Doctor outputs (public text and hidden STATUS), tree calls, source
 plans, completed verification model calls/trials, rubric generation and scoring
 are durable caches under the new output directory. Resume loads them rather than
-re-generating needs. A process killed after a provider completed a request but
+re-generating completed calls. A process killed after a provider completed a request but
 before it was saved can repeat that unsaved request; physical attempts are audited.
 
 Checkpoint publication precedes progress publication. A crash in between restores
@@ -279,7 +262,7 @@ creates `.local/b200_doctor.json` (gitignored), recording the old/new digest,
 executable hash, local paths and UTC time. The launcher automatically reads this
 receipt and updates Doctor, reflection and opening-cache identities together.
 Outputs/checkpoints/caches become
-`outputs/sherpa_b200_max4_parallel_bank_v2/doctor_<actual_digest_first12>/`.
+`outputs/sherpa_b200_max4_posthoc_only_v3/doctor_<actual_digest_first12>/`.
 An old model's caches are not used. Keep this receipt for resume/evaluation;
 it contains no API key. A subsequent `pull` command verifies the pin and does
 **not** pull the mutable tag again or overwrite the receipt. Model/executable
@@ -314,7 +297,7 @@ checkpoints. The effective optimizer config enters the manifest/config hash.
 Resume and evaluation require the original learning rate; this does not add a
 scheduler or permit changing LR inside an existing run. Report supports the same
 flag/environment. For example `SHERPA_LEARNING_RATE=5e-6` selects
-`outputs/sherpa_b200_max4_parallel_bank_v2/lr_5e-06/doctor_<digest12>/`.
+`outputs/sherpa_b200_max4_posthoc_only_v3/lr_5e-06/doctor_<digest12>/`.
 
 ## Commands on B200
 
@@ -389,7 +372,7 @@ bash scripts/online_rl/launch_b200.sh --config configs/experiments/train120_max4
 ```
 
 Expect completed_cases5/batches1. Inspect
-`outputs/sherpa_b200_max4_parallel_bank_v2/doctor_<digest12>/diagnostics/batch_000001.json` for
+`outputs/sherpa_b200_max4_posthoc_only_v3/doctor_<digest12>/diagnostics/batch_000001.json` for
 need status/parse repair, fixed/partner score distributions, verification actual
 trial counts, applicability and skip reasons. A batch can validly commit without
 an optimizer step if no group has a usable nonzero advantage. This command runs
@@ -417,7 +400,7 @@ bash scripts/online_rl/launch_b200.sh --config configs/experiments/train120_max4
 ```
 
 The selected checkpoint is
-`outputs/sherpa_b200_max4_parallel_bank_v2/doctor_<digest12>/checkpoints/checkpoint_000120`.
+`outputs/sherpa_b200_max4_posthoc_only_v3/doctor_<digest12>/checkpoints/checkpoint_000120`.
 Test622 keeps original row order and case seed0+index, one conversation per case,
 ordinary Doctor FINAL parsing, no final retry and unparsed cases in the accuracy
 denominator. Discussion uses this run's joint Doctor/need protocol, but no rubric
@@ -538,3 +521,25 @@ adding API provider labels to the manifest,22 API/bank tests passed again.
 CPU-only preflight reported no blockers; actual B200 model paths/account access
 must still pass normal preflight in the user terminal. No live LLM API call,
 GPU inference, training or held-out evaluation was executed.
+
+## Posthoc-only change record
+
+The user removed prospective Doctor needs after real Gemma output omitted a
+required quotation and copied the schema's pipe-separated status placeholder.
+Validation correctly rejected those outputs; this update does not relax it.
+The legacy need implementation/tests remain available, but this run disables it
+in both normal rollout and continuation verification. Reflection returns to its
+original two fields and512-token budget. The fixed accuracy criterion, GRPO,
+public-only scoring, source/seed plan and early-majority verification remain.
+Generator/gate/consolidate prompts and opening-cache identities change explicitly.
+A fresh output/run name is required; previous files remain untouched. No automatic
+fallback from enabled needs to disabled needs occurs on an error. Diagnostics
+mark needs disabled and do not count intentional absence as missing records.
+
+Posthoc-only CPU validation:806 distinct active tests passed (798 in sandbox,
+plus8 local-socket tests confirmed outside it; the socket rerun passed10 including
+2 already passed).12 existing skips and9 deselections remain.74 targeted tests
+passed, including ordinary HF Doctor public/STATUS handling without need JSON,
+terminal-only reflection and no gold/need leakage, disabled-need diagnostics,
+unchanged training contracts and refusal to resume an old need-enabled run.
+CPU-only preflight reported no blockers. No real API/GPU/training/evaluation ran.

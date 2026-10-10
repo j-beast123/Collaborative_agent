@@ -177,5 +177,29 @@
       "global retry limiter and retry slot release",
       "existing rubric-only/five-case/max4/resume regressions"
     ]
+  },
+  "posthoc_only_update": {
+    "checked_at_utc": "2026-10-10T15:29:21.481063+00:00",
+    "doctor_need_enabled": false,
+    "feedback_protocol": "physician_post_final_reflection_v1",
+    "reflection_max_tokens": 512,
+    "targeted_cpu_tests_passed": 74,
+    "full_suite": {
+      "passed_in_sandbox": 798,
+      "sandbox_socket_blocked": 8,
+      "skipped": 12,
+      "deselected": 9,
+      "seconds": 60.28
+    },
+    "socket_rerun_outside_sandbox": {
+      "passed": 10,
+      "deselected": 1,
+      "includes_previously_passed_tests": 2
+    },
+    "unique_active_tests_passed": 806,
+    "new_tests": 4,
+    "cpu_preflight_blockers": [],
+    "live_gpu_api_training_evaluation_executed": false,
+    "resume_policy": "fresh named runs; old outputs and caches preserved, config/source identity checks retained"
   }
 }

@@ -101,7 +101,7 @@ def build_bank(case, leaves, tins, prompt, prompt_sha, generate, consolidate, ga
             candidates.append({'candidate_id': rub.rubric_id, 'stratum': 'success' if leaf.outcome else 'failure',
                                'source_trajectory': leaf.leaf_id, 'rubric': rub.rubric,
                                'anchor': rub.rubric['source_provenance']['analysis']['selected_agent_turn_id'],
-                               'prospective_needs': list(tin.private_needs),
+                               **({'prospective_needs': list(tin.private_needs)} if tin.private_needs else {}),
                                'intervention_instruction': rub.intervention_instruction})
         candidates.sort(key=lambda c: c['candidate_id'])
         if len(originals) != len(generated):

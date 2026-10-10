@@ -1,6 +1,6 @@
 {
   "name": "sherpa_b200_max4_parallel_bank_v2",
-  "output_dir": "outputs/sherpa_b200_max4_parallel_bank_v2",
+  "output_dir": "outputs/sherpa_b200_max4_posthoc_only_v3",
   "policy": {
     "base_model": "Qwen/Qwen3-8B",
     "init_adapter": null,
@@ -104,9 +104,9 @@
   },
   "rubric": {
     "enabled": true,
-    "generator_prompt_file": "prompts/sherpa/trajectory_rubric_generator_v3_need.txt",
-    "prompt_id": "P0-fixed-v3-prospective-need",
-    "prompt_sha256": "929356ea47f4080129dc806f8ecef94fb5830928cba811aa270d723ae9588e40",
+    "generator_prompt_file": "prompts/sherpa/trajectory_rubric_generator_v4_posthoc.txt",
+    "prompt_id": "P0-fixed-v4-posthoc-only",
+    "prompt_sha256": "1e6b9b43c5c85b74b66e43f8188f67a9fe78124493ee165b344594a69d1aeaed",
     "gold_answer_visible": false,
     "generator_model": "gpt-6-luna",
     "reuse": "assign_or_create_v1",
@@ -136,8 +136,8 @@
       "strict_provider_parameters": true,
       "max_tokens": 16384,
       "temperature": null,
-      "prompt_file": "prompts/sherpa/consolidate_partner_bank_v1.txt",
-      "prompt_sha256": "cb40a48e86643bf2fcd9061b90c2fb151bd280992f1b359249835fd022e3cd7a",
+      "prompt_file": "prompts/sherpa/consolidate_partner_bank_posthoc_v1.txt",
+      "prompt_sha256": "2ea20ad502bf36cb8821e09a75ebd20a401350cac37b23a592546c650f2a8252",
       "api_provider": "openai"
     }
   },
@@ -146,7 +146,7 @@
     "protocol": "physician_post_final_reflection_v1",
     "prompt_file": "prompts/sherpa/doctor_post_final_reflection_v1.txt",
     "prompt_sha256": "595b384270dc1bd8a80bc006ec1550bbe2a0207fc7dddce1cdc2f1e4ebdd426f",
-    "max_tokens": 1024,
+    "max_tokens": 512,
     "behavioral_locus": true,
     "leakage_guard": "No ground truth or outcome label in Doctor input; validate original Agent reply IDs; structured none-supported experience allowed"
   },
@@ -211,32 +211,31 @@
       "verification uses normal precommit + anchored guidance then linear remaining dialogue",
       "two dedicated GPUs, one Assistant and one Doctor; five-case frozen batch preserved",
       "no prompt optimization; no training-time test; explicit final-checkpoint-only test action",
-      "Prospective needs jointly generated with public Doctor discussion; structured output budget640 (public instruction256), one format repair",
-      "Need-linked reflection budget512 ->1024; original prospective needs immutable",
-      "Fixed generator/gate/scorer prompt adaptations for public need grounding and medical accuracy; no prompt optimization",
       "One fixed accuracy criterion per case bypasses generation/gate/verification and always applies; equal weight with partner KEEP criteria",
       "Independent trajectory candidates in parallel chunks of 8; one deterministic-ID-sorted case consolidation; verbatim representative, no rubric rewriting",
       "Generator/consolidate/gate/scorer: direct OpenAI gpt-6-luna; generator/consolidate reasoning none; gate/scorer retain provider-default reasoning; no fallback; all roles share 50 in-flight requests per run",
       "Generator/consolidate temperature omitted (null): Luna endpoint metadata does not support temperature; provider default is not assumed equal to previous 0.7. Agent/Doctor decoding and gate/scorer prompts/token budgets unchanged.",
-      "Single process-wide physical HTTP in-flight limit50, including all roles/retries; retry sleeps release slots"
+      "Single process-wide physical HTTP in-flight limit50, including all roles/retries; retry sleeps release slots",
+      "Prospective Doctor private need disabled by user; original plain public discussion and hidden STATUS protocol retained, including verification.",
+      "Terminal Doctor reflection only (helpful/unresolved), original 512-token budget and one format repair; no private need linkage.",
+      "Fixed posthoc-only generator/gate/consolidate prompts use public trajectory and audited retrospective reflection; no need record/ID required. Fixed medical accuracy and public-only scorer unchanged."
     ],
     "preserved": [
       "train120 bytes/order/seed",
       "base model, seeded rsLoRA and GRPO optimizer",
       "Agent/Doctor dialogue prompts, hidden status and decoding",
       "common-state applicability, equal normalized KEEP scores",
-      "gate/scorer model IDs unchanged; P0 remains fixed throughout run"
+      "Fixed P0 throughout each run; API models/provider recorded explicitly above"
     ],
-    "outcome_usage": "verification, original success/failure rubric-generation strata, source consistency and diagnostics; never directly in GRPO reward",
-    "need_cost_measurement": "Exact combined Doctor output tokens/time from Ollama; isolated private-need token/time increment not reported by provider and remains null; no extra counterfactual call."
+    "outcome_usage": "verification, original success/failure rubric-generation strata, source consistency and diagnostics; never directly in GRPO reward"
   },
   "acceptance": {
     "rule": "strictly_higher_product_v1"
   },
   "judges": {
     "gate_model": "gpt-6-luna",
-    "gate_prompt_file": "prompts/sherpa/luna_gate_need_v1.txt",
-    "gate_prompt_sha256": "42dcc9d94e279e7f0c161c62b7aa3d19503232de8a43975c7e77412fee62ce7a",
+    "gate_prompt_file": "prompts/sherpa/luna_gate_posthoc_v1.txt",
+    "gate_prompt_sha256": "789e99c2ebea6a306b56e57e9604b960b4c0bae3e104da6de8a365fddbccf52c",
     "scorer_model": "gpt-6-luna",
     "scorer_prompt_file": "prompts/sherpa/scorer_need_accuracy_v1.txt",
     "scorer_prompt_sha256": "ddc2c95e10af844ae82111ccd3ec11a28f8e2bd8f29b328f01ea54faaf76549a",
@@ -257,7 +256,7 @@
     "rubric_score_batch_size": 4,
     "global_api_max_in_flight": 50
   },
-  "condition": "sherpa_b200_max4_parallel_bank_v2",
+  "condition": "sherpa_b200_max4_posthoc_only_v3",
   "five_gpu": {
     "rollout_gpus": [
       1
@@ -293,16 +292,7 @@
         "num_predict": 256,
         "num_batch": 64
       },
-      "system_prompt_sha256": "026f3771659f97b16f7d8985169478bd0b9eb5c141316a982eb49f3f60cff3a2",
-      "private_need": {
-        "enabled": true,
-        "protocol": "doctor_public_and_prospective_need_v1",
-        "prompt_file": "prompts/sherpa/doctor_prospective_need_v1.txt",
-        "prompt_sha256": "aab3121933fb57585fba08ffe2de7dca1a70b22a2bb42671466a4c6f9aaaa964",
-        "combined_max_tokens": 640,
-        "format_repair_attempts": 1,
-        "feedback_only": true
-      }
+      "system_prompt_sha256": "026f3771659f97b16f7d8985169478bd0b9eb5c141316a982eb49f3f60cff3a2"
     },
     "train_order_file": "data/interim/medmcqa/five_gpu_train120_seed20261008/train120_order_seed20261008.json",
     "train_order_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
@@ -327,7 +317,7 @@
     "feedback_model": "ollama/gemma3:12b-it-q8_0@997a7c2c0975",
     "seed": 0,
     "train_order_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
-    "output_root": "outputs/sherpa_b200_max4_parallel_bank_v2",
+    "output_root": "outputs/sherpa_b200_max4_posthoc_only_v3",
     "pfinal_artifact": null,
     "family": "reward_sweep",
     "reward_weight_rubric": 1.0,
@@ -348,7 +338,7 @@
     "evaluation_workers": 4
   },
   "doctor_need": {
-    "enabled": true,
+    "enabled": false,
     "protocol": "doctor_public_and_prospective_need_v1",
     "prompt_file": "prompts/sherpa/doctor_prospective_need_v1.txt",
     "prompt_sha256": "aab3121933fb57585fba08ffe2de7dca1a70b22a2bb42671466a4c6f9aaaa964",

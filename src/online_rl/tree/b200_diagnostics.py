@@ -62,15 +62,18 @@ def case_diagnostics(record):
                         'gate_passed': sum(r['valid'] for r in record.get('trajectory_rubrics', [])),
                         'verification_decisions': dict(Counter(w['decision'] for w in witnesses)),
                         'rejected_insufficient_public_need': sum(any('need_public_evidence_insufficient' in p for p in r.get('problems', [])) for r in record.get('trajectory_rubrics', []))},
-            'needs': {'unique_records': len(needs), 'status_counts': dict(Counter(n['status'] for n in need_values)),
-                      'missing_node_records': sum(n.get('prefix_doctor_need') is None for n in record['tree']['nodes']),
+            'needs': {'enabled': record.get('doctor_need_enabled', True), 'unique_records': len(needs), 'status_counts': dict(Counter(n['status'] for n in need_values)),
+                      'missing_node_records': (sum(n.get('prefix_doctor_need') is None for n in record['tree']['nodes'])
+                                               if record.get('doctor_need_enabled', True) else 0),
                       'format_errors': sum(len(n.get('audit', {}).get('format_errors', [])) for n in need_values),
                       'format_retries': sum(n.get('audit', {}).get('format_retries', 0) for n in need_values),
                       'transport_retries': sum(a.get('transport_retries', 0) for a in attempts),
                       'combined_generation_output_tokens': sum(a.get('output_tokens', 0) for a in attempts),
                       'combined_generation_seconds': sum(n.get('audit', {}).get('combined_generation_seconds', 0) for n in need_values),
                       'private_need_incremental_tokens': None, 'private_need_incremental_seconds': None,
-                      'note': 'Totals describe joint public+need generation; isolated private overhead is not observable.'},
+                      'note': ('Totals describe joint public+need generation; isolated private overhead is not observable.'
+                               if record.get('doctor_need_enabled', True) else
+                               'Prospective needs disabled: no need generation; absence is intentional, not missing evidence.')},
             'verification': {'actual_trials': sum(w['num_reruns_executed'] for w in witnesses),
                              'early_decisions': sum(t.get('early_decision', False) for w in witnesses for t in w['tested']),
                              'unparsed_trials': sum(t.get('unparsed', 0) for w in witnesses for t in w['tested']),
@@ -114,7 +117,7 @@ def batch_diagnostics(records, update, seconds):
             if isinstance(value, dict) and 'denominator' in value:
                 fractions[key][0] += value['numerator']; fractions[key][1] += value['denominator']
         timing.update(case['timings'])
-        needs.update({k: v for k, v in case['needs'].items() if isinstance(v, (int, float))})
+        needs.update({k: v for k, v in case['needs'].items() if type(v) in (int, float)})
         need_status.update(case['needs']['status_counts'])
         for key, histogram in distributions.items():
             histogram.update(case[key]['histogram'])

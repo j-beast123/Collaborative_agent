@@ -1,9 +1,10 @@
 # SHERPA — B200 two-GPU improvement
 
 The new `sherpa-jh` experiment uses train120, four Agent turns, branching four,
-five-case frozen-policy batches and rubric-only GRPO. It adds prospective private
-Doctor needs, need-linked reflection, fixed-source linear continuation verification,
-and one always-applicable medical-accuracy criterion per case.
+five-case frozen-policy batches and rubric-only GRPO. Doctor discussion is ordinary
+public text plus the original hidden STATUS; prospective private needs are disabled.
+Terminal Doctor reflection (helpful/unresolved), fixed-source linear continuation
+verification and one always-applicable medical-accuracy criterion remain.
 
 Generator, consolidate, gate and scorer now use direct OpenAI `gpt-6-luna`
 with `OPENAI_API_KEY`. Generator/consolidate explicitly request reasoning `none`;
@@ -15,6 +16,8 @@ All API roles and retries share a global50 in-flight limit per run (two servers:
 Doctor, rubric-only reward and the five-case update barrier remain unchanged.
 OpenRouter credentials are not required for this B200 configuration.
 [Existing-server environment correction](docs/B200_CLONE_RUN.md#현재-서버-preflight-환경-수정).
+
+**현재 실행은 사전 need 없는 posthoc-only 버전입니다.** 이전 run의 checkpoint/cache에 이어 붙이지 않고 새 이름으로 시작합니다. [두 서버 재시작 명령](docs/B200_CLONE_RUN.md#사전-private-need-제거-후-새-실험-시작).
 
 **현재 Doctor: 기존 로컬 HF Gemma, BF16 (비양자화).** `SHERPA_DOCTOR_BACKEND=hf_local`로 사용하며 Ollama는 필요 없습니다. [모델 pin·실행 명령](docs/B200_CLONE_RUN.md#로컬-hf-gemma-3-12b-비양자화-doctor-사용-현재-선택).
 
@@ -31,7 +34,7 @@ Learning rate: `SHERPA_LEARNING_RATE=5e-6` 또는 `--learning-rate 5e-6` (기본
 **Setup, complete commands, resume rules and changes:** [B200 execution guide](docs/B200_SHERPA.md).
 Configuration: [train120_max4_rubric_only_b200.json](configs/experiments/train120_max4_rubric_only_b200.json).
 Launcher: [launch_b200.sh](scripts/online_rl/launch_b200.sh).
-Outputs after Doctor preparation: `outputs/sherpa_b200_max4_parallel_bank_v2/doctor_<digest12>/`.
+Outputs after Doctor preparation: `outputs/sherpa_b200_max4_posthoc_only_v3/doctor_<digest12>/`.
 The execution guide includes an account-local Ollama0.12.5 installer and Doctor
 download/pinning commands; `.local/b200_doctor.json` automatically binds runtime
 paths and the actual downloaded digest. Existing system services are left intact.

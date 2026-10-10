@@ -140,8 +140,10 @@ def preflight(cfg, *, resources=True):
         errors.append('Requires precommit_v1 and fixed P0')
     if cfg['verification']['mode'] != 'fixed_source_linear_majority_v1' or cfg['intervention']['reruns_per_intervention'] != 3:
         errors.append('Requires fixed creator source and three planned linear trials')
-    if not cfg.get('doctor_need', {}).get('enabled') or not cfg.get('fixed_accuracy', {}).get('enabled'):
-        errors.append('This version requires prospective Doctor needs and one fixed accuracy criterion')
+    if not cfg.get('fixed_accuracy', {}).get('enabled'):
+        errors.append('This version requires one fixed accuracy criterion')
+    if cfg.get('feedback', {}).get('protocol') != 'physician_post_final_reflection_v1':
+        errors.append('Requires post-decision reflection by the participating Doctor')
     fg = cfg['five_gpu']
     if fg['checkpoint_evaluation_enabled'] or fg['base_evaluation']['enabled'] or cfg.get('evaluation'):
         errors.append('Training evaluation must be disabled; use the evaluate action')
@@ -149,8 +151,11 @@ def preflight(cfg, *, resources=True):
     expected_urls = [] if db['engine'] == 'hf_local' else [db['endpoint']]
     if fg['doctor_urls'] != expected_urls or fg['doctor_gpu_ids'] != [0]:
         errors.append('Dedicated Doctor endpoint/GPU mapping differs')
-    if fg['opening_identity'].get('private_need') != cfg.get('doctor_need'):
-        errors.append('D1 cache identity must include the prospective need protocol')
+    if cfg.get('doctor_need', {}).get('enabled'):
+        if fg['opening_identity'].get('private_need') != cfg['doctor_need']:
+            errors.append('D1 cache identity must include the enabled prospective need protocol')
+    elif 'private_need' in fg['opening_identity']:
+        errors.append('Disabled prospective needs must not reuse a need-enabled D1 cache identity')
     if fg['checkpoint_every_cases'] != 30 or fg['batch_cases'] != 5:
         errors.append('Requires five-case batches and 30-case milestone checkpoints')
     try: physical_devices()
@@ -258,6 +263,7 @@ def run_case(cfg, policy, case, index, batchdir, expected):
         trainer.validate_member_interventions(record)
         if record['policy_sha256'] != expected: raise RuntimeError('Stale saved case policy')
         record['case_cursor'] = index
+        record['doctor_need_enabled'] = bool(cfg.get('doctor_need', {}).get('enabled'))
         # This is not an optimizer step; the parent owns the five-case boundary.
         record['update'] = {'optimizer_step': False, 'deferred_to_batch': True, 'update_gpu': 1}
         return record
