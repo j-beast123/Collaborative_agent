@@ -183,10 +183,11 @@ def test_cpu_preflight_and_preserved_common_values(monkeypatch):
     for key in ('temperature', 'top_p', 'top_k', 'agent_protocol', 'agent_sampling_protocol', 'halting'):
         assert cfg['rollout'][key] == old['rollout'][key]
     assert cfg['data'] == old['data']
-    assert cfg['rubric']['generator_model'] == cfg['rubric']['consolidate']['model'] == 'openai/gpt-6-luna'
+    assert cfg['rubric']['generator_model'] == cfg['rubric']['consolidate']['model'] == 'gpt-6-luna'
     assert cfg['rubric']['generation']['reasoning_effort'] == cfg['rubric']['consolidate']['reasoning_effort'] == 'none'
-    expected_generation = {**old['rubric']['generation'], 'reasoning_effort': 'none', 'strict_provider_parameters': True, 'temperature': None}
+    expected_generation = {**old['rubric']['generation'], 'reasoning_effort': 'none', 'strict_provider_parameters': True, 'temperature': None, 'api_provider': 'openai'}
     assert cfg['rubric']['generation'] == expected_generation
-    for k in ('gate_model', 'scorer_model', 'scorer_protocol'):
-        assert cfg['judges'][k] == old['judges'][k]
+    assert cfg['judges']['gate_model'] == cfg['judges']['scorer_model'] == 'gpt-6-luna'
+    assert cfg['judges']['api_provider'] == 'openai'
+    assert cfg['judges']['scorer_protocol'] == old['judges']['scorer_protocol']
     assert cfg['prompt_update']['enabled'] is False

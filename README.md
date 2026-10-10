@@ -5,12 +5,16 @@ five-case frozen-policy batches and rubric-only GRPO. It adds prospective privat
 Doctor needs, need-linked reflection, fixed-source linear continuation verification,
 and one always-applicable medical-accuracy criterion per case.
 
-Generator and consolidate now use `openai/gpt-6-luna` with reasoning `none`.
+Generator, consolidate, gate and scorer now use direct OpenAI `gpt-6-luna`
+with `OPENAI_API_KEY`. Generator/consolidate explicitly request reasoning `none`;
+gate/scorer retain provider-default reasoning.
 Their unsupported temperature parameter is omitted; Agent/Doctor decoding is unchanged.
 Independent candidates run in configurable chunks (default8); one case-level
 consolidation fixes the bank and source mappings before gate/verification.
-All API roles and retries share a global100 in-flight limit. Gate/scorer,
+All API roles and retries share a global50 in-flight limit per run (two servers:100).
 Doctor, rubric-only reward and the five-case update barrier remain unchanged.
+OpenRouter credentials are not required for this B200 configuration.
+[Existing-server environment correction](docs/B200_CLONE_RUN.md#현재-서버-preflight-환경-수정).
 
 **현재 Doctor: 기존 로컬 HF Gemma, BF16 (비양자화).** `SHERPA_DOCTOR_BACKEND=hf_local`로 사용하며 Ollama는 필요 없습니다. [모델 pin·실행 명령](docs/B200_CLONE_RUN.md#로컬-hf-gemma-3-12b-비양자화-doctor-사용-현재-선택).
 

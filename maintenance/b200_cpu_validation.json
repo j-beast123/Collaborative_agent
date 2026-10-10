@@ -134,5 +134,48 @@
     "test_runtime_note": "Editing-server CPU/fake-model tests use the existing local Transformers 4.51.1 environment. Target GPU loader enforces 4.53.3; real Gemma/target GPU execution has not been performed.",
     "scope": "Local byte pin/integrity, unquantized BF16 loader arguments, shared Doctor protocol factory, explicit decoding and no model-default overrides, GPU0-only RNG isolation, need privacy/cache, changed-backend resume rejection, existing CPU regressions.",
     "real_model_loading_training_evaluation_llm_calls_downloads": false
+  },
+  "direct_openai_update": {
+    "checked_at_utc": "2026-10-10T15:13:47.871317+00:00",
+    "models": {
+      "generator": "gpt-6-luna",
+      "consolidate": "gpt-6-luna",
+      "gate": "gpt-6-luna",
+      "scorer": "gpt-6-luna"
+    },
+    "api_provider": "openai",
+    "credential_env": "OPENAI_API_KEY",
+    "global_api_max_in_flight_per_run": 50,
+    "full_suite": {
+      "passed_in_sandbox": 794,
+      "sandbox_socket_blocked": 8,
+      "skipped": 12,
+      "deselected": 9,
+      "seconds": 60.48
+    },
+    "socket_only_rerun_outside_sandbox": {
+      "passed": 10,
+      "deselected": 1,
+      "includes_previously_passed_tests": 2,
+      "seconds": 1.25
+    },
+    "unique_active_tests_passed": 802,
+    "new_fake_http_tests": 6,
+    "final_targeted_api_and_manifest_tests": {
+      "passed": 22,
+      "seconds": 0.86
+    },
+    "cpu_preflight_blockers": [],
+    "remote_resource_checks_performed": false,
+    "live_llm_api_gpu_training_or_evaluation_executed": false,
+    "coverage": [
+      "OpenAI-only env key loading and HF Doctor preflight",
+      "all four role request URLs and payloads",
+      "none reasoning serialization for generator/consolidate",
+      "provider cache identity and manifest separation",
+      "model substitution refusal",
+      "global retry limiter and retry slot release",
+      "existing rubric-only/five-case/max4/resume regressions"
+    ]
   }
 }

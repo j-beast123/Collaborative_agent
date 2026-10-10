@@ -5,6 +5,63 @@
 이 서버에서 다른 작업이 해당 GPU/포트를 사용한다면 먼저 별도 자원을 정해야 합니다.
 아래 명령은 사용자가 실행합니다. 구현 과정에서는 설치·다운로드·API·GPU 실행을 하지 않았습니다.
 
+## 현재 서버 preflight 환경 수정
+
+모델 이름 변경과 API 제공자 변경은 별개입니다. 현재 B200 config는 generator,
+consolidate, gate, scorer 모두 OpenAI 직접 API `gpt-6-luna`이며 OpenRouter 키가
+필요 없습니다. 각 **실험 전체**가 최대50개의 요청을 공유합니다(두 서버 합계100).
+
+공유 checkout에서 한 번만 업데이트/환경 파일 수정합니다. 이미 실행 중인 프로세스가
+있다면 먼저 해당 run을 끝내거나 안전한 배치 경계에서 중단한 후 코드를 업데이트하세요.
+
+```bash
+cd /NHNHOME/shkim/SHERPA/Collaborative_agent-sherpa
+git pull --ff-only
+cat >> .local/b200.env <<'ENV'
+export SHERPA_BASE_MODEL="/NHNHOME/shkim/SHERPA/vllm/qwen3"
+export SHERPA_DOCTOR_BACKEND=hf_local
+export SHERPA_DOCTOR_MODEL="/NHNHOME/shkim/SHERPA/vllm/gemma3"
+export SHERPA_HF_DOCTOR_RECEIPT="$SHERPA_PROJECT/.local/b200_hf_doctor.json"
+ENV
+source .local/b200.env
+```
+
+이미 성공한 HF Doctor pin은 다시 생성할 필요 없습니다. `preflight`가 receipt와
+실제 파일을 대조합니다. 이 모드에서는 Ollama 관련 환경변수가 필요 없습니다.
+각 서버의 실제 실행 터미널에서 환경을 적용하고 키를 입력합니다.
+
+```bash
+source .local/b200.env
+set +x
+read -rsp 'OPENAI_API_KEY: ' OPENAI_API_KEY; printf '\n'
+export OPENAI_API_KEY
+# HF 저장을 사용하며 이 터미널에 토큰이 없을 때만 입력합니다.
+if [ -z "${HF_TOKEN:-}" ]; then
+  read -rsp 'HF_TOKEN (model repo write): ' HF_TOKEN; printf '\n'
+  export HF_TOKEN
+fi
+export SHERPA_RUN_NAME=gemma-bf16-lr5e6-run01
+export SHERPA_LEARNING_RATE=5e-6
+bash scripts/online_rl/launch_b200.sh --action preflight
+```
+
+다른 서버는 `SHERPA_RUN_NAME=gemma-bf16-lr1e5-run01`, `SHERPA_LEARNING_RATE=1e-5`로
+설정합니다. 각 서버에서 `blockers: []`, `api.provider: openai`, API 모델 모두
+`gpt-6-luna`, `global_api_max_in_flight: 50`, `doctor_backend.engine: hf_local`,
+Qwen 경로와 LR/output을 확인한 다음 실행합니다.
+
+```bash
+bash scripts/online_rl/launch_b200.sh --action train --max-batches 1
+bash scripts/online_rl/launch_b200.sh --action train
+# 중단 후에도 같은 환경/이름/LR에서 위 train 명령으로 재개
+# 120-case 완료 후 최종 checkpoint test622 평가 한 번
+bash scripts/online_rl/launch_b200.sh --action evaluate
+```
+
+이번 변경 이전에 실제 업데이트를 완료한 run은 동일 이름으로 이어 붙일 수 없습니다.
+새 이름을 사용해 초기 policy부터 시작하세요. Preflight만 실행한 이름은 그대로 사용합니다.
+키는 환경변수에만 두며 `.local/b200.env`나 Git/HF 저장 파일에 넣지 않습니다.
+
 ## 로컬 HF Gemma-3-12B 비양자화 Doctor 사용 (현재 선택)
 
 현재 서버의 기존 모델을 다운로드/변환 없이 사용합니다.
@@ -28,6 +85,7 @@ identity 불일치를 거부합니다. Qwen의 기존 base model 파일 hash 및
 cd /NHNHOME/shkim/SHERPA/Collaborative_agent-sherpa
 git pull --ff-only
 cat >> .local/b200.env <<'ENV'
+export SHERPA_BASE_MODEL="/NHNHOME/shkim/SHERPA/vllm/qwen3"
 export SHERPA_DOCTOR_BACKEND=hf_local
 export SHERPA_DOCTOR_MODEL="/NHNHOME/shkim/SHERPA/vllm/gemma3"
 export SHERPA_HF_DOCTOR_RECEIPT="$SHERPA_PROJECT/.local/b200_hf_doctor.json"
@@ -50,9 +108,9 @@ read -rp 'Experiment name: ' SHERPA_RUN_NAME
 read -rp 'Learning rate: ' SHERPA_LEARNING_RATE
 export SHERPA_RUN_NAME SHERPA_LEARNING_RATE
 set +x
-read -rsp 'OPENROUTER_API_KEY: ' OPENROUTER_API_KEY; printf '\n'
+read -rsp 'OPENAI_API_KEY: ' OPENAI_API_KEY; printf '\n'
 read -rsp 'HF_TOKEN (model repo write access): ' HF_TOKEN; printf '\n'
-export OPENROUTER_API_KEY HF_TOKEN
+export OPENAI_API_KEY HF_TOKEN
 bash scripts/online_rl/launch_b200.sh --action preflight
 ```
 
@@ -158,16 +216,16 @@ export SHERPA_RUN_NAME SHERPA_LEARNING_RATE
 export SHERPA_HF_MODEL_REPO=zzu819/SHERPA
 export CUDA_VISIBLE_DEVICES=0,1
 set +x
-read -rsp 'OPENROUTER_API_KEY: ' OPENROUTER_API_KEY; printf '\n'
+read -rsp 'OPENAI_API_KEY: ' OPENAI_API_KEY; printf '\n'
 read -rsp 'HF_TOKEN (model repo write access): ' HF_TOKEN; printf '\n'
-export OPENROUTER_API_KEY HF_TOKEN
+export OPENAI_API_KEY HF_TOKEN
 "$SHERPA_PYTHON" -m src.online_rl.tree.b200_doctor_setup verify
 bash scripts/online_rl/launch_b200.sh --action preflight
 ```
 
 환경변수는 각 터미널에만 설정합니다. 실험마다 공유 `.local/b200.env`를 덮어쓰지 않습니다.
 Preflight에서 `blockers: []`, LR, `output`, `hf_storage.run_id`를 확인합니다.
-각 run의 API 상한은 100이므로 두 서버 합계는 최대 200 in-flight일 수 있습니다.
+각 run의 모든 API 역할 합계 상한은 50이므로 두 서버 합계는 최대 100 in-flight일 수 있습니다.
 각각 같은 train120 전체를 학습하며 5-case 업데이트/최대24배치와 나머지 과학적 조건은 유지됩니다.
 
 **각 서버에서 첫 배치 → 확인 → 전체 학습:**
@@ -336,9 +394,9 @@ source .local/b200.env
 "$SHERPA_PYTHON" -m src.online_rl.tree.b200_doctor_setup pull
 "$SHERPA_PYTHON" -m src.online_rl.tree.b200_doctor_setup verify
 set +x
-read -rsp 'OPENROUTER_API_KEY: ' OPENROUTER_API_KEY
+read -rsp 'OPENAI_API_KEY: ' OPENAI_API_KEY
 printf '\n'
-export OPENROUTER_API_KEY
+export OPENAI_API_KEY
 read -rsp 'HF_TOKEN (model repo write access): ' HF_TOKEN
 printf '\n'
 export HF_TOKEN
@@ -351,10 +409,10 @@ bash scripts/online_rl/launch_b200.sh --config "$CFG" --action preflight
 삭제하거나 교체하지 않아야 같은 실험을 재개할 수 있습니다.
 Preflight의 `blockers: []`, 선택한 `learning_rate`와 `output`을 확인하세요.
 Provider의 실제 모델 접근 권한/지원 여부는 CPU preflight가 보증하지 않습니다.
-Generator/consolidate는 OpenRouter `openai/gpt-6-luna`, reasoning `none`을 실제 요청하며
+Generator/consolidate는 OpenAI 직접 API `gpt-6-luna`, reasoning `none`을 실제 요청하며
 미지원 응답은 중단합니다. Generator/consolidate의 temperature는 지원되지 않아 요청에서
 제외하며 provider 기본 동작을 사용합니다(기존 0.7과 같다고 가정하지 않습니다).
-Agent/Doctor/gate/scorer 설정은 유지합니다.
+Gate/scorer도 OpenAI 직접 API `gpt-6-luna`이며 기존 prompt·token budget을 유지합니다. Agent/Doctor 설정은 유지합니다.
 
 ## 6. 첫 1배치 점검 → 전체 학습
 
@@ -384,9 +442,9 @@ SSH를 끊었다가 `tmux attach -t sherpa-train`으로 다시 볼 수 있습니
 cd "$HOME/Collaborative_agent-sherpa"
 source .local/b200.env
 set +x
-read -rsp 'OPENROUTER_API_KEY: ' OPENROUTER_API_KEY
+read -rsp 'OPENAI_API_KEY: ' OPENAI_API_KEY
 printf '\n'
-export OPENROUTER_API_KEY
+export OPENAI_API_KEY
 read -rsp 'HF_TOKEN (model repo write access): ' HF_TOKEN
 printf '\n'
 export HF_TOKEN

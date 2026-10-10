@@ -113,7 +113,7 @@ def evidence_gate_identity(cfg: dict, root: Path = ROOT):
     # instead of maintaining a second weaker manifest-only fingerprint.
     client = LunaDecisionClient(model=jm['gate_model'], key='',
                                 system=(root / jm['gate_prompt_file']).read_text(),
-                                max_tokens=jm['gate_max_tokens'])
+                                max_tokens=jm['gate_max_tokens'], api_provider=jm.get('api_provider', 'openrouter'))
     quote_options = {'rubric_quote_protocol': jm['gate_quote_protocol']} if jm.get('gate_quote_protocol') is not None else {}
     return evidence_posthoc_gate(client, {}, observed_context=bool(cfg.get('rubric', {}).get('schema')), **quote_options).settings
 
@@ -279,14 +279,14 @@ def load_key() -> str:
     return H.load_key()
 
 
-def judge_client(model: str, key: str, system: str, *, max_tokens: int = 2000):
+def judge_client(model: str, key: str, system: str, *, max_tokens: int = 2000, api_provider: str = "openrouter"):
     """Jev (decisions API, label probabilities) for typesafe/jev models, else a hard-label decision client (Luna)."""
     if model.startswith('typesafe/jev'):
         from src.judges.jev import JevClient
         from src.prompt_opt import harness as H
         return JevClient(**{**H.JEV, 'model': model})
     from src.online_rl.tree.luna import LunaDecisionClient
-    return LunaDecisionClient(model=model, key=key, system=system, max_tokens=max_tokens)
+    return LunaDecisionClient(model=model, key=key, system=system, max_tokens=max_tokens, api_provider=api_provider)
 
 
 def make_scorer(cfg: dict, client):
@@ -384,10 +384,13 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
     context_addendum = (text(cfg['rubric']['state_addendum_file'])
                         if observed_context and cfg['rubric'].get('state_addendum_enabled', True) else None)
     ro, pu, ar = cfg['rollout'], cfg['prompt_update'], cfg['agent_reward']
-    jm = cfg['judges']; key = load_key()
-    gate_client = judge_client(jm['gate_model'], key, text(jm['gate_prompt_file']),
+    jm = cfg['judges']
+    from src.common.llm_provider import load_key as provider_key
+    key = provider_key(cfg['api']['provider']) if 'api' in cfg else load_key()
+    route = {'api_provider': jm['api_provider']} if 'api_provider' in jm else {}
+    gate_client = judge_client(jm['gate_model'], key, text(jm['gate_prompt_file']), **route,
         **({'max_tokens': jm['gate_max_tokens']} if 'gate_max_tokens' in jm else {}))
-    scorer_client = judge_client(jm['scorer_model'], key, text(jm['scorer_prompt_file']),
+    scorer_client = judge_client(jm['scorer_model'], key, text(jm['scorer_prompt_file']), **route,
         **({'max_tokens': jm['scorer_max_tokens']} if 'scorer_max_tokens' in jm else {}))
     policy = policy if policy is not None else make_policy(cfg, key)
     if (policy.args.rounds, policy.args.doctor_model) != (ro['rounds'], ro['doctor_model']):

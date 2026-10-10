@@ -108,7 +108,7 @@
     "prompt_id": "P0-fixed-v3-prospective-need",
     "prompt_sha256": "929356ea47f4080129dc806f8ecef94fb5830928cba811aa270d723ae9588e40",
     "gold_answer_visible": false,
-    "generator_model": "openai/gpt-6-luna",
+    "generator_model": "gpt-6-luna",
     "reuse": "assign_or_create_v1",
     "generation": {
       "max_tokens": 6144,
@@ -120,7 +120,8 @@
       "local_schema_sha256": "ad5722330bc7f6eef085b374c7e911f0a5f433fd0c8fb44dab3993d48d3e3644",
       "selected_turn_policy": "generator_v1",
       "feedback_check_protocol": "all_reflection_claims_v1",
-      "strict_provider_parameters": true
+      "strict_provider_parameters": true,
+      "api_provider": "openai"
     },
     "source_consistency": "source_locus_v1",
     "schema": "observed_context_behavior_v1",
@@ -130,13 +131,14 @@
     "bank_mode": "parallel_candidates_consolidate_v1",
     "candidate_batch_size": 8,
     "consolidate": {
-      "model": "openai/gpt-6-luna",
+      "model": "gpt-6-luna",
       "reasoning_effort": "none",
       "strict_provider_parameters": true,
       "max_tokens": 16384,
       "temperature": null,
       "prompt_file": "prompts/sherpa/consolidate_partner_bank_v1.txt",
-      "prompt_sha256": "cb40a48e86643bf2fcd9061b90c2fb151bd280992f1b359249835fd022e3cd7a"
+      "prompt_sha256": "cb40a48e86643bf2fcd9061b90c2fb151bd280992f1b359249835fd022e3cd7a",
+      "api_provider": "openai"
     }
   },
   "feedback": {
@@ -214,9 +216,9 @@
       "Fixed generator/gate/scorer prompt adaptations for public need grounding and medical accuracy; no prompt optimization",
       "One fixed accuracy criterion per case bypasses generation/gate/verification and always applies; equal weight with partner KEEP criteria",
       "Independent trajectory candidates in parallel chunks of 8; one deterministic-ID-sorted case consolidation; verbatim representative, no rubric rewriting",
-      "Generator and consolidate: openai/gpt-6-luna, reasoning none, strict provider parameters and no fallback",
-      "Generator/consolidate temperature omitted (null): Luna endpoint metadata does not support temperature; provider default is not assumed equal to previous 0.7. Agent/Doctor/gate/scorer unchanged.",
-      "Single process-wide physical HTTP in-flight limit100, including all roles/retries; retry sleeps release slots"
+      "Generator/consolidate/gate/scorer: direct OpenAI gpt-6-luna; generator/consolidate reasoning none; gate/scorer retain provider-default reasoning; no fallback; all roles share 50 in-flight requests per run",
+      "Generator/consolidate temperature omitted (null): Luna endpoint metadata does not support temperature; provider default is not assumed equal to previous 0.7. Agent/Doctor decoding and gate/scorer prompts/token budgets unchanged.",
+      "Single process-wide physical HTTP in-flight limit50, including all roles/retries; retry sleeps release slots"
     ],
     "preserved": [
       "train120 bytes/order/seed",
@@ -232,18 +234,19 @@
     "rule": "strictly_higher_product_v1"
   },
   "judges": {
-    "gate_model": "openai/gpt-5.6-luna",
+    "gate_model": "gpt-6-luna",
     "gate_prompt_file": "prompts/sherpa/luna_gate_need_v1.txt",
     "gate_prompt_sha256": "42dcc9d94e279e7f0c161c62b7aa3d19503232de8a43975c7e77412fee62ce7a",
-    "scorer_model": "openai/gpt-6-luna",
+    "scorer_model": "gpt-6-luna",
     "scorer_prompt_file": "prompts/sherpa/scorer_need_accuracy_v1.txt",
     "scorer_prompt_sha256": "ddc2c95e10af844ae82111ccd3ec11a28f8e2bd8f29b328f01ea54faaf76549a",
-    "luna_canonical_slug": "openai/gpt-6-luna",
+    "luna_canonical_slug": "gpt-6-luna",
     "scorer_protocol": "response_evidence_v1",
     "scorer_max_tokens": 4096,
     "gate_protocol": "evidence_gate_v2",
     "gate_max_tokens": 3072,
-    "gate_quote_protocol": "visible_field_enum_v1"
+    "gate_quote_protocol": "visible_field_enum_v1",
+    "api_provider": "openai"
   },
   "execution": {
     "doctor_workers": 1,
@@ -252,7 +255,7 @@
     "agent_workers": 4,
     "member_workers": 1,
     "rubric_score_batch_size": 4,
-    "global_api_max_in_flight": 100
+    "global_api_max_in_flight": 50
   },
   "condition": "sherpa_b200_max4_parallel_bank_v2",
   "five_gpu": {
@@ -358,5 +361,8 @@
     "criterion_file": "prompts/sherpa/fixed_medical_accuracy_v1.json",
     "criterion_sha256": "334789a66ca569ae5f6525550816cd53a1e61f59b5809e73b0746e3466054f1a"
   },
-  "expected_initial_adapter_sha256": "9018ce3bbacd319049576e8ace88afb4777621a8769919bf46676fca8a85b17c"
+  "expected_initial_adapter_sha256": "9018ce3bbacd319049576e8ace88afb4777621a8769919bf46676fca8a85b17c",
+  "api": {
+    "provider": "openai"
+  }
 }

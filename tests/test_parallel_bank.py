@@ -153,7 +153,7 @@ def test_real_backend_serializes_model_reasoning_and_rejects_substitution(monkey
         content={'clusters':[],'excluded':[]} if usage.current_stage()=='rubric_consolidate' else {'name':'Explain','applicability_condition':'any turn','required_behavior':'explain','scores':{'0':'none','1':'partial','2':'full'}}
         return Response({'model':return_model[0],'choices':[{'finish_reason':'stop','message':{'content':json.dumps(content)}}],'usage':{}})
     monkeypatch.setattr('urllib.request.urlopen',urlopen)
-    cfg=load_config();settings={'max_tokens':2048,'temperature':None,'reasoning_effort':'none','strict_provider_parameters':True}
+    cfg=load_config();cfg['rubric']['generator_model']='openai/gpt-6-luna';cfg['rubric']['consolidate']['model']='openai/gpt-6-luna';cfg['rubric']['consolidate'].pop('api_provider');settings={'max_tokens':2048,'temperature':None,'reasoning_effort':'none','strict_provider_parameters':True}
     gen=api_rubric_generator('fake-key',cfg['rubric']['generator_model'],settings)
     gen('fixed',next(iter(sources()[2].values())))
     con=P.api_consolidator('fake-key',cfg['rubric']['consolidate']);con([])
@@ -210,7 +210,7 @@ def test_config_preserves_training_contract_and_pins_new_identity(monkeypatch):
     monkeypatch.setattr('src.online_rl.tree.b200_runner.physical_devices',lambda:['0','1'])
     cfg=load_config()
     assert all(e.startswith('Missing file:') for e in preflight(cfg,resources=False))
-    assert cfg['execution']['global_api_max_in_flight']==100
+    assert cfg['execution']['global_api_max_in_flight']==50
     assert cfg['rubric']['candidate_batch_size']==8
     assert cfg['rollout']['rounds']==cfg['rollout']['branching']==4
     assert cfg['two_gpu']['batch_cases']==5 and not cfg['prompt_update']['enabled']
@@ -218,8 +218,9 @@ def test_config_preserves_training_contract_and_pins_new_identity(monkeypatch):
     assert cfg['fixed_accuracy']['enabled']
     from src.online_rl.tree.trainer import model_roles
     roles=model_roles(cfg)
+    assert roles['api_provider']==roles['judge_api_provider']=='openai'
     assert roles['generator_settings']['reasoning_effort']==roles['consolidate_settings']['reasoning_effort']=='none'
-    assert roles['rubric_gate']=='openai/gpt-5.6-luna' and roles['rubric_scorer']=='openai/gpt-6-luna'
+    assert roles['rubric_gate']==roles['rubric_scorer']=='gpt-6-luna'
 
 
 def test_new_bank_is_connected_to_trainer_accuracy_reward_and_resume(tmp_path,monkeypatch):
@@ -261,7 +262,7 @@ def test_http_unsupported_reasoning_is_not_retried_or_downgraded(monkeypatch):
     monkeypatch.setattr('urllib.request.urlopen',urlopen)
     con=P.api_consolidator('fake',load_config()['rubric']['consolidate'])
     with pytest.raises(urllib.error.HTTPError):con([])
-    assert len(calls)==1 and calls[0]['reasoning']=={'effort':'none'}
+    assert len(calls)==1 and calls[0]['reasoning_effort']=='none'
 
 
 def test_generator_cache_separates_model_and_reasoning():

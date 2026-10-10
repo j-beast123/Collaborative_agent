@@ -174,9 +174,11 @@ def dialogue_text(dialogue: list[dict]) -> str:
 
 
 def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, temperature: float | None = 0.4,
-                extra: dict | None = None, meta: dict | None = None) -> str:
-    """One OpenRouter chat completion (retry policy: src/common/retry.py). `extra` adds request fields (e.g. reasoning
+                extra: dict | None = None, meta: dict | None = None, *, api_provider: str = "openrouter") -> str:
+    """One explicitly routed chat completion (OpenRouter by default for legacy callers) (retry policy: src/common/retry.py). `extra` adds request fields (e.g. reasoning
     settings); `meta`, when given, receives finish_reason / native_finish_reason / usage of the returned completion."""
+    from src.common.llm_provider import ENDPOINTS, key_env
+    key_env(api_provider)  # reject unknown providers before creating a request
     key = key.strip()
     payload = json.dumps(
         {
@@ -186,18 +188,18 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, t
                 {"role": "user", "content": user},
             ],
             **({"temperature": temperature} if temperature is not None else {}),
-            "max_tokens": max_tokens,
-            "usage": {"include": True},
+            **({"max_completion_tokens": max_tokens} if api_provider == "openai" else
+               {"max_tokens": max_tokens, "usage": {"include": True}}),
             **(extra or {}),
         }
     ).encode()
     req = urllib.request.Request(
-        "https://openrouter.ai/api/v1/chat/completions",
+        ENDPOINTS[api_provider],
         data=payload,
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         method="POST",
     )
-    retry = _retry.Retry(f"OpenRouter {model}")
+    retry = _retry.Retry(f"{api_provider} {model}")
     while True:
         try:
             from src.common.http_audit import request_json
@@ -209,7 +211,7 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, t
             if meta is not None:
                 choice = body["choices"][0]
                 meta.update(finish_reason=choice.get("finish_reason"), native_finish_reason=choice.get("native_finish_reason"),
-                            usage=body.get("usage"), model=body.get("model"), provider=body.get("provider"))
+                            usage=body.get("usage"), model=body.get("model"), provider=body.get("provider"), request_id=body.get("id"))
             api_usage.record("collaboration", body.get("model", model), body.get("usage"), retry.attempts)
             retry.succeeded()
             return text
@@ -217,14 +219,14 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, t
             body = error.read().decode("utf-8", errors="replace")
             reason = f"HTTP {error.code} {body[:300]}"
             if error.code not in _retry.RETRYABLE_STATUS:
-                print(f"OpenRouter {model}: not retried: {reason}", flush=True)
+                print(f"{api_provider} {model}: not retried: {reason}", flush=True)
                 raise
             kind = "rate_limit" if _retry.rate_limited(error.code, body) else "transient"
             if not retry.wait(kind, reason, error.headers.get("Retry-After")):
                 raise
         except _ProviderError as error:
             if error.code is not None and 400 <= error.code < 500 and error.code not in _retry.RETRYABLE_STATUS:
-                print(f"OpenRouter {model}: not retried: {error}", flush=True)
+                print(f"{api_provider} {model}: not retried: {error}", flush=True)
                 raise
             kind = "rate_limit" if _retry.rate_limited(error.code, str(error)) else "transient"
             if not retry.wait(kind, str(error)):

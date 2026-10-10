@@ -56,6 +56,7 @@ def api_consolidator(key, cfg):
     if hashlib.sha256(text.encode()).hexdigest() != cfg['prompt_sha256']:
         raise ValueError('Consolidate prompt hash mismatch')
     settings = {k: cfg[k] for k in ('max_tokens', 'temperature', 'reasoning_effort', 'strict_provider_parameters')}
+    if 'api_provider' in cfg: settings['api_provider'] = cfg['api_provider']
     # JSON mode is locally checked; bounded transport retry is the shared backend's.
     def consolidate(candidates):
         raw, _ = _openrouter_json(key, cfg['model'], text, json.dumps(candidates, ensure_ascii=False, sort_keys=True),

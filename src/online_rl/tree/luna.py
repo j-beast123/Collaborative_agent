@@ -1,4 +1,4 @@
-"""Hard-label decisions from an OpenRouter chat model (Luna): the same typed choice questions as the Jev decisions API,
+"""Hard-label decisions from an explicitly routed chat model (Luna): the same typed choice questions as the Jev decisions API,
 answered with exactly one allowed option per question through strict structured output, without probabilities.
 Output alignment only: trivial representation differences are canonicalised; a malformed, incomplete or out-of-enum
 answer gets ONE repair request to the same model with the same input plus a schema correction; a second failure is an
@@ -9,6 +9,7 @@ from typing import Callable, Optional
 from src.common import usage
 from src.common.retry import RETRYABLE_STATUS, Retry, rate_limited
 from src.common.config import IntegrationUnavailable
+from src.common.llm_provider import ENDPOINTS, key_env, model_matches
 from src.online_rl.integrated.records import sha256_text
 
 URL = 'https://openrouter.ai/api/v1/chat/completions'
@@ -45,25 +46,38 @@ class LunaDecisionClient:
     """decide(state, questions, purpose) -> ({qid: {'value', 'probabilities': None, 'confidence': None}}, record), like JevClient."""
 
     def __init__(self, *, model: str, key: str, system: str, max_tokens: int = 2000, post: Callable = http_post,
-                 sleep: Callable = time.sleep, timeout_s: float = 180.0):
+                 sleep: Callable = time.sleep, timeout_s: float = 180.0, api_provider: str = "openrouter"):
+        key_env(api_provider)
+        self.api_provider = api_provider
         self.model, self.key, self.system, self.max_tokens, self.post, self.sleep = model, key, system, max_tokens, post, sleep
         self.timeout_s, self.protocol_sha256, self.log = timeout_s, sha256_text(system), []
+        if api_provider != "openrouter":
+            self.protocol_sha256 = sha256_text(json.dumps({"system": system, "api_provider": api_provider,
+                "model": model, "max_completion_tokens": max_tokens, "reasoning_effort": None}, sort_keys=True))
 
     def _chat(self, messages: list[dict], schema: dict, purpose: str, max_tokens: Optional[int] = None) -> str:
         payload = {'model': self.model, 'messages': messages, 'max_tokens': max_tokens or self.max_tokens,
                    'response_format': {'type': 'json_schema', 'json_schema': {'name': 'decisions', 'strict': True, 'schema': schema}}}
-        retry = Retry(f'OpenRouter {self.model} ({purpose})', sleep=self.sleep)        # src/common/retry.py: bounded, larger for 429
+        if self.api_provider == 'openai':
+            payload['max_completion_tokens'] = payload.pop('max_tokens')
+        retry = Retry(f'{self.api_provider} {self.model} ({purpose})', sleep=self.sleep)        # src/common/retry.py: bounded, larger for 429
         started = time.monotonic(); request_seconds = 0.0; retry_wait_seconds = 0.0
         request_started = None
         while True:
             try:
                 request_started = time.monotonic()
-                body = self.post(URL, payload, self.key, self.timeout_s)
+                body = self.post(ENDPOINTS[self.api_provider], payload, self.key, self.timeout_s)
                 request_seconds += time.monotonic() - request_started
                 request_started = None
                 usage.record(purpose, body.get('model', self.model), body.get('usage'), retry.attempts,
                              latency_seconds=time.monotonic()-started, request_seconds=request_seconds,
                              retry_wait_seconds=retry_wait_seconds); retry.succeeded()
+                if self.api_provider == 'openai':
+                    if not model_matches(self.model, body.get('model'), self.api_provider):
+                        raise IntegrationUnavailable(f'Returned model {body.get("model")!r} differs from {self.model!r}; no substitution allowed')
+                    choice = body['choices'][0]
+                    if choice.get('finish_reason') != 'stop' or choice['message'].get('refusal'):
+                        raise IntegrationUnavailable('OpenAI judge did not return a complete, non-refused response')
                 return body['choices'][0]['message'].get('content') or ''
             except urllib.error.HTTPError as e:
                 if request_started is not None:
@@ -98,7 +112,7 @@ class LunaDecisionClient:
             raw.append(self._chat(messages + [{'role': 'assistant', 'content': raw[0]}, {'role': 'user', 'content': fix}], schema, purpose))
             parsed, err = parse(raw[1], allowed)
             if err: errors.append(err)
-        rec = {'purpose': purpose, 'model': self.model, 'protocol_sha256': self.protocol_sha256, 'raw': raw, 'parsed': parsed,
+        rec = {'purpose': purpose, 'model': self.model, 'protocol_sha256': self.protocol_sha256, 'api_provider': self.api_provider, 'raw': raw, 'parsed': parsed,
                'repaired': len(raw) > 1, 'repair_ok': len(raw) > 1 and err is None, 'errors': errors}
         self.log.append(rec)
         if err or parsed is None: raise IntegrationUnavailable(f'{self.model} returned no valid {purpose} decision after one repair: {err}')
@@ -122,7 +136,7 @@ class LunaDecisionClient:
             raw.append(self._chat(messages + [{'role': 'assistant', 'content': raw[0]}, {'role': 'user', 'content': fix}], schema, purpose))
             parsed, err = parse_objects(raw[1], list(items), fields)
             if err: errors.append(err)
-        rec = {'purpose': purpose, 'stage': stage, 'model': self.model, 'protocol_sha256': self.protocol_sha256, 'raw': raw, 'parsed': parsed,
+        rec = {'purpose': purpose, 'stage': stage, 'model': self.model, 'protocol_sha256': self.protocol_sha256, 'api_provider': self.api_provider, 'raw': raw, 'parsed': parsed,
                'repaired': len(raw) > 1, 'repair_ok': len(raw) > 1 and err is None, 'errors': errors}
         self.log.append(rec)
         if err or parsed is None: raise IntegrationUnavailable(f'{self.model} returned no valid {purpose} decision after one repair: {err}')

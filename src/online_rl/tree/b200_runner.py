@@ -119,8 +119,12 @@ def preflight(cfg, *, resources=True):
     if type(cap) is not int or cap < 1: errors.append('global_api_max_in_flight must be a positive integer')
     for name, role, model in (('generator', rb.get('generation', {}), rb.get('generator_model')),
                               ('consolidate', rb.get('consolidate', {}), rb.get('consolidate', {}).get('model'))):
-        if model != 'openai/gpt-6-luna' or role.get('reasoning_effort') != 'none' or role.get('strict_provider_parameters') is not True:
+        if model != 'gpt-6-luna' or role.get('api_provider') != 'openai' or role.get('reasoning_effort') != 'none' or role.get('strict_provider_parameters') is not True:
             errors.append(f'{name} requires gpt-6-luna, explicit reasoning none and strict provider parameters')
+    if cfg.get('api', {}).get('provider') != 'openai' or cfg['judges'].get('api_provider') != 'openai':
+        errors.append('B200 API roles require the direct OpenAI provider')
+    if any(cfg['judges'].get(k) != 'gpt-6-luna' for k in ('gate_model', 'scorer_model')):
+        errors.append('Gate and scorer require gpt-6-luna')
     cc = rb.get('consolidate', {})
     cp = ROOT / cc.get('prompt_file', '__missing__')
     if not cp.is_file() or file_sha(cp) != cc.get('prompt_sha256'):
@@ -212,7 +216,9 @@ def preflight(cfg, *, resources=True):
                     errors.append('Environment paths differ from the downloaded Doctor receipt')
                 if binary and Path(binary).is_file() and file_sha(binary) != receipt['binary_sha256']:
                     errors.append('Pinned Ollama executable changed')
-        if not os.environ.get('OPENROUTER_API_KEY', '').strip(): errors.append('OPENROUTER_API_KEY is missing in this terminal')
+        from src.common.llm_provider import load_key as provider_key
+        try: provider_key(cfg.get('api', {}).get('provider'))
+        except ValueError as exc: errors.append(str(exc))
     return errors
 
 
@@ -329,7 +335,8 @@ def run(cfg, *, max_batches=None, evaluate=False):
         base_identity = model_identity(cfg)
         if state and state['base_model_identity'] != base_identity: raise RuntimeError('Local base model changed')
         torch.manual_seed(cfg['schedule']['seed'])
-        policy = SharedPolicy(cfg, os.environ['OPENROUTER_API_KEY'], device='cuda:1')
+        from src.common.llm_provider import load_key as provider_key
+        policy = SharedPolicy(cfg, provider_key(cfg['api']['provider']), device='cuda:1')
         if policy.doctor.verify(require_loaded=cfg['rollout']['doctor_backend']['engine'] == 'hf_local')['problems']: raise RuntimeError('Running Doctor does not match pinned identity')
         policy.seed_all = lambda seed: None
         initial = adapter_sha256(policy.model)

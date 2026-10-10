@@ -26,26 +26,26 @@ The standalone configuration records its source config and hash under `notes`.
 | Checkpoints | Initial, every30 cases, final120; recovery checkpoint every5-case batch |
 | Evaluation | No base or intermediate test; explicit final120 checkpoint on test622 once |
 
-Generator and case consolidation both use `openai/gpt-6-luna` with explicit
-reasoning effort `none`. Gate stays `openai/gpt-5.6-luna`; scorer stays
-`openai/gpt-6-luna`, through the existing OpenRouter backend. Doctor reflection
-remains local Gemma. Model IDs, effective settings and prompt hashes enter the
-manifest and cache identities. This is a new run/output root; do not resume an
-old generator run under this configuration.
+Generator, consolidate, gate and scorer use **direct OpenAI `gpt-6-luna`**.
+This changes the gate model from gpt-5.6-luna and moves all four API roles off
+OpenRouter. Only `OPENAI_API_KEY` is read; no `.env` key fallback or provider
+substitution is used. Doctor reflection remains local Gemma.
 
-The actual request uses `"reasoning":{"effort":"none"}` and
-`"provider":{"require_parameters":true,"allow_fallbacks":false}`. These follow
-[OpenRouter reasoning](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)
-and [provider routing](https://openrouter.ai/docs/guides/routing/provider-selection).
-No fallback model list is sent. Unsupported settings/provider errors stop the
-run; returned model IDs must match exactly, and reported positive reasoning
-tokens with effort none are rejected. Generator schema errors get the existing
-one correction then fail; malformed consolidation fails without caching a bank.
-Real availability/support of this model on the account has **not been live
-verified**: CPU preflight is not a provider certification. Fake transport tests
-check the serialized request, not provider compliance. If the provider reports a
-different revision ID, stop and explicitly reconcile the pin rather than accept
-it silently. No model substitution or option removal is automatic.
+Requests use `https://api.openai.com/v1/chat/completions`,
+`max_completion_tokens`, and (generator/consolidate) `reasoning_effort: "none"`.
+Generator/consolidate omit temperature; gate/scorer retain provider-default
+reasoning and their existing prompts, structured schemas and token budgets.
+Provider/model/settings enter manifests and cache identities. Old provider caches
+are not reusable. Existing committed runs cannot resume with a changed config.
+
+See the [OpenAI model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna)
+and [Chat Completions request schema](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create).
+The returned model must be the requested alias or a date-suffixed snapshot of
+that same model. The actual response model and request ID are audited. Unsupported
+settings/models fail explicitly; real account access has **not been live tested**.
+All retries share the run's 50-slot limiter; retry/backoff waits release slots.
+Generator/consolidate reasoning tokens despite explicit `none` are rejected.
+Existing bounded JSON repair rules are retained; errors never become reward zero.
 
 The initial adapter parameter hash must equal
 `9018ce3bbacd319049576e8ace88afb4777621a8769919bf46676fca8a85b17c`.
@@ -128,13 +128,13 @@ different server's base weights match; reuse the original Qwen snapshot there.
 ## Parallel bank and global API capacity
 
 Set `rubric.candidate_batch_size` (default8) and
-`execution.global_api_max_in_flight` (default100) in
+`execution.global_api_max_in_flight` (default50) in
 `configs/experiments/train120_max4_rubric_only_b200.json` **before starting**.
 The existing `five_gpu.api_workers` controls ready scoring/feedback tasks; it
 is a worker count, not another API allowance. Five case coordinators can generate
 up to40 candidate tasks together at the default chunk size. Consolidation is
 sequential within each case and can overlap across cases. No dummy requests are
-created to reach100. Generation batch size means scheduling chunk size; it does
+created to reach50. Generation batch size means scheduling chunk size; it does
 not change the five-case optimizer batch or combine terminals into one prompt.
 
 All roles and retries share ONE process-wide semaphore at the physical JSON HTTP
@@ -331,9 +331,9 @@ unset SHERPA_OLLAMA_BINARY SHERPA_OLLAMA_MODELS SHERPA_DOCTOR_RECEIPT
 # Optional: export SHERPA_OLLAMA_HOME=/PATH/ON/LARGE/DISK/sherpa-b200
 export CUDA_VISIBLE_DEVICES=0,1
 set +x
-read -rsp 'OPENROUTER_API_KEY: ' OPENROUTER_API_KEY
+read -rsp 'OPENAI_API_KEY: ' OPENAI_API_KEY
 printf '\n'
-export OPENROUTER_API_KEY
+export OPENAI_API_KEY
 ```
 
 Do not put the key in a file or command-line argument. If the data paths on B200
@@ -501,7 +501,7 @@ Total role request seconds are not wall-clock speed; parallel work overlaps.
 Unknown cost remains explicitly unpriced. Compare both wall time and actual
 attempt/token/cost totals when assessing this change.
 
-## Latest CPU validation: parallel bank
+## Previous CPU validation: parallel bank
 
 **743 passed, 12 skipped, 9 deselected** in56.53s with:
 
@@ -526,3 +526,15 @@ CPU preflight returned an empty blocker list. Remote resources/model support
 must still pass the user-run checks described above.
 
 Learning-rate override addition: **74 targeted CPU tests passed**, including13 new LR tests (CLI/environment/default precedence, invalid values, separate output paths, resume identity, real CPU optimizer and progress reporting). CPU preflight with `SHERPA_LEARNING_RATE=5e-6` returned no blockers. The743 full-suite result above precedes this addition. No installation or live execution was performed.
+
+## Direct OpenAI / 50 requests update CPU validation
+
+802 distinct active tests passed:794 in the sandbox plus8 local-socket tests
+confirmed outside it (the socket rerun passed10 tests, including2 already passed).
+12 existing skips and9 deselections remain. Six new fake-HTTP tests cover direct
+OpenAI credentials, all four role URLs/payloads, provider-specific cache identity,
+model substitution refusal and bounded global concurrency with retries. After
+adding API provider labels to the manifest,22 API/bank tests passed again.
+CPU-only preflight reported no blockers; actual B200 model paths/account access
+must still pass normal preflight in the user terminal. No live LLM API call,
+GPU inference, training or held-out evaluation was executed.

@@ -41,7 +41,9 @@ def model_roles(cfg: dict) -> dict:
             'rubric_consolidate': (r.get('consolidate') or {}).get('model'),
             'generator_settings': r.get('generation'), 'consolidate_settings': r.get('consolidate'),
             'rubric_gate': j.get('gate_model'), 'rubric_scorer': j.get('scorer_model'),
-            'prompt_reflection': pu.get('reflection_model'), 'prompt_refiner': pu.get('refiner_model')}
+            'prompt_reflection': pu.get('reflection_model'), 'prompt_refiner': pu.get('refiner_model'),
+            **({'api_provider': cfg['api']['provider'], 'judge_api_provider': j.get('api_provider'),
+                'judge_reasoning_effort': 'provider_default'} if 'api' in cfg else {})}
 
 
 @dataclass(frozen=True)
