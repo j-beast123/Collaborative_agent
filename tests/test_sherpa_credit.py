@@ -246,7 +246,7 @@ def test_e3_config_differs_from_e1_only_in_the_credit_rule():
 def test_e3_outcome_differs_from_e3_private_only_in_the_decision_target():
     priv, out = (flat(X.load_config(f'{T2}/pilot/{n}.json')) for n in ('e3_think_separated', 'e3o_think_separated_outcome'))
     assert research_diff(priv, out) == {'agent_reward.decision_target'} and out['agent_reward.decision_target'] == 'outcome'
-    assert research_diff(flat(X.load_config(f'{T2}/pilot/smoke_e3o.json')), out) == {'schedule.cases'}
+    assert research_diff(flat(X.load_config(f'{T2}/pilot/smoke_e3o.json')), out) == {'schedule.cases', 'five_gpu.agent_batch_size'}       # the smoke uses the final batch size 1
     assert X.fingerprint(X.load_config(f'{T2}/pilot/e3_think_separated.json')) != X.fingerprint(X.load_config(f'{T2}/pilot/e3o_think_separated_outcome.json'))
 
 
@@ -266,10 +266,22 @@ def test_main120_configs_are_the_pilot_arms_with_120_cases_and_the_stated_coeffi
     pairs = {'e1_shared_5_5': ('e1_think_shared', (0.5, 0.5)), 'e3_outcome_5_5': ('e3o_think_separated_outcome', (0.5, 0.5)), 'e3_private_5_5': ('e3_think_separated', (0.5, 0.5))}
     for main, (pilot, w) in pairs.items():
         m, p = flat(X.load_config(f'{T2}/main120/{main}.json')), flat(X.load_config(f'{T2}/pilot/{pilot}.json'))
-        assert research_diff(m, p) == {'schedule.cases'} and m['schedule.cases'] == 120 and (m['agent_reward.w_outcome'], m['agent_reward.w_rubric']) == w
+        assert research_diff(m, p) == {'schedule.cases', 'five_gpu.agent_batch_size'} and m['schedule.cases'] == 120 and (m['agent_reward.w_outcome'], m['agent_reward.w_rubric']) == w
         assert m['five_gpu.checkpoint_every_cases'] == 30 and m['output_dir'].startswith('outputs/fixed_t2_main120/')
     base = flat(X.load_config(f'{T2}/main120/e3_private_5_5.json'))
     for main, w in (('e3_private_7_3', (0.7, 0.3)), ('e3_private_3_7', (0.3, 0.7))):                                  # (decision, collaboration) coefficients
         m = flat(X.load_config(f'{T2}/main120/{main}.json'))
         assert research_diff(m, base) == {'agent_reward.w_outcome', 'agent_reward.w_rubric'} and (m['agent_reward.w_outcome'], m['agent_reward.w_rubric']) == w
     assert len({flat(X.load_config(f'{T2}/main120/{n}.json'))['output_dir'] for n in ('e1_shared_5_5', 'e3_outcome_5_5', 'e3_private_5_5', 'e3_private_7_3', 'e3_private_3_7')}) == 5
+
+
+def test_final_matrix_uses_generation_batch_size_one_and_is_otherwise_matched():
+    """FINAL 120 protocol: Agent generation batch size 1 on every host; the five arms share everything but the credit rule / coefficients."""
+    names = ('e1_shared_5_5', 'e3_outcome_5_5', 'e3_private_5_5', 'e3_private_7_3', 'e3_private_3_7'); cfgs = {n: flat(X.load_config(f'{T2}/main120/{n}.json')) for n in names}
+    ref = cfgs['e3_private_5_5']
+    for n, c in cfgs.items():
+        assert c['five_gpu.agent_batch_size'] == 1 and c['rollout.agent_thinking'] is True and c['rollout.agent_think_budget'] == 2048, n
+        assert (c['schedule.cases'], c['rollout.rounds'], c['rollout.branching'], c['optimizer.learning_rate'], c['five_gpu.batch_cases'], c['five_gpu.checkpoint_every_cases']) == (120, 2, 4, 1e-05, 5, 30), n
+        assert research_diff(c, ref) <= {'agent_reward.credit', 'agent_reward.decision_target', 'agent_reward.w_outcome', 'agent_reward.w_rubric'}, (n, research_diff(c, ref))
+        assert c['five_gpu.train_order_sha256'] == ref['five_gpu.train_order_sha256'] and c['policy.lora.init_seed'] == ref['policy.lora.init_seed']
+    assert flat(X.load_config(f'{T2}/pilot/smoke_e3o.json'))['five_gpu.agent_batch_size'] == 1

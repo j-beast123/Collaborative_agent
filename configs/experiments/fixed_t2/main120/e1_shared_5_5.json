@@ -4,11 +4,14 @@
     "agent_thinking": true,
     "agent_think_budget": 2048
   },
-  "notes": "MAIN 120 (prepared 2026-10-10; NOT launched until the 60-case pilots are read): E1: existing shared SHERPA 5:5 (one trajectory-level reward 0.5 Outcome + 0.5 R_A on both segments). Thinking ON; CLEAN recipe otherwise (original train order, first 120 cases, lr 1e-5, T2, G4, P0_FIXED, scorer cache); checkpoints every 30 cases; selection on repeated held-out DEV only.",
+  "notes": "MAIN 120 (prepared 2026-10-10; NOT launched until the 60-case pilots are read): E1: existing shared SHERPA 5:5 (one trajectory-level reward 0.5 Outcome + 0.5 R_A on both segments). Thinking ON; Agent generation batch size 1 on every host (final protocol: batch size changes the sampled rollouts under thinking, so it is fixed); CLEAN recipe otherwise (original train order, first 120 cases, lr 1e-5, T2, G4, P0_FIXED, scorer cache); checkpoints every 30 cases; selection on repeated held-out DEV only.",
   "experiment": {
     "reward_weight_rubric": 0.5,
     "reward_weight_outcome": 0.5,
     "output_root": "outputs/fixed_t2_main120",
     "variant": "t2m_e1think"
+  },
+  "five_gpu": {
+    "agent_batch_size": 1
   }
 }

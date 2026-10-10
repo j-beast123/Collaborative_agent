@@ -11,11 +11,14 @@
     "credit": "separated",
     "decision_target": "outcome"
   },
-  "notes": "5-case TRAINING smoke of the pilot E3-outcome path: engineering check only. Not a result.",
+  "notes": "5-case TRAINING smoke of the pilot E3-outcome path: engineering check only. Not a result. Agent generation batch size 1 (final protocol).",
   "experiment": {
     "reward_weight_rubric": 0.5,
     "reward_weight_outcome": 0.5,
     "output_root": "outputs/fixed_t2_pilot_smoke",
     "variant": "t2psmoke_e3out"
+  },
+  "five_gpu": {
+    "agent_batch_size": 1
   }
 }
