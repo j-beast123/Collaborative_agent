@@ -7,11 +7,14 @@
   "agent_reward": {
     "credit": "separated"
   },
-  "notes": "MAIN 120 (prepared 2026-10-10; NOT launched until the 60-case pilots are read): E3-private 7:3 (sensitivity): 0.7 L_D + 0.3 L_C. Thinking ON; CLEAN recipe otherwise (original train order, first 120 cases, lr 1e-5, T2, G4, P0_FIXED, scorer cache); checkpoints every 30 cases; selection on repeated held-out DEV only.",
+  "notes": "MAIN 120 (prepared 2026-10-10; NOT launched until the 60-case pilots are read): E3-private 7:3 (sensitivity): 0.7 L_D + 0.3 L_C. Thinking ON; Agent generation batch size 1 on every host (final protocol: batch size changes the sampled rollouts under thinking, so it is fixed); CLEAN recipe otherwise (original train order, first 120 cases, lr 1e-5, T2, G4, P0_FIXED, scorer cache); checkpoints every 30 cases; selection on repeated held-out DEV only.",
   "experiment": {
     "reward_weight_rubric": 0.3,
     "reward_weight_outcome": 0.7,
     "output_root": "outputs/fixed_t2_main120",
     "variant": "t2m_e3priv"
+  },
+  "five_gpu": {
+    "agent_batch_size": 1
   }
 }
