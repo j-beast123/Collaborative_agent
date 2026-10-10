@@ -147,6 +147,11 @@ def preflight(cfg, *, resources=True):
             if {norm(c) for c in train} & {norm(c) for c in test}: errors.append('Train/test question overlap')
         except (ValueError, RuntimeError, OSError) as exc: errors.append(str(exc))
     if resources:
+        if os.environ.get('SHERPA_HF_RUN_ID'):
+            from src.online_rl.tree.b200_hub import run_id
+            try: run_id(os.environ['SHERPA_HF_RUN_ID'])
+            except ValueError as exc: errors.append(str(exc))
+            if not os.environ.get('HF_TOKEN', '').strip(): errors.append('HF_TOKEN is required for enabled HF backups (write access to the model repo)')
         model = Path(cfg['policy']['base_model'])
         if not model.is_dir() or not (model / 'config.json').is_file():
             errors.append('Set SHERPA_BASE_MODEL to the existing local Qwen3-8B snapshot')
@@ -273,6 +278,7 @@ def run(cfg, *, max_batches=None, evaluate=False):
     from src.online_rl.integrated.continuation import adapter_sha256, protocol_sha256
     from src.online_rl.cases import load_cases
     from src.online_rl.environment import final_outcome
+    from src.online_rl.tree.b200_hub import storage_settings
     if not torch.cuda.is_available() or torch.cuda.device_count() != 2:
         raise RuntimeError('Exactly two visible CUDA GPUs are required')
     out = (ROOT / cfg['output_dir']).resolve(); out.mkdir(parents=True, exist_ok=True)
@@ -321,12 +327,17 @@ def run(cfg, *, max_batches=None, evaluate=False):
                      'policy_sha256': initial, 'checkpoint': str(checkpoint)}
             save_checkpoint(updater, checkpoint, state)
             atomic_write_json(out / 'run_manifest.json', {'config': cfg, 'initial_state': state,
-                'logical_to_physical_gpu': physical_devices(), 'torch': torch.__version__, 'cuda': torch.version.cuda})
+                'logical_to_physical_gpu': physical_devices(), 'torch': torch.__version__, 'cuda': torch.version.cuda,
+                'hf_storage': storage_settings()})
             atomic_write_json(path, state)
         actual = lambda: adapter_sha256(policy.model)
         try:
+            from src.online_rl.tree.b200_hub import sync_barrier
+            # Retry a failed remote backup before advancing the locally committed run.
+            if state['case_cursor'] > 0: sync_barrier(out)
             if evaluate:
                 final_evaluation(cfg, out, state, policy, protocol_sha256(cfg, ROOT), final_outcome)
+                sync_barrier(out)
                 return
             cases = load_cases(ROOT / cfg['data']['train']); byid = {c['case_id']: c for c in cases}
             order = training_order(cfg, cases, ROOT)
@@ -357,6 +368,7 @@ def run(cfg, *, max_batches=None, evaluate=False):
                 count += 1
                 print(json.dumps({'stage': 'batch_committed', 'batch': state['batch_cursor'], 'completed_cases': state['case_cursor'],
                                   'optimizer_steps': updater.steps}), flush=True)
+                sync_barrier(out)
         finally:
             if hasattr(policy, '_batcher'): policy._batcher.close()
             atomic_write_json(out / 'api_usage_summary.json', usage_report(out / 'api_usage.jsonl'))

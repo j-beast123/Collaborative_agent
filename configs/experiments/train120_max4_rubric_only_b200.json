@@ -112,7 +112,7 @@
     "reuse": "assign_or_create_v1",
     "generation": {
       "max_tokens": 6144,
-      "temperature": 0.7,
+      "temperature": null,
       "reasoning_effort": "none",
       "response_format": null,
       "output_contract": "trajectory_analysis_candidate_v2_with_intervention",
@@ -134,7 +134,7 @@
       "reasoning_effort": "none",
       "strict_provider_parameters": true,
       "max_tokens": 16384,
-      "temperature": 0.7,
+      "temperature": null,
       "prompt_file": "prompts/sherpa/consolidate_partner_bank_v1.txt",
       "prompt_sha256": "cb40a48e86643bf2fcd9061b90c2fb151bd280992f1b359249835fd022e3cd7a"
     }
@@ -215,6 +215,7 @@
       "One fixed accuracy criterion per case bypasses generation/gate/verification and always applies; equal weight with partner KEEP criteria",
       "Independent trajectory candidates in parallel chunks of 8; one deterministic-ID-sorted case consolidation; verbatim representative, no rubric rewriting",
       "Generator and consolidate: openai/gpt-6-luna, reasoning none, strict provider parameters and no fallback",
+      "Generator/consolidate temperature omitted (null): Luna endpoint metadata does not support temperature; provider default is not assumed equal to previous 0.7. Agent/Doctor/gate/scorer unchanged.",
       "Single process-wide physical HTTP in-flight limit100, including all roles/retries; retry sleeps release slots"
     ],
     "preserved": [

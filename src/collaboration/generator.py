@@ -173,7 +173,7 @@ def dialogue_text(dialogue: list[dict]) -> str:
     )
 
 
-def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, temperature: float = 0.4,
+def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, temperature: float | None = 0.4,
                 extra: dict | None = None, meta: dict | None = None) -> str:
     """One OpenRouter chat completion (retry policy: src/common/retry.py). `extra` adds request fields (e.g. reasoning
     settings); `meta`, when given, receives finish_reason / native_finish_reason / usage of the returned completion."""
@@ -185,7 +185,7 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, t
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "temperature": temperature,
+            **({"temperature": temperature} if temperature is not None else {}),
             "max_tokens": max_tokens,
             "usage": {"include": True},
             **(extra or {}),

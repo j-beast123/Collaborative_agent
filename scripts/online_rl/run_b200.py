@@ -22,6 +22,7 @@ def main():
     try: cfg = load_config(args.config, learning_rate=args.learning_rate)
     except ValueError as exc: parser.error(str(exc))
     errors = preflight(cfg, resources=not args.cpu_only)
+    from src.online_rl.tree.b200_hub import storage_settings
     print(json.dumps({'action': args.action, 'blockers': errors, 'output': cfg['output_dir'],
                       'topology': cfg['two_gpu'], 'gpu_mapping': physical_devices() if not errors else None,
                       'train_cases': cfg['schedule']['cases'], 'reward': cfg['agent_reward'],
@@ -29,6 +30,7 @@ def main():
                       'bank_mode': cfg['rubric'].get('bank_mode'),
                       'candidate_batch_size': cfg['rubric'].get('candidate_batch_size'),
                       'global_api_max_in_flight': cfg['execution'].get('global_api_max_in_flight'),
+                      'hf_storage': storage_settings(),
                       'remote_model_support': 'not live-checked; strict provider parameters, no fallback; fail on rejection',
                       'resource_checks': not args.cpu_only, 'live_work_started': False}, indent=2))
     if errors: raise SystemExit(1)

@@ -6,12 +6,17 @@ Doctor needs, need-linked reflection, fixed-source linear continuation verificat
 and one always-applicable medical-accuracy criterion per case.
 
 Generator and consolidate now use `openai/gpt-6-luna` with reasoning `none`.
+Their unsupported temperature parameter is omitted; Agent/Doctor decoding is unchanged.
 Independent candidates run in configurable chunks (default8); one case-level
 consolidation fixes the bank and source mappings before gate/verification.
 All API roles and retries share a global100 in-flight limit. Gate/scorer,
 Doctor, rubric-only reward and the five-case update barrier remain unchanged.
 
 **새 서버 clone → 환경 준비 → 학습/재개/평가:** [한국어 실행 명령](docs/B200_CLONE_RUN.md).
+HF dataset `zzu819/SHERPA` is pinned and byte-verified against train120/test622.
+Set `SHERPA_HF_RUN_ID` and `HF_TOKEN` to back up complete committed batches and
+final evaluation outputs to the model repo `zzu819/SHERPA` (LoRA, optimizer,
+state, diagnostics and caches). [HF preparation/backup/restore commands](docs/B200_CLONE_RUN.md#9-hf-checkpointoutput-저장과-불러오기).
 Learning rate: `SHERPA_LEARNING_RATE=5e-6` 또는 `--learning-rate 5e-6` (기본 `1e-5`).
 다른 LR은 별도 출력 경로를 사용하며 재개·평가는 학습 당시 값을 유지합니다.
 

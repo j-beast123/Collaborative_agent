@@ -30,28 +30,40 @@ PyTorch2.7부터 Blackwell과 CUDA12.8 wheel 지원이 추가되었습니다.
 `requirements-b200.txt`는 Torch를 제외한 기존 주요 의존성 버전을 유지합니다.
 B200에서 이 조합의 실제 학습은 아직 검증하지 않았습니다. Torch/CUDA 버전은 run manifest에 기록됩니다.
 
-## 2. 원본 데이터 3개 준비
+## 2. Hugging Face에서 동일 데이터·Qwen 준비
 
-데이터는 git에 없으므로 clone만으로 준비되지 않습니다. B200에 이미 있다면
-아래 복사는 생략하고 3절의 데이터 환경변수에 그 경로를 지정하세요.
-그렇지 않으면 B200 터미널에서 현재 편집 서버의 원본을 가져옵니다.
-`EDITING_SERVER`에는 실제 접속 가능한 SSH 주소나 SSH config alias를 넣으세요.
+Dataset 저장소는 `zzu819/SHERPA`이며 아래 두 파일을 읽기 전용 확인했습니다.
+
+- `train/medmcqa_case120.jsonl`: 기존 train120과 SHA256·행 순서 동일.
+- `test/casimedicos-arg.jsonl`: 기존 test622와 SHA256·행 순서 동일.
+
+현재 고정 revision은 `7f222446084ed59885986a2a35fb6e467110da96`입니다.
+`main`의 추후 변경을 자동으로 따라가지 않습니다. Train order는 Git의 기존
+selection manifest로 재구성하고 원래 SHA256까지 검증합니다. 새로 샘플링하지 않습니다.
 
 ```bash
 cd "$HOME/Collaborative_agent-sherpa"
-EDITING_SERVER='zzuhyun@실제_편집서버_SSH주소'
-TRAIN_SOURCE=/convei_nas2/zzuhyun/Collaborative_agent/.worktrees/sherpa-jh/data/interim/medmcqa/five_gpu_train120_seed20261008
-TEST_SOURCE=/convei_nas2/zzuhyun/Collaborative_agent/.worktrees/sherpa-jh/data/interim/casimedicos
-mkdir -p data/interim/medmcqa/five_gpu_train120_seed20261008 data/interim/casimedicos
-scp "${EDITING_SERVER}:${TRAIN_SOURCE}/train120_excluding_calibration_seed20261008.jsonl" data/interim/medmcqa/five_gpu_train120_seed20261008/
-scp "${EDITING_SERVER}:${TRAIN_SOURCE}/train120_order_seed20261008.json" data/interim/medmcqa/five_gpu_train120_seed20261008/
-scp "${EDITING_SERVER}:${TEST_SOURCE}/all_en_622.jsonl" data/interim/casimedicos/
+export SHERPA_PYTHON="$PWD/.venv/bin/python"
+"$SHERPA_PYTHON" -m src.online_rl.tree.b200_hub data
 ```
 
-원본 파일과 순서를 그대로 사용하며 preflight가 세 파일의 SHA256과 개수를 검사합니다.
-Qwen은 **B200에서 접근 가능한 기존 로컬 Qwen3-8B snapshot**을 사용합니다.
-편집 서버의 경로가 B200에도 있다는 가정은 하지 않습니다. 기존 snapshot이 없다면
-동일한 파일을 먼저 복사해야 하며, 다른 revision을 자동 다운로드하지 않습니다.
+Qwen 원본은 upstream의 고정 revision에서 준비합니다. `zzu819/SHERPA` 모델 저장소에는
+학습한 LoRA·optimizer·출력·cache를 저장하며, 원본 Qwen 전체를 매번 복제하지 않습니다.
+이미 동일 revision의 로컬 모델이 있다면 다운로드를 생략하고 그 경로를 설정하세요.
+
+```bash
+export SHERPA_BASE_MODEL="$HOME/models/Qwen3-8B-b968826d9c46dd6066d109eabc6255188de91218"
+"$SHERPA_PYTHON" - <<'PY_MODEL'
+import os
+from huggingface_hub import snapshot_download
+snapshot_download("Qwen/Qwen3-8B", revision="b968826d9c46dd6066d109eabc6255188de91218",
+                  local_dir=os.environ["SHERPA_BASE_MODEL"])
+PY_MODEL
+```
+
+Ollama용 Gemma GGUF 모델은 아래 4절의 기존 installer/Doctor pin 절차를 유지합니다.
+HF에 저장한 LoRA만으로는 학습 재개에 충분하지 않으며 optimizer·상태·cache를 함께
+복원해야 합니다. 아래 9절이 전체 백업/복원 경로입니다.
 
 ## 3. 키를 제외한 실행 환경 저장
 
@@ -64,11 +76,13 @@ cd "$HOME/Collaborative_agent-sherpa"
 mkdir -p .local
 cat > .local/b200.env <<'ENV'
 export SHERPA_PYTHON="$HOME/Collaborative_agent-sherpa/.venv/bin/python"
-export SHERPA_BASE_MODEL="/실제/B200/로컬/Qwen3-8B/snapshot"
+export SHERPA_BASE_MODEL="$HOME/models/Qwen3-8B-b968826d9c46dd6066d109eabc6255188de91218"
 export SHERPA_TRAIN_FILE="$HOME/Collaborative_agent-sherpa/data/interim/medmcqa/five_gpu_train120_seed20261008/train120_excluding_calibration_seed20261008.jsonl"
 export SHERPA_TRAIN_ORDER="$HOME/Collaborative_agent-sherpa/data/interim/medmcqa/five_gpu_train120_seed20261008/train120_order_seed20261008.json"
 export SHERPA_TEST_FILE="$HOME/Collaborative_agent-sherpa/data/interim/casimedicos/all_en_622.jsonl"
 export SHERPA_LEARNING_RATE=1e-5
+export SHERPA_HF_MODEL_REPO=zzu819/SHERPA
+export SHERPA_HF_RUN_ID=b200-need-bank-lr1e5-run01
 export CUDA_VISIBLE_DEVICES=0,1
 export SHERPA_OLLAMA_HOME="$HOME/.local/share/sherpa-b200"
 export SHERPA_DOCTOR_RECEIPT="$HOME/Collaborative_agent-sherpa/.local/b200_doctor.json"
@@ -135,6 +149,9 @@ set +x
 read -rsp 'OPENROUTER_API_KEY: ' OPENROUTER_API_KEY
 printf '\n'
 export OPENROUTER_API_KEY
+read -rsp 'HF_TOKEN (model repo write access): ' HF_TOKEN
+printf '\n'
+export HF_TOKEN
 CFG=configs/experiments/train120_max4_rubric_only_b200.json
 bash scripts/online_rl/launch_b200.sh --config "$CFG" --action preflight
 ```
@@ -145,7 +162,9 @@ bash scripts/online_rl/launch_b200.sh --config "$CFG" --action preflight
 Preflight의 `blockers: []`, 선택한 `learning_rate`와 `output`을 확인하세요.
 Provider의 실제 모델 접근 권한/지원 여부는 CPU preflight가 보증하지 않습니다.
 Generator/consolidate는 OpenRouter `openai/gpt-6-luna`, reasoning `none`을 실제 요청하며
-미지원 응답은 중단합니다. Gate/scorer는 기존 설정입니다.
+미지원 응답은 중단합니다. Generator/consolidate의 temperature는 지원되지 않아 요청에서
+제외하며 provider 기본 동작을 사용합니다(기존 0.7과 같다고 가정하지 않습니다).
+Agent/Doctor/gate/scorer 설정은 유지합니다.
 
 ## 6. 첫 1배치 점검 → 전체 학습
 
@@ -178,6 +197,9 @@ set +x
 read -rsp 'OPENROUTER_API_KEY: ' OPENROUTER_API_KEY
 printf '\n'
 export OPENROUTER_API_KEY
+read -rsp 'HF_TOKEN (model repo write access): ' HF_TOKEN
+printf '\n'
+export HF_TOKEN
 CFG=configs/experiments/train120_max4_rubric_only_b200.json
 bash scripts/online_rl/launch_b200.sh --config "$CFG" --action preflight
 bash scripts/online_rl/launch_b200.sh --config "$CFG" --action train
@@ -202,3 +224,71 @@ bash scripts/online_rl/launch_b200.sh --config "$CFG" --action evaluate
 Doctor FINAL 정확도는 `final_accuracy.json`에 저장됩니다. 같은 평가 명령 재실행은
 미완료 case만 재개하며 완료된622개를 다시 평가하지 않습니다. 평가 결과로 LR이나
 checkpoint를 선택하지 않습니다. 상세 실험 정의와 진단 항목은 [B200 실행 가이드](B200_SHERPA.md)를 참고하세요.
+
+
+## 9. HF checkpoint·output 저장과 불러오기
+
+`SHERPA_HF_RUN_ID`를 설정하면 매 5-case 업데이트와 로컬 checkpoint 저장을 완료한
+barrier에서 `zzu819/SHERPA` **모델 저장소**의 `runs/<run-id>/`로 동기 백업합니다.
+첫 배치 완료 후 HF 저장까지 확인하고 다음 배치를 진행합니다. 최종 test 평가 완료
+후에도 평가 결과를 백업합니다. API key 파일·runtime 환경 파일·Doctor/Qwen 원본은
+포함하지 않습니다. 저장소는 현재 공개이므로 저장한 trajectory·reflection·진단도 공개됩니다.
+
+```text
+zzu819/SHERPA (model)
+└── runs/b200-need-bank-lr1e5-run01/
+    ├── snapshot.json              # 파일별 SHA256, 코드/설정/정책 identity
+    └── artifacts/
+        ├── checkpoints/           # LoRA, optimizer, CUDA RNG, COMPLETE.json
+        ├── run_state.json / run_manifest.json
+        ├── batches/               # tree, need, rubric, verification/cache
+        ├── cases/ / diagnostics/ / openings/
+        ├── evaluation/ / final_accuracy.json
+        └── API 사용량·재시도 로그
+```
+
+기존과 같은 local-first 저장입니다. HF를 GPU에서 직접 파일시스템처럼 사용하지
+않습니다. HF 백업은 추가 네트워크·저장 시간이며 학습/보상 API 비용과 별도입니다.
+실행별 `hf_sync.json`에 HF commit SHA와 마지막 전송 시간이 남습니다. HF commit 하나에
+manifest와 파일들을 같이 게시하며, 이전 버전은 해당 HF commit으로 조회합니다.
+서로 다른 실험/LR에는 다른 `SHERPA_HF_RUN_ID`를 사용하세요. 다른 config·code·경로의
+run을 같은 ID에 덮어쓰거나 더 오래된 진도로 덮어쓰는 것은 거부합니다.
+
+HF 저장 실패 시 해당 로컬 배치는 이미 완료된 상태로 중단됩니다. 다시 실행하면
+그 checkpoint를 복원하고 백업을 재시도한 뒤 다음 배치로 진행합니다. 업데이트를
+다시 적용하지 않습니다. 갑작스런 프로세스 종료·서버 손실에서는 마지막 성공한
+HF commit 이후의 미백업 작업은 복원할 수 없습니다.
+
+학습을 중지한 상태에서 추가 백업/파일 규모 확인:
+
+```bash
+SHERPA_RUN_DIR=$("$SHERPA_PYTHON" -c 'from src.online_rl.tree.b200_runner import load_config; print(load_config()["output_dir"])')
+"$SHERPA_PYTHON" -m src.online_rl.tree.b200_hub plan --run-dir "$SHERPA_RUN_DIR"
+"$SHERPA_PYTHON" -m src.online_rl.tree.b200_hub upload --run-dir "$SHERPA_RUN_DIR" --run-id "$SHERPA_HF_RUN_ID"
+```
+
+위 명령은 수동 업로드 중 active run의 `runner.lock`을 요구하므로 실행 중인 학습과
+동시에 복사하지 않습니다. 자동 백업은 원래 runner가 lock을 가진 barrier에서 실행합니다.
+
+HF에서 다운로드할 때는 `hf_sync.json`의 **40자리 revision SHA**를 지정합니다.
+아래 예시는 검사용 새 폴더로 다운로드하며, 기존 폴더를 덮어쓰지 않습니다.
+
+```bash
+HF_RUN_REVISION='hf_sync.json에_기록된_40자리_revision'
+"$SHERPA_PYTHON" -m src.online_rl.tree.b200_hub download \
+  --run-id "$SHERPA_HF_RUN_ID" --revision "$HF_RUN_REVISION" \
+  --dest "$HOME/sherpa-restored-run01"
+```
+
+Adapter만 사용하려면 복원한 `checkpoints/checkpoint_000120`의 PEFT adapter를 같은
+Qwen base model에 로드합니다. **학습 재개**는 전체 artifact와 기존 코드·LR·Doctor
+receipt·모델·데이터 경로가 필요합니다. 현재 trainer는 절대 경로/config/source hash를
+검사하므로 다른 경로로 다운로드한 폴더를 바로 train에 연결할 수는 없습니다.
+같은 원래 output 절대경로가 비어 있는 환경에서는 `--dest`를 그 경로로 지정하고
+동일 환경에서 7절 명령으로 재개합니다. 다른 서버/경로로의 identity 재작성은
+이 도구에서 자동 수행하지 않습니다. Doctor receipt(`.local/b200_doctor.json`)와
+원본 모델·설치 경로도 별도로 보존하세요.
+
+HF 동기화를 사용하지 않으려면 시작 전 `unset SHERPA_HF_RUN_ID`를 실행합니다.
+스토리지 옵션은 GRPO 학습 설정을 바꾸지 않습니다. Local checkpoint가 먼저 저장되므로
+HF 저장을 비활성화하고도 같은 로컬 run을 재개할 수 있습니다.

@@ -61,5 +61,33 @@
     "cpu_preflight_blockers": [],
     "real_gpu_api_training": false,
     "scope": "LR CLI/environment, optimizer wiring, resume identity and affected runner regressions; earlier full-suite count retained"
+  },
+  "hugging_face_storage": {
+    "date_utc": "2026-10-10",
+    "focused_tests": {
+      "passed": 101,
+      "failed": 0
+    },
+    "active_suite_in_sandbox": {
+      "passed": 761,
+      "skipped": 12,
+      "deselected": 9,
+      "socket_permission_failures_or_errors": 8
+    },
+    "socket_recheck_outside_sandbox": {
+      "passed": 10,
+      "note": "All eight socket-blocked active tests passed. One extra legacy train500 preflight test was collected by the broader file command and failed for missing old train500 data; it is excluded by the active suite."
+    },
+    "cpu_preflight_blockers": [],
+    "dataset_repo": "zzu819/SHERPA",
+    "dataset_revision": "7f222446084ed59885986a2a35fb6e467110da96",
+    "remote_data_verified": {
+      "train_rows": 120,
+      "test_rows": 622,
+      "both_sha256_match_existing_experiment": true
+    },
+    "model_repo": "zzu819/SHERPA",
+    "model_repo_initial_revision": "89dbe11dc215edade15884da6d99ff7f7be3d056",
+    "live_operations": "Only public repository metadata and in-memory dataset-byte verification; no GPU, model download, LLM calls or Hub uploads."
   }
 }

@@ -185,7 +185,7 @@ def test_cpu_preflight_and_preserved_common_values(monkeypatch):
     assert cfg['data'] == old['data']
     assert cfg['rubric']['generator_model'] == cfg['rubric']['consolidate']['model'] == 'openai/gpt-6-luna'
     assert cfg['rubric']['generation']['reasoning_effort'] == cfg['rubric']['consolidate']['reasoning_effort'] == 'none'
-    expected_generation = {**old['rubric']['generation'], 'reasoning_effort': 'none', 'strict_provider_parameters': True}
+    expected_generation = {**old['rubric']['generation'], 'reasoning_effort': 'none', 'strict_provider_parameters': True, 'temperature': None}
     assert cfg['rubric']['generation'] == expected_generation
     for k in ('gate_model', 'scorer_model', 'scorer_protocol'):
         assert cfg['judges'][k] == old['judges'][k]

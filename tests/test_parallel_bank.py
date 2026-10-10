@@ -153,7 +153,7 @@ def test_real_backend_serializes_model_reasoning_and_rejects_substitution(monkey
         content={'clusters':[],'excluded':[]} if usage.current_stage()=='rubric_consolidate' else {'name':'Explain','applicability_condition':'any turn','required_behavior':'explain','scores':{'0':'none','1':'partial','2':'full'}}
         return Response({'model':return_model[0],'choices':[{'finish_reason':'stop','message':{'content':json.dumps(content)}}],'usage':{}})
     monkeypatch.setattr('urllib.request.urlopen',urlopen)
-    cfg=load_config();settings={'max_tokens':2048,'temperature':.7,'reasoning_effort':'none','strict_provider_parameters':True}
+    cfg=load_config();settings={'max_tokens':2048,'temperature':None,'reasoning_effort':'none','strict_provider_parameters':True}
     gen=api_rubric_generator('fake-key',cfg['rubric']['generator_model'],settings)
     gen('fixed',next(iter(sources()[2].values())))
     con=P.api_consolidator('fake-key',cfg['rubric']['consolidate']);con([])
@@ -162,6 +162,7 @@ def test_real_backend_serializes_model_reasoning_and_rejects_substitution(monkey
         assert payload['model']=='openai/gpt-6-luna'
         assert payload['reasoning']=={'effort':'none'}
         assert payload['provider']=={'require_parameters':True,'allow_fallbacks':False}
+        assert 'temperature' not in payload
         assert 'models' not in payload
     return_model[0]='other-model'
     with pytest.raises(RuntimeError,match='no substitution'):con([])
