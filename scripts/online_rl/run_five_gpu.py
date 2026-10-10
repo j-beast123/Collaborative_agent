@@ -52,9 +52,11 @@ def preflight(cfg):
     batch_cases = 5 if shared else 4
     if shared and fg.get('base_evaluation', {}).get('enabled'):
         errors.append('Shared five-GPU checkpoint evaluation cannot run BASE evaluation concurrently')
-    if shared and (fg.get('agent_batch_size') != 4 or fg.get('doctor_concurrency') != 1 or
-                   os.environ.get('SHERPA_AGENT_BATCH_SIZE','4') != '4' or os.environ.get('SHERPA_DOCTOR_CONCURRENCY','1') != '1'):
-        errors.append('Shared mode requires the measured Agent4 / Doctor1 configuration')
+    # Agent batch 4 is the measured configuration; 1 is the host-overlay value for 24 GiB GPUs with thinking-length generations
+    # (execution only: per-row RNG sampling does not depend on the batch size).
+    if shared and (fg.get('agent_batch_size') not in (1, 4) or fg.get('doctor_concurrency') != 1 or
+                   os.environ.get('SHERPA_AGENT_BATCH_SIZE',str(fg.get('agent_batch_size'))) != str(fg.get('agent_batch_size')) or os.environ.get('SHERPA_DOCTOR_CONCURRENCY','1') != '1'):
+        errors.append('Shared mode requires Agent batch 4 (measured) or 1 (24 GiB overlay) and Doctor concurrency 1')
     if fg['rollout_gpus'] != (list(range(5)) if shared else [0,1,2,3]) or fg['update_gpu'] != 4 or fg['lanes_per_gpu'] != 1 or fg.get('batch_cases') != batch_cases:
         errors.append(f'Need {batch_cases} case coordinators, one lane each, updater GPU4')
     if fg['checkpoint_every_cases'] != (30 if shared else 24) or len(fg['doctor_urls']) != 5:
