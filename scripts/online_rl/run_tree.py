@@ -230,7 +230,7 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
     # the tree prompt search uses only the reflection / refinement calls of this backend
     backend = sol_backend(key, text(pu['feedback_prompt_file']), text(pu['refiner_prompt_file']), env.generate_fn, env.gate_fn, env.scorer,
                           reflection_model=pu['reflection_model'], refiner_model=pu['refiner_model'])
-    strategies = team_strategies(updater, ar['w_outcome'], ar['w_rubric'])
+    strategies = team_strategies(updater, ar['w_outcome'], ar['w_rubric'], ar.get('credit', 'shared'))
     if defer_update:
         from dataclasses import replace
         strategies = replace(strategies, agent_update=lambda tree, targets: {'optimizer_step': False, 'deferred_to_gpu4': True})

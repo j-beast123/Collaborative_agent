@@ -8,7 +8,7 @@
 set -u
 cd "$(dirname "$0")/../.."
 ARM="${1:?usage: supervise_arm.sh <arm> [max_restarts]}"; MAX="${2:-3}"; PY="${SHERPA_PYTHON:-python}"
-case "$ARM" in dev_*) CFG=configs/experiments/dev_opt/${ARM#dev_}.json;; t2dev_*) CFG=configs/experiments/fixed_t2/dev/${ARM#t2dev_}.json;; t2smoke) CFG=configs/experiments/fixed_t2/smoke_r05.json;; t2rw_*) CFG=configs/experiments/fixed_t2/dev_reward/${ARM#t2rw_}.json;; t2dis_*) CFG=configs/experiments/fixed_t2/dis/${ARM#t2dis_}.json;; t2f120_*) CFG=configs/experiments/fixed_t2/final120/${ARM#t2f120_}.json;; t2bal_*) CFG=configs/experiments/fixed_t2/bal/${ARM#t2bal_}.json;;
+case "$ARM" in dev_*) CFG=configs/experiments/dev_opt/${ARM#dev_}.json;; t2dev_*) CFG=configs/experiments/fixed_t2/dev/${ARM#t2dev_}.json;; t2smoke) CFG=configs/experiments/fixed_t2/smoke_r05.json;; t2rw_*) CFG=configs/experiments/fixed_t2/dev_reward/${ARM#t2rw_}.json;; t2dis_*) CFG=configs/experiments/fixed_t2/dis/${ARM#t2dis_}.json;; t2f120_*) CFG=configs/experiments/fixed_t2/final120/${ARM#t2f120_}.json;; t2bal_*) CFG=configs/experiments/fixed_t2/bal/${ARM#t2bal_}.json;; t2p_*) CFG=configs/experiments/fixed_t2/pilot/${ARM#t2p_}.json;;
   t2_*) CFG=configs/experiments/fixed_t2/${ARM#t2_}.json;; *) echo "supervise_arm.sh supports dev_*, t2dev_* and t2_* arms" >&2; exit 2;; esac
 read -r OUT CASES < <("$PY" -c "import sys;sys.path.insert(0,'.');from src.online_rl.tree import experiment as X;c=X.load_config('$CFG');print(c['output_dir'],c['schedule']['cases'])")
 mkdir -p "$OUT"; LOG="$OUT/SUPERVISOR.log"

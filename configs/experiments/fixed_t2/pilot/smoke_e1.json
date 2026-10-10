@@ -1,0 +1,17 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "schedule": {
+    "cases": 5
+  },
+  "rollout": {
+    "agent_thinking": true,
+    "agent_think_budget": 2048
+  },
+  "notes": "5-case TRAINING smoke of the pilot E1 path (thinking ON + the existing SHERPA 5:5 shared reward): engineering check only (thinking-token loss, memory, hidden-text stripping, reward, gradients, checkpoint). Not a result.",
+  "experiment": {
+    "reward_weight_rubric": 0.5,
+    "reward_weight_outcome": 0.5,
+    "output_root": "outputs/fixed_t2_pilot_smoke",
+    "variant": "t2psmoke_e1think"
+  }
+}

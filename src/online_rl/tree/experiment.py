@@ -173,6 +173,11 @@ def resolve(raw: dict) -> dict:
     if variant is not None and (not isinstance(variant, str) or not VARIANT_TAG.match(variant)):
         raise ValueError(f'experiment.variant must be a lowercase tag like dev_base; got {variant!r}')
     cfg['agent_reward'] = {**cfg['agent_reward'], 'w_outcome': w_o, 'w_rubric': w_r}
+    credit = cfg['agent_reward'].get('credit', 'shared')
+    if credit not in ('shared', 'decision_only'): raise ValueError(f'agent_reward.credit must be shared or decision_only; got {credit!r}')
+    if credit == 'decision_only' and (w_r != 0.0 or cfg['rollout'].get('agent_protocol') != 'precommit_v1'):
+        raise ValueError('decision_only credit (R_D on the private segment) takes no rubric term (reward_weight_rubric 0) and needs precommit_v1')
+    if (credit != 'shared' or cfg['rollout'].get('agent_thinking')) and variant is None: raise ValueError('agent_thinking / credit need an experiment.variant')
     # Zero rubric weight = Outcome-only: no rubric pipeline.
     cfg['rubric']['enabled'] = w_r > 0.0
     cfg['feedback']['model'] = exp['feedback_model']
@@ -204,6 +209,9 @@ def fingerprint(cfg: dict) -> Optional[str]:
                 'seed': cfg['schedule']['seed'], 'theta0': theta0_identity(cfg)}
     if cfg['experiment'].get('variant') is not None:
         identity.update(variant=cfg['experiment']['variant'], training_hyperparameters=training_hyperparameters(cfg))
+    if cfg['rollout'].get('agent_thinking'):                      # absent in every frozen run: their fingerprints are unchanged
+        identity['agent_thinking'] = {'enabled': True, 'think_budget': cfg['rollout'].get('agent_think_budget', 2048)}
+    if cfg['agent_reward'].get('credit', 'shared') != 'shared': identity['credit'] = cfg['agent_reward']['credit']
     if cfg.get('judges', {}).get('scorer_request_cache'):        # absent in every frozen run: their fingerprints are unchanged
         identity['scorer_request_cache'] = cfg['judges']['scorer_request_cache']
     return sha256_json(identity)
@@ -258,8 +266,9 @@ def check_batch(cfg: dict, records: list[dict]) -> list[dict]:
         if t.get('reward_weights') != w: raise RuntimeError(f"Record reward weights {t.get('reward_weights')} differ from config {w}")
         for nid, x in sorted(t['nodes'].items()):
             if not rubric_on and x['R_A'] is not None: raise RuntimeError(f'R_rubric computed with zero rubric weight at {nid}')
-            if not _same(x['reward'], compose_reward(x['outcome_component'], x['R_A'], **w)):
-                raise RuntimeError(f'Reward of {nid} differs from the configured mixture')
+            expected = x.get('R_D') if cfg['agent_reward'].get('credit', 'shared') == 'decision_only' else compose_reward(x['outcome_component'], x['R_A'], **w)
+            if not _same(x['reward'], expected):
+                raise RuntimeError(f'Reward of {nid} differs from the configured ' + ('decision reward' if t.get('credit') == 'decision_only' else 'mixture'))
             rows.append({'case_cursor': r['case_cursor'], 'case_id': r['case_id'], 'node_id': nid,
                          'R_outcome': x['outcome_component'], 'R_rubric': x['R_A'],
                          'R_rubric_status': NOT_COMPUTED if not rubric_on else NA if x['R_A'] is None else SCORED,

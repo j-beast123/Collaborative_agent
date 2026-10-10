@@ -1,0 +1,20 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "schedule": {
+    "cases": 60
+  },
+  "notes": "PILOT E2 (2026-10-10, DIAGNOSTIC, not the 5:5 method): thinking ON + decision-only credit. Reward R_D = 1[private option == gold] centred within each sibling group; only the private segment (reasoning + OPTION + KEY_REASON) enters the loss; no visible-reply loss, no outcome term, no R_A (rubric pipeline off). Same rollout protocol, cases, order, initialization, lr and update schedule as E1.",
+  "rollout": {
+    "agent_thinking": true,
+    "agent_think_budget": 2048
+  },
+  "agent_reward": {
+    "credit": "decision_only"
+  },
+  "experiment": {
+    "reward_weight_rubric": 0.0,
+    "reward_weight_outcome": 1.0,
+    "output_root": "outputs/fixed_t2_pilot",
+    "variant": "t2p_e2dec"
+  }
+}

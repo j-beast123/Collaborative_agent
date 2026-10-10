@@ -1,0 +1,20 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "schedule": {
+    "cases": 5
+  },
+  "rollout": {
+    "agent_thinking": true,
+    "agent_think_budget": 2048
+  },
+  "notes": "5-case TRAINING smoke of the pilot E2 path (thinking ON + decision-only credit): engineering check only. Not a result.",
+  "agent_reward": {
+    "credit": "decision_only"
+  },
+  "experiment": {
+    "reward_weight_rubric": 0.0,
+    "reward_weight_outcome": 1.0,
+    "output_root": "outputs/fixed_t2_pilot_smoke",
+    "variant": "t2psmoke_e2dec"
+  }
+}

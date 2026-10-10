@@ -90,15 +90,21 @@ def grpo_loss(model, records: list[dict], adv: list[float], beta: float, clip_ep
     """Per action: -mean_t min(r_t A, clip(r_t) A) + beta * mean_t KL3(pi_ref || pi_theta) over ALL its sampled tokens (both
     segments of a precommit_v1 action, each teacher-forced under its own prompt; one segment otherwise), averaged over
     actions; r_t = pi_theta / pi_old. The sibling advantage A credits every token of the action. Backward per segment with
-    weight |segment| / |action| (the same gradient as one backward of the per-action mean)."""
+    weight |segment| / |action| (the same gradient as one backward of the per-action mean).
+    A record may name the segments that enter the loss (rec['loss_segments'], e.g. [0] = the private assessment only, the
+    decision-only diagnostic); the token mean is then over those segments. Absent / None = all segments (unchanged)."""
     import torch
     n = len(records); pol = kl = 0.0; ratios, dev_ref = [], 0.0
     for rec, a in zip(records, adv):
-        tr = rec['agent_traces'][0]; segs = segments(tr); total = sum(len(c) for _, c in segs)
+        tr = rec['agent_traces'][0]; segs = segments(tr); use = rec.get('loss_segments')
+        use = set(range(len(segs))) if use is None else set(use)
+        if not use or not use <= set(range(len(segs))): raise RuntimeError(f"loss_segments {sorted(use)} do not exist at {rec['trajectory_id']}")
+        total = sum(len(c) for k, (_, c) in enumerate(segs) if k in use)
         old_all = torch.tensor(tr['behavior_logprobs'], dtype=torch.float32)
-        if total == 0 or old_all.numel() != total: raise RuntimeError(f"logprob length mismatch at {rec['trajectory_id']}")
+        if total == 0 or old_all.numel() != sum(len(c) for _, c in segs): raise RuntimeError(f"logprob length mismatch at {rec['trajectory_id']}")
         offset = 0; pol_i = kl_i = 0.0
-        for p, c in segs:                                           # same per-token terms over both segments; mean over the whole action
+        for k, (p, c) in enumerate(segs):                           # same per-token terms over the used segments; mean over their tokens
+            if k not in use: offset += len(c); continue
             cur = sequence_logprobs(model, p, c, grad=True, token_chunk_size=token_chunk_size)
             old = old_all[offset:offset + len(c)].to(device=cur.device, dtype=cur.dtype); offset += len(c)
             ref = reference_logprobs(model, p, c, token_chunk_size=token_chunk_size)

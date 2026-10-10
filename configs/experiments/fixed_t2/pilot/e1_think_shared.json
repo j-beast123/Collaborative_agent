@@ -1,0 +1,17 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "schedule": {
+    "cases": 60
+  },
+  "notes": "PILOT E1 (2026-10-10, mechanism / learnability test): thinking ON + the existing SHERPA 5:5 (shared trajectory-level reward 0.5 Outcome + 0.5 R_A on both segments). CLEAN recipe otherwise: original train order, first 60 cases, lr 1e-5, T2, G4, P0_FIXED. Only rollout.agent_thinking differs from the CLEAN R05 run.",
+  "rollout": {
+    "agent_thinking": true,
+    "agent_think_budget": 2048
+  },
+  "experiment": {
+    "reward_weight_rubric": 0.5,
+    "reward_weight_outcome": 0.5,
+    "output_root": "outputs/fixed_t2_pilot",
+    "variant": "t2p_e1think"
+  }
+}
