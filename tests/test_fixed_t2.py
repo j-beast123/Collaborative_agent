@@ -267,3 +267,21 @@ def test_final120_arms_differ_only_in_reward_weights():
     from scripts.online_rl.preflight_destination import protocol_family
     fam = protocol_family(arm('final120/r05_o05')['experiment']['variant'])
     assert (fam['cases'], fam['rounds'], fam['root']) == (120, 2, 'outputs/fixed_t2_final120/')
+
+
+def test_balanced_arm_changes_only_the_order_and_case_count():
+    """Balanced-sampling diagnostic: the FINAL 120 OURS recipe with another training order and 60 cases; reward unchanged (0.5/0.5)."""
+    ref, cfg = flat(arm('final120/r05_o05')), flat(arm('bal/r05_o05'))
+    diff = {k for k in set(ref) | set(cfg) if ref.get(k) != cfg.get(k)} - NAMING - {'notes'}
+    assert {k for k in diff if not k.startswith('experiment.')} == {'schedule.cases', 'five_gpu.train_order_file', 'five_gpu.train_order_sha256'}
+    assert (cfg['agent_reward.w_rubric'], cfg['agent_reward.w_outcome']) == (0.5, 0.5) and cfg['schedule.cases'] == 60
+    assert cfg['output_dir'].startswith('outputs/fixed_t2_bal/') and cfg['prompt_update.enabled'] is False
+
+
+def test_balanced_order_is_train_pool_only_and_balanced():
+    d = ROOT / 'data/interim/medmcqa/five_gpu_train500'; new, old = d / 'train500_order_balanced_disagreement_v1.json', d / 'train500_order_seed20261008.json'
+    if not new.exists() or not old.exists(): pytest.skip('balanced order not built here')
+    n, o = json.loads(new.read_text()), json.loads(old.read_text()); man = json.loads((d / 'train500_order_balanced_disagreement_v1.manifest.json').read_text())
+    assert sorted(n) == sorted(o) and n[400:] == o[400:] and set(n[:60]) <= set(o[:400])
+    assert [h['case_id'] for h in man['head']] == n[:60] and sorted(h['stratum'] for h in man['head']) == ['AR_DW'] * 30 + ['AW_DR'] * 30
+    assert all(x in (2, 3) for x in man['head_per_batch_of_5_AR_DW'])
