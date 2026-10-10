@@ -1,49 +1,32 @@
-# SHERPA — B200 two-GPU improvement
+# SHERPA — B200 V7 rubric-only
 
-The new `sherpa-jh` experiment uses train120, four Agent turns, branching four,
-five-case frozen-policy batches and rubric-only GRPO. Doctor discussion is ordinary
-public text plus the original hidden STATUS; prospective private needs are disabled.
-Terminal Doctor reflection (helpful/unresolved), fixed-source linear continuation
-verification and one always-applicable medical-accuracy criterion remain.
+현재 추가 실험: **V7 생성·적용 판단·채점 + rubric-only + case별 병렬 + OpenAI Luna 통일**.
+고정 medical-accuracy criterion과 case 간 누적 rubric bank는 사용하지 않습니다.
+Case 내부 후보 생성/중복 제거, 고정 source의 선형 continuation verification은 유지합니다.
 
-Generator, consolidate, gate and scorer now use direct OpenAI `gpt-6-luna`
-with `OPENAI_API_KEY`. Generator/consolidate explicitly request reasoning `none`;
-gate/scorer retain provider-default reasoning.
-Their unsupported temperature parameter is omitted; Agent/Doctor decoding is unchanged.
-Independent candidates run in configurable chunks (default8); one case-level
-consolidation fixes the bank and source mappings before gate/verification.
-All API roles and retries share a global50 in-flight limit per run (two servers:100).
-Doctor, rubric-only reward and the five-case update barrier remain unchanged.
-OpenRouter credentials are not required for this B200 configuration.
-[Existing-server environment correction](docs/B200_CLONE_RUN.md#현재-서버-preflight-환경-수정).
+- API 역할: direct OpenAI `gpt-6-luna`, generator/consolidate reasoning `none`.
+- 유효 KEEP rubric 점수만 동일 가중 평균. 모두 N/A/유효 rubric 없음 → 학습 제외. Outcome fallback 없음.
+- Train120, max4/branching4, 5-case frozen-policy update, 기존 GRPO/LoRA 유지.
+- Doctor: 로컬 HF Gemma BF16, 사전 need 없음, terminal reflection 유지. Assistant: 로컬 Qwen3-8B.
+- GPU0 Doctor / GPU1 Assistant, case workers5, 후보 생성 묶음8, 전체 API 동시 상한50/run.
+- 학습 중 test 없음. 완료 후 최종 checkpoint로 test622 한 번 평가.
 
-**현재 실행은 사전 need 없는 posthoc-only 버전입니다.** 이전 run의 checkpoint/cache에 이어 붙이지 않고 새 이름으로 시작합니다. [두 서버 재시작 명령](docs/B200_CLONE_RUN.md#사전-private-need-제거-후-새-실험-시작).
+**[새 V7 설정·두 서버 tmux 실행·재개·평가 명령](docs/B200_V7_RUBRIC_ONLY.md)**
 
-**현재 Doctor: 기존 로컬 HF Gemma, BF16 (비양자화).** `SHERPA_DOCTOR_BACKEND=hf_local`로 사용하며 Ollama는 필요 없습니다. [모델 pin·실행 명령](docs/B200_CLONE_RUN.md#로컬-hf-gemma-3-12b-비양자화-doctor-사용-현재-선택).
+설정: [train120_max4_v7_rubric_only_b200.json](configs/experiments/train120_max4_v7_rubric_only_b200.json)
+런처: [launch_b200_v7.sh](scripts/online_rl/launch_b200_v7.sh)
+새 이름 사용: 로컬 `outputs/runs/NAME/`, HF `zzu819/SHERPA`의 `runs/NAME/`.
+이전 run의 checkpoint/cache를 새 보상에 이어 붙이지 않습니다.
 
-**공유 파일시스템에서 두 B200 실험:** `--run-name NAME`으로 로컬 `outputs/runs/NAME/`과 HF `runs/NAME/`을 함께 분리합니다. [이름 입력·LR 비교·재개 명령](docs/B200_CLONE_RUN.md#공유-파일시스템의-b200-두-서버-실험-이름-하나로-분리).
+V7 upstream commit: `ca0ad31f78347b23cad20b638bffeb65dd888a62`.
+성능 향상 자체를 확인한 것은 아니며 구현/CPU 검증만 수행합니다.
+Compact scorer는 criterion×응답별 호출이므로 기존 묶음 채점보다 API 비용이 늘 수 있습니다.
 
-**새 서버 clone → 환경 준비 → 학습/재개/평가:** [한국어 실행 명령](docs/B200_CLONE_RUN.md).
-HF dataset `zzu819/SHERPA` is pinned and byte-verified against train120/test622.
-Set `SHERPA_HF_RUN_ID` and `HF_TOKEN` to back up complete committed batches and
-final evaluation outputs to the model repo `zzu819/SHERPA` (LoRA, optimizer,
-state, diagnostics and caches). [HF preparation/backup/restore commands](docs/B200_CLONE_RUN.md#9-hf-checkpointoutput-저장과-불러오기).
-Learning rate: `SHERPA_LEARNING_RATE=5e-6` 또는 `--learning-rate 5e-6` (기본 `1e-5`).
-다른 LR은 별도 출력 경로를 사용하며 재개·평가는 학습 당시 값을 유지합니다.
+이전 accuracy 포함 버전의 설정/런처는 보존합니다:
+[기존 B200 설명](docs/B200_SHERPA.md), [clone·HF 준비](docs/B200_CLONE_RUN.md).
+새 변형 실행에는 위의 V7 안내를 사용하세요.
 
-**Setup, complete commands, resume rules and changes:** [B200 execution guide](docs/B200_SHERPA.md).
-Configuration: [train120_max4_rubric_only_b200.json](configs/experiments/train120_max4_rubric_only_b200.json).
-Launcher: [launch_b200.sh](scripts/online_rl/launch_b200.sh).
-Outputs after Doctor preparation: `outputs/sherpa_b200_max4_posthoc_only_v3/doctor_<digest12>/`.
-The execution guide includes an account-local Ollama0.12.5 installer and Doctor
-download/pinning commands; `.local/b200_doctor.json` automatically binds runtime
-paths and the actual downloaded digest. Existing system services are left intact.
 CPU regressions: `SHERPA_PYTHON=.venv/bin/python bash scripts/online_rl/test_b200.sh`.
-
-Unlike the earlier rule, all partner criteria being N/A does **not** exclude the
-group: a valid fixed accuracy score still contributes to learning. Outcome never
-fills a missing rubric reward. The fixed criterion bypasses verification and is
-inserted once per case, with the same weight as each verified partner criterion.
 
 The following section documents the preserved **older two-turn configuration**;
 its reward, GPU layout and immediate-FINAL verification do not describe the new run.

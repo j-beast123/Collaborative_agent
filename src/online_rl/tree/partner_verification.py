@@ -1,6 +1,6 @@
 """One preselected creator per rubric; anchored precommit action + linear dialogue.
 
-No generator/scorer calls occur here. Only parsed outcomes count as hits/misses.
+No verification dialogue is sent to a generator/scorer. V7 optionally audits the frozen instruction before any continuation. Only parsed outcomes count as hits/misses.
 Unparsed FINALs are cached evidence, not wrong answers; unresolved majority is
 INCOMPLETE and excluded. Generation/transport errors abort the batch. Resume
 reuses each completed model call and trial, with the same plan and seeds.
@@ -150,6 +150,21 @@ def verify_fixed_source(case, nodes, leaves, canon, assignments, *, backend, run
         proposed = make_plan(case, node, leaf, rubric, spec, run_seed, policy_sha256, backend.cfg)
         plan = cache.call('fixed_verification_plan', {'identity': proposed}, lambda: proposed)
 
+        instruction_review = None
+        if getattr(backend, 'instruction_auditor', None) is not None:
+            from src.online_rl.tree.instruction_audit import cached_instruction_auditor
+            reviewer = cached_instruction_auditor(backend.instruction_auditor, cache, policy_sha256)
+            instruction_review = reviewer(case, node.prefix, rubric.rubric, spec)
+            if not instruction_review['passed']:
+                row = {'leaf_id': leaf.leaf_id, 'node_id': node.node_id, 'target_reply_id': node.depth,
+                       'plan': plan, 'instruction_audit': instruction_review, 'result': 'INSTRUCTION_REJECTED',
+                       'reruns': 0, 'rerun_records': [], 'outcomes': [], 'valid_outcomes': 0, 'unparsed': 0,
+                       'errors': [], 'error_count': 0, 'early_decision': False, 'planned_trials': 3,
+                       'executed_trials': 0, 'third_trial_executed': False}
+                out[cid] = WitnessVerification(cid, creator.stratum, len(members), tuple(a.leaf_id for a in members),
+                    (leaf.leaf_id,), (row,), 0, 0, None, 'DROP', 'instruction_rejected_before_trials', FIXED_SOURCE_PROTOCOL)
+                continue
+
         def one(index):
             ident = {'plan_sha256': sha256_json(plan), 'trial_index': index}
             def generate():
@@ -173,7 +188,7 @@ def verify_fixed_source(case, nodes, leaves, canon, assignments, *, backend, run
             decision = majority([r['outcome'] for r in runs], leaf.outcome) or 'INCOMPLETE'
         errors = [{'trial_index': r['trial_index'], 'status': 'unparsed_final'} for r in runs if r['outcome'] is None]
         row = {'leaf_id': leaf.leaf_id, 'target_reply_id': node.depth, 'node_id': node.node_id,
-               'plan': plan, 'stage1_applicable': True, 'stage1_source': 'creator_source_gate_prechecked',
+               'plan': plan, 'instruction_audit': instruction_review, 'stage1_applicable': True, 'stage1_source': 'creator_source_gate_prechecked',
                'reruns': len(runs), 'rerun_records': runs, 'outcomes': [r['outcome'] for r in runs],
                'valid_outcomes': len(runs) - len(errors), 'unparsed': len(errors), 'errors': errors,
                'error_count': len(errors), 'early_decision': early, 'planned_trials': 3,

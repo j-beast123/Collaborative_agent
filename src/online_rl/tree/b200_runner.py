@@ -140,7 +140,12 @@ def preflight(cfg, *, resources=True):
         errors.append('Requires precommit_v1 and fixed P0')
     if cfg['verification']['mode'] != 'fixed_source_linear_majority_v1' or cfg['intervention']['reruns_per_intervention'] != 3:
         errors.append('Requires fixed creator source and three planned linear trials')
-    if not cfg.get('fixed_accuracy', {}).get('enabled'):
+    if cfg['judges'].get('compact_runtime') == 'v7_1':
+        if cfg.get('fixed_accuracy', {}).get('enabled'):
+            errors.append('V7 rubric-only variant must not inject a fixed accuracy criterion')
+        if cfg['judges'].get('intervention_audit_model') != 'gpt-6-luna':
+            errors.append('V7 instruction auditor requires gpt-6-luna')
+    elif not cfg.get('fixed_accuracy', {}).get('enabled'):
         errors.append('This version requires one fixed accuracy criterion')
     if cfg.get('feedback', {}).get('protocol') != 'physician_post_final_reflection_v1':
         errors.append('Requires post-decision reflection by the participating Doctor')

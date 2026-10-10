@@ -40,6 +40,9 @@ def model_roles(cfg: dict) -> dict:
             'feedback_generator': (cfg.get('feedback') or {}).get('model'), 'rubric_generator': r.get('generator_model'),
             'rubric_consolidate': (r.get('consolidate') or {}).get('model'),
             'generator_settings': r.get('generation'), 'consolidate_settings': r.get('consolidate'),
+            **({'rubric_applicability': j.get('scorer_model'), 'intervention_audit': j.get('intervention_audit_model'),
+                'scorer_protocol': j.get('scorer_protocol'), 'compact_runtime': j['compact_runtime']}
+               if j.get('compact_runtime') else {}),
             'rubric_gate': j.get('gate_model'), 'rubric_scorer': j.get('scorer_model'),
             'prompt_reflection': pu.get('reflection_model'), 'prompt_refiner': pu.get('refiner_model'),
             **({'api_provider': cfg['api']['provider'], 'judge_api_provider': j.get('api_provider'),

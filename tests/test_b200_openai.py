@@ -101,10 +101,10 @@ def test_direct_global_limit_retries_and_wait_outside_slot(monkeypatch):
     def init(self, *a, **kw):
         original(self, *a, **kw); self.sleep = waits.append; self.log = lambda _: None
     monkeypatch.setattr(retry.Retry, '__init__', init)
-    roles = ['rubric_generator', 'rubric_consolidate', 'rubric_gate', 'rubric_scorer']
+    roles = ['rubric_generator', 'rubric_consolidate', 'rubric_gate', 'rubric_scorer', 'rubric_applicability', 'intervention_audit']
     def one(i):
         _openrouter_json('fake', 'gpt-6-luna', 'fixed', str(i), {'api_provider': 'openai',
-            'max_tokens': 100, 'temperature': None, 'reasoning_effort': 'none'}, {}, 'test', roles[i % 4])
+            'max_tokens': 100, 'temperature': None, 'reasoning_effort': 'none'}, {}, 'test', roles[i % len(roles)])
     with ThreadPoolExecutor(12) as pool: list(pool.map(one, range(12)))
     assert limiter.peak == 3 and limiter.active == 0 and limiter.attempts == 24
     assert waits == [.01] * 12

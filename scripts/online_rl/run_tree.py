@@ -13,7 +13,16 @@ PROMPT_HASHES = (('rubric', 'generator_prompt_file', 'prompt_sha256'), ('feedbac
                  ('intervention', 'score0_template_file', 'score0_template_sha256'), ('intervention', 'score2_template_file', 'score2_template_sha256'),
                  ('intervention', 'instruction_template_file', 'instruction_template_sha256'),
                  ('intervention', 'agent_system_prompt_file', 'agent_system_prompt_sha256'),
-                 ('judges', 'gate_prompt_file', 'gate_prompt_sha256'), ('judges', 'scorer_prompt_file', 'scorer_prompt_sha256'))
+                 ('judges', 'applicability_prompt_file', 'applicability_prompt_sha256'), ('judges', 'intervention_audit_prompt_file', 'intervention_audit_prompt_sha256'), ('judges', 'gate_prompt_file', 'gate_prompt_sha256'), ('judges', 'scorer_prompt_file', 'scorer_prompt_sha256'))
+PUBLIC_SCORER_PROTOCOL = 'public_mc_evidence_v1'
+PUBLIC_GATE_PROTOCOL = 'public_mc_gate_v1'
+PUBLIC_SCORER_PROTOCOL_V2 = 'public_mc_evidence_v2'
+PUBLIC_GATE_PROTOCOL_V2 = 'public_mc_gate_v2'
+PUBLIC_SCORER_PROTOCOL_V3 = 'public_mc_evidence_v3'
+PUBLIC_GATE_PROTOCOL_V3 = 'public_mc_gate_v3'
+PUBLIC_CRITERION_PROTOCOL = 'public_behavior_mc_v1'
+INSTRUCTION_AUDIT_PROTOCOL = 'intervention_instruction_audit_v1'
+INSTRUCTION_ALIGNMENT_PROTOCOL = 'intervention_alignment_analysis_v1'
 EVIDENCE_SCORER_PROTOCOL = 'response_evidence_v1'
 EVIDENCE_GATE_PROTOCOL = 'evidence_gate_v2'
 JOINT_OUTPUT_CONTRACT = 'trajectory_analysis_candidate_v2_with_intervention'
@@ -63,7 +72,7 @@ def blockers(cfg: dict) -> list[str]:
         path = cfg['rubric'].get('state_addendum_file')
         if not path or not (ROOT / path).exists(): out.append('Missing visible-context rubric contract')
         elif cfg['rubric'].get('state_addendum_sha256') != file_sha(path): out.append('Visible-context rubric contract hash differs')
-        if cfg['judges'].get('scorer_protocol') not in ('structured_v2', EVIDENCE_SCORER_PROTOCOL):
+        if cfg['judges'].get('scorer_protocol') not in ('structured_v2', EVIDENCE_SCORER_PROTOCOL, PUBLIC_SCORER_PROTOCOL_V3):
             out.append('Visible-context rubric requires structured_v2 or response_evidence_v1 scorer')
         if not cfg['feedback'].get('behavioral_locus') or cfg['rubric'].get('source_consistency') != 'source_locus_v1':
             out.append('Visible-context rubric requires a checked behavioral locus')
@@ -72,7 +81,7 @@ def blockers(cfg: dict) -> list[str]:
         expected = f"{backend.get('engine')}/{backend.get('model')}@{str(backend.get('model_digest', ''))[:12]}"
         if backend.get('engine') not in ('ollama', 'hf_local') or cfg['feedback'].get('model') != expected:
             out.append('Post-FINAL reflection must use the same pinned local Doctor as the dialogue')
-    return out + joint_protocol_problems(cfg) + gate_protocol_problems(cfg)
+    return out + joint_protocol_problems(cfg) + gate_protocol_problems(cfg) + public_criterion_problems(cfg) + intervention_audit_problems(cfg)
 
 
 def gate_protocol_problems(cfg: dict) -> list[str]:
@@ -80,13 +89,15 @@ def gate_protocol_problems(cfg: dict) -> list[str]:
     jm = cfg.get('judges', {})
     protocol = jm.get('gate_protocol', 'legacy_v1')
     quote_protocol = jm.get('gate_quote_protocol')
-    if quote_protocol not in (None, 'visible_field_enum_v1'):
+    if quote_protocol not in (None, 'visible_field_enum_v1', 'input_field_refs_v2'):
         return [f'Unknown judges.gate_quote_protocol {quote_protocol!r}']
-    if quote_protocol is not None and protocol != EVIDENCE_GATE_PROTOCOL:
-        return ['judges.gate_quote_protocol requires evidence_gate_v2']
-    if protocol not in ('legacy_v1', EVIDENCE_GATE_PROTOCOL):
+    if quote_protocol == 'input_field_refs_v2' and protocol not in (PUBLIC_GATE_PROTOCOL_V2, PUBLIC_GATE_PROTOCOL_V3):
+        return ['input_field_refs_v2 requires public_mc_gate_v2 or public_mc_gate_v3']
+    if quote_protocol is not None and protocol not in (EVIDENCE_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL_V2, PUBLIC_GATE_PROTOCOL_V3):
+        return ['judges.gate_quote_protocol requires evidence_gate_v2 or public_mc_gate_v1']
+    if protocol not in ('legacy_v1', EVIDENCE_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL_V2, PUBLIC_GATE_PROTOCOL_V3):
         return [f'Unknown judges.gate_protocol {protocol!r}']
-    if protocol != EVIDENCE_GATE_PROTOCOL:
+    if protocol not in (EVIDENCE_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL_V2, PUBLIC_GATE_PROTOCOL_V3):
         return []
     out = []
     if str(jm.get('gate_model', '')).startswith('typesafe/jev'):
@@ -104,7 +115,7 @@ def gate_protocol_problems(cfg: dict) -> list[str]:
 def evidence_gate_identity(cfg: dict, root: Path = ROOT):
     """Post-rollout research identity, independent of a frozen rollout override."""
     jm = cfg.get('judges', {})
-    if jm.get('gate_protocol') != EVIDENCE_GATE_PROTOCOL:
+    if jm.get('gate_protocol') not in (EVIDENCE_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL_V2, PUBLIC_GATE_PROTOCOL_V3):
         return None
     from src.online_rl.tree.luna import LunaDecisionClient
     from src.online_rl.tree.quality_gate import evidence_posthoc_gate
@@ -114,6 +125,12 @@ def evidence_gate_identity(cfg: dict, root: Path = ROOT):
     client = LunaDecisionClient(model=jm['gate_model'], key='',
                                 system=(root / jm['gate_prompt_file']).read_text(),
                                 max_tokens=jm['gate_max_tokens'], api_provider=jm.get('api_provider', 'openrouter'))
+    if jm.get('compact_runtime') == 'v7_1':
+        return make_gate(cfg, client, []).settings
+    if jm.get('gate_protocol') in (PUBLIC_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL_V2, PUBLIC_GATE_PROTOCOL_V3):
+        from src.online_rl.tree.quality_gate import public_mc_posthoc_gate
+        return public_mc_posthoc_gate(client, {}, observed_context=bool(cfg.get('rubric', {}).get('schema')),
+                                      rubric_quote_protocol=jm.get('gate_quote_protocol'), protocol=jm['gate_protocol']).settings
     quote_options = {'rubric_quote_protocol': jm['gate_quote_protocol']} if jm.get('gate_quote_protocol') is not None else {}
     return evidence_posthoc_gate(client, {}, observed_context=bool(cfg.get('rubric', {}).get('schema')), **quote_options).settings
 
@@ -157,7 +174,7 @@ def joint_protocol_problems(cfg: dict) -> list[str]:
         return out
     if generation.get('output_contract') != JOINT_OUTPUT_CONTRACT:
         out.append('joint_instruction_v2_1 requires joint rubric/instruction generation')
-    if jm.get('scorer_protocol') != EVIDENCE_SCORER_PROTOCOL:
+    if jm.get('scorer_protocol') not in (EVIDENCE_SCORER_PROTOCOL, PUBLIC_SCORER_PROTOCOL_V3):
         out.append('joint_instruction_v2_1 requires response_evidence_v1 scoring')
     if iv.get('instruction_template_file'):
         out.append('joint_instruction_v2_1 uses its level-specific templates; remove intervention.instruction_template_file')
@@ -231,7 +248,7 @@ def setup_problems(cfg: dict, config_path: str) -> list[str]:
         if not isinstance((ro.get('halting') or {}).get('enabled'), bool) or (ro.get('halting') or {}).get('min_agent_turns') not in (2, 3):
             out.append('rollout.halting needs enabled (true/false) and min_agent_turns = 2 or 3')
     rb = cfg.get('rubric') or {}
-    if rb.get('reuse'):
+    if rb.get('reuse') and not rb.get('bank_mode'):
         from src.online_rl.tree.rubric_bank import ASSIGNMENT_VERSION, prompt_sections
         if rb['reuse'] != ASSIGNMENT_VERSION: out.append(f"rubric.reuse must be {ASSIGNMENT_VERSION!r}")
         else:
@@ -245,7 +262,7 @@ def setup_problems(cfg: dict, config_path: str) -> list[str]:
             out.append('rubric.generation must pin reasoning_effort low, response_format json_schema_strict and max_tokens >= 2048 (Gemini truncation fix)')
         if g.get('output_contract') not in (None, 'trajectory_analysis_candidate_v2', JOINT_OUTPUT_CONTRACT):
             out.append(f"unknown rubric.generation.output_contract {g.get('output_contract')!r}")
-        if (cfg.get('judges') or {}).get('scorer_protocol') not in ('structured_v2', EVIDENCE_SCORER_PROTOCOL) and not str((cfg.get('judges') or {}).get('scorer_model', '')).startswith('typesafe/jev'):
+        if (cfg.get('judges') or {}).get('scorer_protocol') not in ('structured_v2', EVIDENCE_SCORER_PROTOCOL, PUBLIC_SCORER_PROTOCOL_V3) and not str((cfg.get('judges') or {}).get('scorer_model', '')).startswith('typesafe/jev'):
             out.append('judges.scorer_protocol must be structured_v2 or response_evidence_v1 for the Luna scorer')
     pol = cfg.get('policy') or {}; seed = (pol.get('lora') or {}).get('init_seed')
     if not pol.get('init_adapter') and (not isinstance(seed, int) or isinstance(seed, bool)):
@@ -293,6 +310,13 @@ def make_scorer(cfg: dict, client):
     """Select evidence scoring only for configs that explicitly request it."""
     from src.online_rl.tree.backends import two_stage_scorer, two_stage_structured_scorer, two_stage_hard_scorer
     jm = cfg['judges']
+    if jm.get('compact_runtime') == 'v7_1':
+        from src.online_rl.tree.compact_runtime import compact_scorer
+        from src.online_rl.tree.luna import LunaDecisionClient
+        app_client = LunaDecisionClient(model=client.model, key=client.key,
+            system=(ROOT/jm['applicability_prompt_file']).read_text(), max_tokens=client.max_tokens,
+            post=client.post, sleep=client.sleep, timeout_s=client.timeout_s, api_provider=client.api_provider)
+        return compact_scorer(client, app_client, rubric_score_batch_size(cfg))
     if jm.get('scorer_protocol') == EVIDENCE_SCORER_PROTOCOL:
         from src.online_rl.tree.pilot_evidence_scorer import evidence_scorer
         scorer = evidence_scorer(client, response_batch_size=rubric_score_batch_size(cfg))
@@ -311,6 +335,17 @@ def make_scorer(cfg: dict, client):
 def make_gate(cfg: dict, client, cases):
     """Keep legacy gating for existing configs; bind evidence gating only by explicit version."""
     from src.online_rl.tree.backends import posthoc_gates
+    if cfg['judges'].get('compact_runtime') == 'v7_1':
+        from src.online_rl.tree.quality_gate import public_mc_posthoc_gate
+        from src.online_rl.tree.luna import LunaDecisionClient
+        jm = cfg['judges']
+        blind_client = LunaDecisionClient(model=client.model, key=client.key,
+            system=(ROOT/jm['scorer_prompt_file']).read_text(), max_tokens=client.max_tokens,
+            post=client.post, sleep=client.sleep, timeout_s=client.timeout_s, api_provider=client.api_provider)
+        return public_mc_posthoc_gate(client, {c['case_id']:c for c in cases},
+            observed_context=bool(cfg['rubric'].get('schema')), protocol=jm['gate_protocol'],
+            rubric_quote_protocol=jm.get('gate_quote_protocol'),
+            instructions_override=client.system, blind_scorer_override=make_scorer(cfg, blind_client))
     quote_options = ({'rubric_quote_protocol': cfg['judges']['gate_quote_protocol']}
                      if cfg['judges'].get('gate_quote_protocol') is not None else {})
     return posthoc_gates(client, {case['case_id']: case for case in cases},
@@ -415,6 +450,13 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
     if cfg.get('verification', {}).get('mode') == 'fixed_source_linear_majority_v1':
         from src.online_rl.tree.partner_verification import LinearInterventions
         iv = LinearInterventions(policy, cfg)
+        if jm.get('intervention_audit_protocol'):
+            from src.online_rl.tree.instruction_audit import make_instruction_auditor
+            from src.online_rl.tree.luna import LunaDecisionClient
+            audit_client = LunaDecisionClient(model=jm['intervention_audit_model'], key=key,
+                system=text(jm['intervention_audit_prompt_file']), max_tokens=jm['intervention_audit_max_tokens'],
+                timeout_s=jm['intervention_audit_timeout_s'], api_provider=jm.get('api_provider', 'openrouter'))
+            iv.instruction_auditor = make_instruction_auditor(audit_client)
     from src.online_rl.tree.parallel_bank import api_consolidator
     env = TreeEnv(agent=PolicyAgent(policy), doctor=doctor,
                   stop_rule=stop_reason, final_option=final_answer_option, outcome_fn=final_outcome,
@@ -545,6 +587,111 @@ def main(argv=None):
     os.environ['API_USAGE_LOG'] = usage_log                                   # existing ledger: src/common/usage.py (no credentials)
     if x.max_cases is not None and x.phase is not None: raise SystemExit('--max-cases is not used with --phase')
     print(json.dumps(launch(cfg, x.phase, x.max_cases), indent=1, default=str), flush=True)
+
+
+
+
+def public_criterion_problems(cfg):
+    """One opt-in public contract; never silently activate it for existing banks."""
+    g=cfg.get('rubric',{}).get('generation',{}); jm=cfg.get('judges',{})
+    protocol=g.get('public_criterion_protocol')
+    if protocol is None:
+        return []
+    out=[]
+    if protocol != PUBLIC_CRITERION_PROTOCOL:out.append('Unknown public criterion protocol')
+    if jm.get('gate_protocol') not in (PUBLIC_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL_V2, PUBLIC_GATE_PROTOCOL_V3):out.append('Public M/C generation requires a public Gate protocol')
+    if jm.get('scorer_protocol') not in (PUBLIC_SCORER_PROTOCOL, PUBLIC_SCORER_PROTOCOL_V2, PUBLIC_SCORER_PROTOCOL_V3):out.append('Public M/C generation requires a public evidence scorer')
+    if (jm.get('gate_protocol') == PUBLIC_GATE_PROTOCOL_V2) != (jm.get('scorer_protocol') == PUBLIC_SCORER_PROTOCOL_V2):out.append('Public semantic v2 Gate/scorer must be selected together')
+    if (jm.get('gate_protocol') == PUBLIC_GATE_PROTOCOL_V3) != (jm.get('scorer_protocol') == PUBLIC_SCORER_PROTOCOL_V3):out.append('Public semantic v3 Gate/scorer must be selected together')
+    if g.get('generation_semantic_protocol') == 'public_mc_generation_v3' and jm.get('gate_protocol') != PUBLIC_GATE_PROTOCOL_V3:out.append('Semantic v3 generation requires semantic v3 independent judges')
+    if g.get('generation_semantic_protocol') == 'public_mc_generation_v2' and jm.get('gate_protocol') != PUBLIC_GATE_PROTOCOL_V2:out.append('Semantic v2 generation requires semantic v2 independent judges')
+    if not jm.get('applicability_prompt_file') or not jm.get('applicability_prompt_sha256'):
+        out.append('Public M/C evaluation requires a separately pinned applicability prompt')
+    try:
+        schema=json.loads((ROOT/g['local_schema_file']).read_text())
+        required=set(schema['properties']['candidate_rubric']['required'])
+        if not {'required_behavior','minimum_performance','completion_condition','criterion_version'} <= required:
+            out.append('Public criterion schema loses public fields')
+    except (OSError,KeyError,TypeError,ValueError):out.append('Public criterion requires a valid local schema')
+    return out
+
+
+def intervention_audit_problems(cfg: dict) -> list[str]:
+    """Opt-in instruction validity is pinned independently of blind source scoring."""
+    jm = cfg.get('judges', {})
+    generation = cfg.get('rubric', {}).get('generation') or {}
+    protocol = jm.get('intervention_audit_protocol')
+    alignment = generation.get('instruction_alignment_protocol')
+    out = []
+    if alignment not in (None, INSTRUCTION_ALIGNMENT_PROTOCOL):
+        out.append('Unknown rubric.generation.instruction_alignment_protocol')
+    if alignment == INSTRUCTION_ALIGNMENT_PROTOCOL:
+        if protocol != INSTRUCTION_AUDIT_PROTOCOL:
+            out.append('intervention_alignment_analysis_v1 requires intervention_instruction_audit_v1')
+        if generation.get('output_contract') != JOINT_OUTPUT_CONTRACT:
+            out.append('intervention_alignment_analysis_v1 requires the joint generation contract')
+        try:
+            schema = json.loads((ROOT / generation['local_schema_file']).read_text())
+            check = schema['properties']['analysis']['properties']['score_construction_check']
+            referenced = generation.get('generation_semantic_protocol') in (
+                'public_reference_generation_v4', 'public_app_alignment_generation_v5')
+            required = ({'minimum_ref','completion_ref','instruction_alignment'} if referenced
+                        else {'minimal_contribution','complete_behavior','instruction_alignment'})
+            if not required <= set(check.get('required', [])):
+                raise ValueError('missing mandatory alignment fields')
+            fields = check['properties']
+            if referenced:
+                for key, target in [('minimum_ref','candidate_rubric.minimum_performance'),
+                                    ('completion_ref','candidate_rubric.completion_condition')]:
+                    if fields[key].get('const') != target:
+                        raise ValueError('invalid public definition reference')
+            elif any(fields[key].get('type') != 'string' for key in ('minimal_contribution','complete_behavior')):
+                raise ValueError('minimum and completion must be strings')
+            evidence = fields['instruction_alignment']
+            if (evidence.get('type') != 'object' or
+                    not {'target_level', 'instruction_ref' if referenced else 'instruction_quote', 'rationale'} <= set(evidence.get('required', [])) or
+                    evidence['properties']['target_level'].get('type') != 'integer' or
+                    set(evidence['properties']['target_level'].get('enum', [])) != {0, 2}):
+                raise ValueError('invalid instruction alignment evidence')
+        except (OSError, ValueError, KeyError, TypeError):
+            out.append('intervention_alignment_analysis_v1 requires a valid pinned alignment schema')
+    if protocol is None:
+        if any(key.startswith('intervention_audit_') and value is not None for key, value in jm.items()):
+            out.append('Intervention audit settings require judges.intervention_audit_protocol')
+        return out
+    if protocol != INSTRUCTION_AUDIT_PROTOCOL:
+        return out + [f'Unknown judges.intervention_audit_protocol {protocol!r}']
+    from src.online_rl.tree.witness import PROTOCOLS as WITNESS_PROTOCOLS
+    if not cfg.get('rubric', {}).get('enabled', True):
+        out.append('intervention_instruction_audit_v1 requires rubric.enabled')
+    if cfg.get('verification', {}).get('mode', 'exhaustive_members_v1') not in (*WITNESS_PROTOCOLS, 'fixed_source_linear_majority_v1'):
+        out.append('intervention_instruction_audit_v1 requires bounded witness verification')
+    if (jm.get('scorer_protocol') not in ('structured_v2', EVIDENCE_SCORER_PROTOCOL, PUBLIC_SCORER_PROTOCOL, PUBLIC_SCORER_PROTOCOL_V2, PUBLIC_SCORER_PROTOCOL_V3)
+            or str(jm.get('scorer_model', '')).startswith('typesafe/jev')):
+        out.append('intervention_instruction_audit_v1 requires a structured scorer with Stage-1 applicability')
+    if generation.get('output_contract') != JOINT_OUTPUT_CONTRACT:
+        out.append('intervention_instruction_audit_v1 requires joint rubric/instruction generation')
+    if jm.get('intervention_audit_structured') is not True:
+        out.append('intervention_instruction_audit_v1 requires judges.intervention_audit_structured = true')
+    model = jm.get('intervention_audit_model')
+    if not isinstance(model, str) or not model.strip() or model.startswith('typesafe/jev'):
+        out.append('intervention_instruction_audit_v1 requires a structured Luna model')
+    budget = jm.get('intervention_audit_max_tokens')
+    if isinstance(budget, bool) or not isinstance(budget, int) or budget < 2048:
+        out.append('intervention_instruction_audit_v1 requires judges.intervention_audit_max_tokens >= 2048')
+    timeout = jm.get('intervention_audit_timeout_s')
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout < float('inf'):
+        out.append('intervention_instruction_audit_v1 requires a positive finite timeout')
+    path, digest = jm.get('intervention_audit_prompt_file'), jm.get('intervention_audit_prompt_sha256')
+    if (not isinstance(path, str) or not path or not isinstance(digest, str) or len(digest) != 64
+            or any(char not in '0123456789abcdef' for char in digest)):
+        out.append('intervention_instruction_audit_v1 requires a pinned instruction audit prompt')
+    elif not (ROOT / path).is_file():
+        out.append('Missing intervention instruction audit prompt')
+    elif file_sha(path) != digest:
+        out.append('judges.intervention_audit_prompt_file differs from judges.intervention_audit_prompt_sha256')
+    return out
+
 
 
 if __name__ == '__main__': main()

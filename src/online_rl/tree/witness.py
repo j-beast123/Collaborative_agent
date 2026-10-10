@@ -91,6 +91,9 @@ def random_support_sample(members: list[Leaf], *, run_seed: int, case_id: str, r
 
 def stage1_decision(case: dict, node: AgentNode, rubric: dict, applicability: Callable, cache: CallCache) -> dict:
     """Stage-1 applicability, cached by the complete visible state and rubric content."""
+    if getattr(applicability, 'applicability_contract', None) == 'compact_condition_v7_1':
+        from src.online_rl.tree.applicability import state_applicability
+        return state_applicability(case, node, rubric, applicability, cache)
     visible = [visible_rubric(rubric)]
     ident = {'node': node.node_id, 'policy': node.policy_sha256, 'rubric': rubric['rubric_id'],
              'content': sha256_json(visible),

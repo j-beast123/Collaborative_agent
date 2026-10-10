@@ -81,6 +81,9 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
     workers > 1 (execution only): structured scorers run independent states concurrently,
     each reviewing applicability once then scoring its response batches. Legacy scorers
     parallelize responses. Results are always collected in node order."""
+    if getattr(scorer, 'behavior_cache_contract', None) == 'public_behavior_content_alias_v1':
+        from src.online_rl.tree.scoring_v7 import score_nodes as score_v7
+        return score_v7(case, nodes, kept, scorer, cache, workers)
     if not kept: return []
     if len({n.node_id for n in nodes}) != len(nodes):
         raise ScoringContractError('Duplicate response node IDs')

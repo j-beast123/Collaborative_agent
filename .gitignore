@@ -70,3 +70,5 @@ docs/
 docs/*
 !docs/B200_SHERPA.md
 !docs/B200_CLONE_RUN.md
+
+!docs/B200_V7_RUBRIC_ONLY.md
