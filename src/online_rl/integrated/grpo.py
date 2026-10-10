@@ -147,6 +147,7 @@ class IntegratedGRPOUpdater(GRPOUpdater):
         torch, m = self.policy.torch, self.policy.model
         if {r['rollout_policy_sha256'] for g in groups for r in g} != {adapter_sha256(m)}:
             raise RuntimeError('stale behavior policy: the group was not sampled by the current adapter')
+        if any('branch_rewards' in r for g in groups for r in g): return self.update_groups_separated(groups)
         usable, adv, skipped = [], [], []
         for g in groups:
             u = [r for r in g if r['reward'] is not None]; a = advantages([r['reward'] for r in u], self.mode)
@@ -170,6 +171,73 @@ class IntegratedGRPOUpdater(GRPOUpdater):
         getattr(self.policy, 'mark_dirty', lambda: None)()         # Agent replicas re-sync before the next generation
         return {'optimizer_step': True, **out, 'grad_norm': float(g), 'used_agent_completions': len(usable), 'optimizer_steps': self.steps,
                 'groups_used': len(groups) - len(skipped), 'groups_skipped': len(skipped)}
+
+
+    def update_groups_separated(self, groups: list[list[dict]]) -> dict:
+        """Credit-separated objective  c_D * L_D + c_C * L_C  (one optimizer step). On the same sibling groups:
+        decision branch       A_D = centred R_D over all siblings          -> private segment (segment 0) only
+        collaboration branch  A_C = centred R_A over the scored siblings   -> visible segment (segment 1) only
+        Each L_b is grpo_loss over the actions of the groups its branch uses (per-action token mean of that segment, mean over those
+        actions; policy + beta * KL), computed and back-propagated separately; the two gradients are logged and then combined once with
+        the branch coefficients. A branch whose group has too few rewarded siblings or zero variance contributes nothing for that group.
+        No gradient balancing: the coefficients weight the objectives, not the gradient norms."""
+        torch, m = self.policy.torch, self.policy.model
+        coef = {tuple(sorted(r['branch_coefficients'].items())) for g in groups for r in g}
+        if len(coef) != 1 or any('branch_rewards' not in r for g in groups for r in g): raise RuntimeError('mixed credit rules in one update')
+        c = dict(next(iter(coef))); spec = {'decision': 0, 'collaboration': 1}; used = {b: ([], []) for b in spec}; stats = {}
+        for b, seg in spec.items():
+            st_ = {'groups': len(groups), 'rewarded_groups': 0, 'usable_groups': 0, 'nonzero_groups': 0, 'skip_reasons': {}}; advs = []
+            for g in groups:
+                u = [r for r in g if r['branch_rewards'][b] is not None]; st_['rewarded_groups'] += bool(u)
+                if len(u) < 2: why = 'fewer_than_two_rewarded_responses' if u else 'no_rewarded_response'
+                else:
+                    st_['usable_groups'] += 1; a = advantages([r['branch_rewards'][b] for r in u], self.mode)
+                    why = 'zero_variance_reward' if all(x == 0 for x in a) else None
+                if why: st_['skip_reasons'][why] = st_['skip_reasons'].get(why, 0) + 1; continue
+                st_['nonzero_groups'] += 1; used[b][0].extend({**r, 'loss_segments': [seg]} for r in u); used[b][1].extend(a); advs += a
+            st_.update(actions=len(advs), var_A=(sum(x * x for x in advs) / len(advs)) if advs else None, mean_abs_A=(sum(abs(x) for x in advs) / len(advs)) if advs else None)
+            stats[b] = st_
+        if not used['decision'][0] and not used['collaboration'][0]:
+            return {'optimizer_step': False, 'skip_reason': 'no_group_with_nonzero_advantage_in_either_branch', 'credit': 'separated', 'branches': stats, 'groups_skipped': len(groups)}
+        m.train()
+        for mod in m.modules():
+            if isinstance(mod, torch.nn.Dropout): mod.eval()
+        m.config.use_cache = False; grads, outs = {}, {}
+        for b in spec:
+            self.optimizer.zero_grad(set_to_none=True)
+            if not used[b][0]: continue
+            outs[b] = grpo_loss(m, used[b][0], used[b][1], self.o['beta'], self.o['clip_epsilon'], self.o['logprob_token_chunk_size'])
+            if outs[b]['ratio']['max_abs_deviation'] > self.o['pre_update_ratio_tolerance']:
+                self.optimizer.zero_grad(set_to_none=True); m.config.use_cache = True
+                raise RuntimeError(f"on-policy ratio check failed against the behavior policy ({b} branch): {outs[b]['ratio']}")
+            grads[b] = [p.grad.detach().clone() if p.grad is not None else None for p in self.trainable]
+        self.optimizer.zero_grad(set_to_none=True)
+        norm = lambda gs: math.sqrt(sum(float((x.float() ** 2).sum()) for x in gs if x is not None))
+        for b in spec:
+            stats[b].update(grad_norm=norm(grads[b]) if b in grads else None, loss=outs[b]['loss'] if b in outs else None, policy_loss=outs[b]['policy_loss'] if b in outs else None,
+                            kl_loss=outs[b]['kl_loss'] if b in outs else None, optimized_tokens=outs[b]['ratio']['count'] if b in outs else 0,
+                            coefficient=c[b], loss_contribution=c[b] * outs[b]['loss'] if b in outs else 0.0)
+        cos = None
+        if len(grads) == 2:
+            dot = sum(float((x.float() * y.float()).sum()) for x, y in zip(grads['decision'], grads['collaboration']) if x is not None and y is not None)
+            nd, nc = stats['decision']['grad_norm'], stats['collaboration']['grad_norm']; cos = dot / (nd * nc) if nd > 0 and nc > 0 else None
+        for i, p in enumerate(self.trainable):                           # combine once: c_D * g_D + c_C * g_C
+            parts = [c[b] * grads[b][i] for b in spec if b in grads and grads[b][i] is not None]
+            p.grad = sum(parts[1:], parts[0]) if parts else None
+        g = torch.nn.utils.clip_grad_norm_(self.trainable, self.o['grad_clip'])
+        if not math.isfinite(float(g)): raise RuntimeError('non-finite gradient norm')
+        self.optimizer.step(); self.steps += 1; self.optimizer.zero_grad(set_to_none=True); m.config.use_cache = True
+        getattr(self.policy, 'mark_dirty', lambda: None)()
+        rs = [o['ratio'] for o in outs.values()]; n = sum(r['count'] for r in rs)
+        ratio = {'count': n, 'mean': sum(r['mean'] * r['count'] for r in rs) / n, 'min': min(r['min'] for r in rs), 'max': max(r['max'] for r in rs),
+                 'max_abs_deviation': max(r['max_abs_deviation'] for r in rs), 'clipped_fraction': sum(r['clipped_fraction'] * r['count'] for r in rs) / n,
+                 'max_abs_logprob_gap_to_reference': max(r['max_abs_logprob_gap_to_reference'] for r in rs), 'denominator': 'behavior_policy_teacher_forced'}
+        loss = sum(stats[b]['loss_contribution'] for b in spec)
+        return {'optimizer_step': True, 'credit': 'separated', 'loss': loss, 'policy_loss': sum(c[b] * outs[b]['policy_loss'] for b in outs), 'kl_loss': sum(c[b] * outs[b]['kl_loss'] for b in outs),
+                'ratio': ratio, 'grad_norm': float(g), 'grad_cosine_decision_collaboration': cos, 'branches': stats, 'optimizer_steps': self.steps,
+                'used_agent_completions': len({r['trajectory_id'] for b in spec for r in used[b][0]}),
+                'groups_used': sum(1 for gr in groups if any(r['trajectory_id'] in {x['trajectory_id'] for b in spec for x in used[b][0]} for r in gr)),
+                'groups_skipped': sum(1 for gr in groups if not any(r['trajectory_id'] in {x['trajectory_id'] for b in spec for x in used[b][0]} for r in gr))}
 
 
 def make_updater(policy, cfg: dict) -> IntegratedGRPOUpdater:

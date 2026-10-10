@@ -1,0 +1,20 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "rollout": {
+    "agent_thinking": true,
+    "agent_think_budget": 2048
+  },
+  "agent_reward": {
+    "credit": "separated"
+  },
+  "schedule": {
+    "cases": 5
+  },
+  "notes": "5-case TRAINING smoke of the pilot E3-private path (thinking ON + credit-separated SHERPA 5:5): engineering check only. Not a result.",
+  "experiment": {
+    "reward_weight_rubric": 0.5,
+    "reward_weight_outcome": 0.5,
+    "output_root": "outputs/fixed_t2_pilot_smoke",
+    "variant": "t2psmoke_e3sep"
+  }
+}
