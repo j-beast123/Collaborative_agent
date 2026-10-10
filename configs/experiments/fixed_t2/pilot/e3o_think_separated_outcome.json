@@ -1,0 +1,21 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "schedule": {
+    "cases": 60
+  },
+  "rollout": {
+    "agent_thinking": true,
+    "agent_think_budget": 2048
+  },
+  "agent_reward": {
+    "credit": "separated",
+    "decision_target": "outcome"
+  },
+  "notes": "PILOT E3-outcome (2026-10-10): thinking ON + credit-separated SHERPA 5:5 with the FINAL TEAM OUTCOME as the decision reward. Identical to E3-private (same separated code path, sibling grouping A, token masks, reduction, 0.5 L_D + 0.5 L_C) except agent_reward.decision_target: the private segment is credited with the action's final team outcome (mean correctness of its descendant leaves) instead of its private option's correctness. Collaboration branch: R_A on the visible reply.",
+  "experiment": {
+    "reward_weight_rubric": 0.5,
+    "reward_weight_outcome": 0.5,
+    "output_root": "outputs/fixed_t2_pilot",
+    "variant": "t2p_e3out"
+  }
+}

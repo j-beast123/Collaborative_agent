@@ -34,14 +34,21 @@ def compose_reward(outcome: Optional[float], ra: Optional[float], w_outcome: flo
 CREDIT_MODES = ('shared', 'decision_only', 'separated')
 
 
-def node_credit(w_outcome: float, w_rubric: float, credit_mode: str = 'shared'):
+DECISION_TARGETS = ('private_option', 'outcome')
+
+
+def node_credit(w_outcome: float, w_rubric: float, credit_mode: str = 'shared', decision_target: str = 'private_option'):
     """shared (the frozen rule): one reward per action, applied to both of its segments.
     decision_only (diagnostic E2): reward = R_D = 1[the action's private option is the gold option] (0 when no option was written),
     and only the private segment (segment 0) enters the loss; no outcome or rubric term, no visible-reply loss.
     separated (credit-separated SHERPA, E3-private): two independent branches on the same sibling groups. Decision: R_D on the private
     segment. Collaboration: R_A on the visible segment (unscored responses are left out of that branch only). The objective is
-    w_outcome * L_D + w_rubric * L_C; 'reward' is then only the logged summary w_outcome * R_D + w_rubric * R_A, never a loss input."""
+    w_outcome * L_D + w_rubric * L_C; 'reward' is then only the logged summary w_outcome * R_D + w_rubric * R_A, never a loss input.
+    decision_target (separated only): private_option = R_D above (E3-private); outcome = the action's final team outcome, i.e. the mean
+    correctness of its descendant leaves (E3-outcome). Routing, grouping, masks and reduction are identical; only this reward differs."""
     if credit_mode not in CREDIT_MODES: raise ValueError(f'agent_reward.credit must be one of {CREDIT_MODES}')
+    if decision_target not in DECISION_TARGETS: raise ValueError(f'agent_reward.decision_target must be one of {DECISION_TARGETS}')
+    if decision_target != 'private_option' and credit_mode != 'separated': raise ValueError('agent_reward.decision_target applies to separated credit only')
 
     def credit(tree: Tree, leaf_outcomes: dict[str, float], node_r_a: dict[str, Optional[float]]) -> dict:
         desc = descendant_outcomes(tree); nodes, groups = {}, {}
@@ -57,11 +64,12 @@ def node_credit(w_outcome: float, w_rubric: float, credit_mode: str = 'shared'):
                 nodes[n.node_id]['reward'] = nodes[n.node_id]['R_D']
             if credit_mode == 'separated':
                 if 'private_outcome' not in trace: raise RuntimeError(f'separated credit needs a precommit action at {n.node_id}')
-                nodes[n.node_id].update(decision_reward=nodes[n.node_id]['R_D'], collab_reward=ra, reward=compose_reward(nodes[n.node_id]['R_D'], ra, w_outcome, w_rubric))
+                dr = nodes[n.node_id]['R_D'] if decision_target == 'private_option' else outcome
+                nodes[n.node_id].update(decision_reward=dr, collab_reward=ra, reward=compose_reward(dr, ra, w_outcome, w_rubric))
             groups.setdefault(n.parent_id or 'root', []).append(n.node_id)
         out = {'nodes': nodes, 'groups': groups, 'reward_weights': {'w_outcome': w_outcome, 'w_rubric': w_rubric}}
         if credit_mode == 'decision_only': out.update(credit='decision_only', loss_segments=[0])
-        if credit_mode == 'separated': out.update(credit='separated', branch_coefficients={'decision': w_outcome, 'collaboration': w_rubric})
+        if credit_mode == 'separated': out.update(credit='separated', decision_target=decision_target, branch_coefficients={'decision': w_outcome, 'collaboration': w_rubric})
         return out
     return credit
 
@@ -92,6 +100,6 @@ def trajectory_score(unit_result: dict) -> float:
     return e.R_O if e is not None and e.R_O is not None else 0.0
 
 
-def team_strategies(updater, w_outcome: float, w_rubric: float, credit_mode: str = 'shared') -> Strategies:
-    return Strategies(multi_target=mean_target_R_O, r_a_aggregator=effectiveness_weighted_r_a, credit_assignment=node_credit(w_outcome, w_rubric, credit_mode),
+def team_strategies(updater, w_outcome: float, w_rubric: float, credit_mode: str = 'shared', decision_target: str = 'private_option') -> Strategies:
+    return Strategies(multi_target=mean_target_R_O, r_a_aggregator=effectiveness_weighted_r_a, credit_assignment=node_credit(w_outcome, w_rubric, credit_mode, decision_target),
                       agent_update=sibling_grpo_update(updater), prompt_unit_value=trajectory_score)
