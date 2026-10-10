@@ -44,6 +44,8 @@ def protocol_sha256(cfg: dict, root: Path) -> str:
            'rollout': {k: ro[k] for k in ('rounds', 'doctor_model', 'max_tokens_doctor', 'max_completion_length', 'temperature', 'top_p', 'top_k')},
            'agent_prompt': sha256_text((root / ro.get('agent_system_prompt_file', 'prompts/agent.txt')).read_text()),
            'doctor_prompt': sha256_text(doctor_system := (root / ro.get('doctor_system_prompt_file', 'prompts/user_simulator.txt')).read_text())}
+    for key in ('doctor_need', 'fixed_accuracy'):
+        if cfg.get(key, {}).get('enabled'): out[key] = cfg[key]
     if cfg.get('rubric', {}).get('enabled', True):
         out['rerun_outcome_policy'] = RERUN_OUTCOME_POLICY
         if cfg.get('rubric', {}).get('generation', {}).get('output_contract') == 'trajectory_analysis_candidate_v2_with_intervention':

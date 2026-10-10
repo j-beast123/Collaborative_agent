@@ -1,0 +1,667 @@
+[Prospective needs and retrospective effects: fixed contract]
+The private needs were recorded alongside the Doctor utterance BEFORE the corresponding Agent reply. They state what information was needed, not what answer or agreement was desired. Reflection describes subsequent experience; it cannot revise, replace or create a prospective need. Treat private needs and reflection as hypotheses constrained by exact public evidence. Never generate a requirement that is knowable only from a private need.
+Use the existing schema fields as follows: applicability.user_side_context = clinician-side uncertainty/information need/judgment situation, explicitly supported by the pre-reply PUBLIC history; applicability.agent_side_state = what the assistant had already provided and what remained unresolved BEFORE the target reply; scores.0/1/2.behavior = absent/partial/adequate handling of that same publicly grounded task. Copy the same applicability contexts to every anchor.
+Select an Agent reply whose immediately preceding need record has status present with valid public evidence. A record marked none or insufficient_public_evidence cannot establish a criterion. Test the need's meaning against the cited public words; a quote's existence alone does not establish semantic support. Earlier needs apply only while publicly still active. Lack of the required behavior in the TARGET reply is level 0 in a matching situation, never a reason for N/A. N/A is exclusively a mismatch of the pre-response public situation.
+Maintain the original reflection claim audit. The separate need_assessment links are retrospective evidence, not amended needs. Do not include private need text, reflection, outcomes or future turns in applicability/scoring inputs or in the intervention instruction. Preserve the answer-neutral intervention directions. Medical accuracy is supplied separately as one fixed case criterion; do not create duplicate generic medical-accuracy criteria.
+
+You analyze one completed multi-turn collaboration trajectory and generate exactly one candidate reusable interaction-behavior rubric, together with one matched intervention instruction for its selected Agent response. Produce both in the same output. The instruction operationalizes the selected rubric behavior; it is not a second rubric or an additional clinical answer.
+
+The collaborator is a Doctor. The Agent is the participant whose response behavior is evaluated.
+
+Your task is to identify one specific, observable Agent behavior worth preserving or correcting in the actual interaction. Do not explain the final answer's correctness, grade the Doctor, or infer that a behavior caused the final outcome merely because it preceded that outcome.
+
+The fundamental unit is:
+
+observable Doctor-side context + observable pre-response Agent state
+-> actual Agent response behavior
+-> one grounded behavior to preserve or correct
+-> reusable applicability and 0/1/2 behavior criteria.
+
+For a success trajectory, start from an actual useful behavior and define its selective removal.
+For a failure trajectory, start from an actual handling problem or a grounded omission and define its correction.
+
+Final success/failure determines which construction direction to use. It does not establish the quality of every response in the trajectory. The candidate's effect on task outcomes must be tested separately by intervention/rerun; you do not certify effectiveness here.
+
+Do not begin from a predefined behavior taxonomy. Do not select a rubric category first and search for supporting evidence afterward.
+
+1. INPUT AND INFORMATION BOUNDARIES
+
+Use the supplied case ID, trajectory ID, source outcome, original turn IDs, dialogue, and any recorded pre-response Agent state. Doctor final decision and Doctor feedback may be supplied as trajectory-level context.
+
+Do not use gold answers, answer keys, or external factual knowledge to choose a behavior, identify the selected turn, define applicability, or construct scores. If gold information appears in the input, ignore it for these purposes. Use the supplied success/failure label without reconstructing it from gold.
+
+Do not introduce missing domain facts or a particular answer into the rubric or corrective behavior. Reasoning over information already expressed in the dialogue is allowed. Identifying an unresolved evidential gap or requesting missing information is allowed; inventing the missing information is not.
+
+There are three distinct information windows:
+
+- Trajectory selection: the completed dialogue and feedback may help locate candidate interactions.
+- Applicability and pre-response state: only the dialogue prefix strictly before the selected Agent response and state recorded before that response are admissible.
+- Behavior assessment: the selected response may show what the Agent did, but later turns cannot create an earlier requirement or rewrite the Agent's pre-response state.
+
+The intervention instruction may use the resulting reusable rubric and the selected response's pre-response prefix to specify the task to perform or omit. It must not carry the source response's answer, later information, final decision, outcome label, feedback, or gold information into the Agent's input.
+
+Keep these windows separate in every generated field.
+
+2. EVIDENCE FIRST, WITH EXACT SPEAKER AND TIME ATTRIBUTION
+
+Before interpreting an interaction, locate:
+
+- the Doctor utterance or earlier Doctor utterances establishing the situation;
+- the observable Agent position, reasoning, commitments, or prior handling available before the response;
+- the selected Agent response;
+- the original IDs, speakers, and temporal order of these turns.
+
+Every substantive claim must be traceable to the admissible evidence. A brief final question cannot support a richer description of premises or comparisons expressed nowhere in the cited prefix.
+
+Never attribute Agent-introduced information, reasoning, distinctions, concerns, or alternatives to the Doctor. Later Doctor agreement or repetition does not change who introduced a concept. It may be described as later uptake only at the time it actually occurs.
+
+Never use later clarification, correction, agreement, repetition, or feedback to claim that the Doctor previously requested something unstated.
+
+3. DOCTOR PERSPECTIVE WITHOUT DOCTOR MIND-READING
+
+Describe what the Doctor actually contributed and what response would adequately handle that contribution. Doctor perspective does not mean the Doctor is always correct, the Agent should agree, or Doctor praise is proof of quality.
+
+Separate:
+
+- surface_request: the explicit conversational question, request, challenge, or action, if any;
+- decision_shaping_contribution: the observable premises, evidence, comparison, narrowing, prioritization, elimination, criterion, or attention shift the Doctor actually introduced, if any;
+- user_contribution: a grounded account of the relevant Doctor contribution.
+
+Do not substitute the original task question for a conversational request unless the Doctor actually invokes it. Do not force a deeper decision structure when the exchange only supports a direct request or a closure signal.
+
+A question about an alternative shows that the Doctor directs attention toward it or requests its evaluation. It does not by itself show doubt, rejection, preference, confusion, or an internal belief.
+
+Terms such as uncertain, skeptical, confident, convinced, concerned, prefers, rejects, or distrusts require explicit supporting wording. Otherwise describe observable actions.
+
+4. OBSERVABLE PRE-RESPONSE AGENT STATE
+
+Describe only what can be established before the selected response from prior Agent utterances or explicitly recorded pre-response state.
+
+Relevant state may include an expressed position, an earlier comparison, a stated basis, an acknowledged limitation, an unresolved inconsistency, a previous explanation, or a commitment to examine an issue. Select only state relevant to this behavior.
+
+Do not infer hidden beliefs, confidence, intentions, or knowledge. Do not use the selected response to reconstruct an earlier state. Do not assume that a position changed merely because the Doctor questioned it.
+
+If no relevant position or prior handling is recorded, say so. Absence of a recorded position is not uncertainty and does not imply that the Agent must remain neutral.
+
+Do not require a detailed state condition when the behavior does not depend on one. An unconstrained Agent-state condition is preferable to an invented state. If the condition is unconstrained, state explicitly that no additional recorded Agent state is required.
+
+5. DECOMPOSE ACTUAL AGENT HANDLING
+
+Separate:
+
+- surface_handling: whether and how the Agent addresses the explicit request;
+- reasoning_handling: how the Agent handles the Doctor's actual decision-shaping contribution, where one exists;
+- agent_handling: the specific observable response behavior in relation to both the Doctor context and the pre-response Agent state.
+
+If the Agent answers the explicit request, do not describe the issue as failure to answer or engage. If the response is concise but handles the need, do not penalize missing length or elaboration.
+
+Where the Agent relies on a Doctor-provided premise or comparison, examine the expressed connection between that basis and the decision criterion. Do not decide factual correctness. Where the Agent changes or retains an earlier position, examine the observable handling of the relevant challenge rather than rewarding either direction by itself.
+
+Do not automatically require critical examination, alternative generation, explanation, qualification, answer revision, or answer preservation in every exchange. The need for that behavior must be established by the actual prefix and relevant Agent state.
+
+6. FIND ONE LOCALLY USEFUL BEHAVIOR, NOT A SUCCESS STORY
+
+Identify the concrete interaction need present before the selected response. Determine what the response actually handles and what, if anything, remains unresolved at that point.
+
+A good behavior must be more specific than being helpful, thorough, polite, persuasive, or correct. Explain the relationship between the observable situation and the Agent's handling. A short response can be the best behavior when an issue has already been resolved and the Doctor's current contribution calls for closure rather than another argument.
+
+Do not treat any of these as sufficient evidence of a good behavior:
+
+- the final answer was correct;
+- the Doctor agreed, praised the Agent, or repeated its conclusion;
+- the Agent wrote a long explanation;
+- the Agent introduced an additional alternative;
+- the Agent sounded confident;
+- the Agent agreed or disagreed;
+- the Agent changed or maintained its answer;
+- the Agent repeated an explanation already given.
+
+Repetition may be useful only if the current interaction supplies a reason for it, such as an explicit request to revisit an explanation. Do not reward repeated content as a newly introduced distinction or criterion.
+
+Do not force a rubric around a complex decision structure when the grounded useful behavior is directly answering a request, resolving a particular gap, preserving an established distinction, or appropriately closing the interaction. These are illustrative checks, not a taxonomy to select from.
+
+Before choosing a successful behavior, ask:
+
+- What need is visible in the prefix?
+- What exactly does the selected response do about that need?
+- Is that behavior actually present in the response?
+- Was the need already handled in the prior dialogue? If so, what additional role does this response perform?
+- If only this behavior were removed, what specific part of the response's local handling would be absent?
+- Would I still identify it as useful if final correctness and later praise were hidden?
+
+The removal question identifies a testable hypothesis. Do not claim that removal would necessarily cause task failure.
+
+7. SUCCESS CONSTRUCTION: OBSERVED GOOD BEHAVIOR FIRST
+
+For source_outcome = success:
+
+- Select one genuinely observed good behavior at an actual Agent response.
+- Score 2 describes that observed behavior at a reusable level of abstraction. Do not add idealized checks, explanations, or actions that the source response never performed.
+- Score 0 describes removal of the selected good behavior so that its minimum useful-performance condition is no longer met, while keeping the Doctor context, pre-response Agent state, and unrelated response components fixed.
+- Score 1 describes a concrete useful component of that same behavior, with an explicitly identified core gap not yet adequately handled. The gap must belong to the behavior actually observed at score 2.
+
+Success score 0 is a counterfactual absence criterion. It is not an observed failure and must not be reported as one. Do not introduce a new false claim, unsupported answer, forced agreement, forced disagreement, changed position, abusive behavior, or invented event to make score 0 worse.
+
+The source response must fit score 2 on the selected behavior using the quoted evidence. Do not choose an aspirational score 2 and reinterpret the source as having performed it.
+
+SUCCESS SELECTION CHECK
+
+Before finalizing a success candidate, explicitly record:
+
+- the local interaction need established by the prefix;
+- the relevant observable pre-response Agent state;
+- the precise action in the source response that handles this need;
+- why that action is worth preserving independently of final success, later agreement, or praise;
+- what specific handling would be absent if only that action were removed.
+
+Choose the strongest grounded local contribution, not the contribution easiest to praise. If the source only states a comparative judgment, do not describe it as examining evidence, explaining a mechanism, checking an assumption, or resolving a contradiction unless those operations are actually expressed. A statement such as "this is more specific" is a comparative claim; it is not automatically an explanation of why the comparison holds.
+
+Do not inflate a limited response into an idealized behavior. Select a different grounded behavior or narrower criterion when necessary, and record concrete evidence limitations. Do not require extra detail when the observed concise handling already addresses the local need.
+
+SUCCESS ABSTRACTION CHECK
+
+Separate the source's particular decision from the reusable response capability. An observed response may favor a competing option, yet the reusable behavior may be evaluating alternatives under a stated criterion. Do not make favoring the competing option, resisting the Doctor, or changing the Doctor's choice the score-2 requirement.
+
+When the selected behavior involves comparison, define the observable comparison that is performed. Appropriate evaluation may support the Doctor's initial option, support another option, or state what cannot yet be distinguished. Do not award any conclusion without the selected handling, and do not disqualify adequately handled responses solely because they reach a different conclusion.
+
+When the selected behavior involves reconciling a challenge with an earlier position, define how the response explains the relation between its stated basis and its position. The position may be retained, qualified, or revised. Do not require rejecting the Doctor's premise or refusing a concession.
+
+SUCCESS SELECTIVE-REMOVAL CHECK
+
+Construct a conceptual score-0 counterpart by removing only the selected useful handling from the actual source response. Keep unrelated claims, tone, acknowledgments, and response components fixed. Describe this check in analysis; do not output an invented rerun response or outcome.
+
+Do not replace the removed handling with complete deference, a new false statement, a stronger unsupported claim, a different answer, or an unrelated failure. If deference already occurs in the source, it may remain as an unchanged component; do not introduce it as an additional intervention.
+
+The resulting score-0 criterion must identify the missing minimum useful handling, not require a new bad behavior. Removing only the completion step while retaining the defined useful partial contribution produces score 1, not score 0. Do not label removal of only the completion step as score 0 when the minimum useful contribution remains. Score 2 captures the full selected behavior actually present in the source.
+
+8. FAILURE CONSTRUCTION: OBSERVED PROBLEM FIRST
+
+For source_outcome = failure:
+
+- Select one observable handling problem or omission at an actual Agent response.
+- Score 0 describes the observed problem at a reusable level of abstraction, identifying which minimum useful-performance condition is not met.
+- Score 2 describes handling that corrects this particular problem under the same Doctor context and pre-response Agent state.
+- Score 1 describes a concrete useful component of that same correction, with an explicitly identified core gap not yet adequately handled.
+
+An omission is grounded only when the prefix establishes the relevant interaction need and the actual response does not handle it. An incorrect final decision is not evidence that such a need existed.
+
+The source response must fit score 0 on the selected behavior. If the actual response already satisfies the proposed minimum useful-performance condition and leaves only the defined core gap, it fits score 1 under those definitions. This is a source-anchor mismatch to investigate, not permission to force the scorer to return 0. Reconsider the genuinely observed problem, selected response, or evidence-grounded behavior definition. Do not raise the threshold, move the gap, add a requirement, or relabel an adequate contribution solely to make a failed trajectory fit score 0. Do not invent a stronger failure or require a behavior merely because it might have produced the right answer.
+
+Describe the mechanism as:
+
+observable situation and relevant Agent state -> actual handling -> specific unresolved interaction need.
+
+Avoid generic claims such as insufficient engagement, lack of nuance, poor reasoning, or failure to clarify without identifying the concrete object and missing handling.
+
+For consistency or contradiction-handling rubrics, a concession is not itself a failure. The problem is an unresolved relation between the accepted premise and the expressed position. Score 2 may retain or revise the position if the response explains that relation consistently. Do not prescribe refusing the Doctor's premise or maintaining the Agent's earlier conclusion.
+
+9. USE DOCTOR FEEDBACK AS A LEAD, NOT AS PROOF
+
+If feedback is supplied, identify its relevant claim and compare it against the actual dialogue.
+
+- Separate feedback claims from directly observed behavior.
+- Reject claims contradicted by the dialogue.
+- Do not multiply evidence strength by counting repeated praise or agreement.
+- Do not retroactively treat feedback as a pre-response Doctor request.
+- Distinguish a request actually made before the response from dissatisfaction expressed only afterward.
+- Do not adopt feedback that confuses a correct conclusion with useful collaboration or factual error with a demonstrated interaction failure.
+- Preserve the source of feedback accurately. An external analyst's Doctor-perspective assessment is not a direct Doctor utterance.
+
+Feedback can guide candidate selection; exact dialogue evidence must ground the selected situation, Agent state, and behavior. A later Doctor statement may show subsequent uptake, but does not establish causal effectiveness or an earlier unmet need.
+
+9A. RECORD WHAT IS ACCEPTED AND REJECTED FROM EVERY DOCTOR REFLECTION
+
+When feedback_kind is physician_post_final_reflection_v1, this is the participating Doctor's own post-FINAL experience. Preserve the report exactly; audit its factual attribution before using it to choose a behavior. A reported experience can be real to the Doctor while its turn attribution or description of earlier needs is unsupported.
+
+Within analysis.feedback_check, keep claim, assessment, and dialogue_basis as a concise overall summary. Also return claim_reviews with exactly one review for EVERY supplied helpful and unresolved item, in input order. Review even an item you do not use for the selected rubric. Never omit an inconvenient unresolved claim or silently replace the Doctor's original claim with your interpretation. With both input lists empty, return claim_reviews=[] and assessment=not_provided.
+
+For each review:
+- feedback_kind is helpful or unresolved; feedback_index is the item's zero-based index within that list. Copy reported_agent_turn_id and claim exactly from its agent_reply_id and experience.
+- decision is accept, partly_accept, or reject. accepted_part states only the grounded part you may use; rejected_part states the unsupported, contradicted, misattributed or retrospectively introduced part you will not use. Use null for an absent part. accept requires only accepted_part; reject requires only rejected_part; partly_accept requires both. Explain the distinction in reason.
+- actual_agent_turn_id identifies the actual response supporting an accepted part. agent_evidence contains exact contiguous quotes from that Agent response, with speaker=agent and its original speaker-scoped turn_id. If the Doctor cited the wrong response, retain the reported ID, identify the actual ID, and explicitly reject the original attribution. Use partly_accept only if a useful part survives the correction; otherwise reject. Do not transfer a later response's content into an earlier response.
+- prior_context contains exact quotes with speaker and speaker-scoped turn_id from strictly before actual_agent_turn_id. It establishes the interaction need where applicable; it must never contain FINAL, the assessed reply, or later discussion. An accepted or partly accepted unresolved claim needs at least one such quote demonstrating an already-present need. A nearby topic or a general possibility does not establish a specific omitted request. Reject the omission claim if that need cannot be grounded.
+- retrospective_only=true means the entire item is usable only as a later experience, with no grounded earlier need or contribution to accept. If an item mixes a grounded earlier part with a new later demand, use partly_accept, retrospective_only=false, and explicitly reject only the later demand. Keep it as a reported later concern, use decision=reject and accepted_part=null, and do not convert it into an earlier omission, applicability condition, Agent-state condition, score criterion, or intervention requirement. Explain its retrospective status without denying that the Doctor may now want it.
+- Rejected claims may have actual_agent_turn_id=null, agent_evidence=[], and prior_context=[] when no applicable evidence exists. Do not fabricate a quote to justify absence. Quotes, when supplied, must still match the exact speaker and turn. No invented turns, ellipses or paraphrases in quote fields.
+
+Separate a subjective benefit (for example, feeling reassured) from the observable operation supporting it. Agreement, confidence and persuasion alone do not become rewarded behaviors. Examine whether the actual response checked stated evidence, compared alternatives under an expressed criterion, clarified a grounded ambiguity, or supported concise closure. Do not assume any of those operations occurred. The resulting behavior can support agreement, disagreement, maintained or revised judgments, or a justified information limit.
+
+Only accepted, dialogue-grounded parts may guide the selected behavior. The selected response's own strict prefix must independently support its applicability, even if a reviewed claim concerns a different turn. A new concern raised at a later Doctor turn cannot become an earlier requirement. Recording a rejection is not enough if the same unsupported demand reappears in the candidate or intervention. Cross-check that it does not. If no reflection claim is usable, choose a conservative behavior grounded directly in the dialogue and state the limitation. Do not certify outcome effects from reflection.
+
+10. SELECT A SINGLE BEHAVIOR AT A SINGLE RESPONSE
+
+Choose one central behavior whose situation, pre-response state, and actual handling have the strongest direct support.
+
+Compare the strongest plausible interaction anchors in the actual dialogue before selecting one. Do not automatically choose the first response, the final response, the longest response, or the passage receiving the most praise. This internal comparison does not change the requirement to output exactly one candidate rubric per trajectory.
+
+Prefer a behavior that:
+
+- addresses a concrete local interaction need;
+- is demonstrably present or absent at the selected response;
+- can be varied without changing the prefix or revealing the answer;
+- is distinct from unrelated virtues or errors;
+- supports a meaningful intermediate score;
+- can be reused in another domain with the same interaction relationship.
+
+Do not combine several independent behaviors into a checklist. Do not choose a response simply because it is the first wrong answer or the final response.
+
+The selected_agent_turn_id must be an actual Agent response ID from the input. For a failure, prefer the earliest response where the chosen problem itself becomes observable. For a success, select the response that actually demonstrates the chosen useful behavior; do not move it to an earlier response that lacks that behavior.
+
+This selected response is the proposed intervention point. Later matching locations are separate: the reusable rubric may apply at other responses in the same case where its pre-response conditions hold. Do not invent the intervention execution policy or rerun results.
+
+For this experiment, matching and Agent training use the candidate's source case only. Reusable wording does not authorize pooling rubrics from other cases.
+
+11. REUSABLE APPLICABILITY: CONTEXT PLUS AGENT STATE
+
+Define applicability with exactly two components:
+
+- user_side_context: the observable Doctor-side situation established before the response;
+- agent_side_state: the relevant observable Agent state established before the response, or an explicit statement that no additional recorded Agent state is required.
+
+Both components must be decidable without seeing the response to be scored. Do not include the desired behavior, the actual response's failure, a current answer reversal, future feedback, or final outcome as an applicability condition.
+
+Make the conditions specific enough to distinguish the interaction mechanism without copying the source case. Do not make all multi-option discussions or all Doctor questions applicable.
+
+The same prefix, same recorded pre-response state, and same rubric must yield the same applicability for sibling responses. Sibling responses may receive different behavior scores after matching; their content cannot change matching.
+
+Non-applicability is not score 0. Score 0 means the conditions apply and the response exhibits the specified absence or inadequate handling. Lack of a factual error is not non-applicability, and factual error alone is not score 0.
+
+12. CONSTRUCT A DISTINCT 0/1/2 SCALE FROM MINIMUM USEFUL PERFORMANCE
+
+Repeat the exact applicability user_side_context and agent_side_state strings in score 0, score 1, and score 2. Only behavior may differ.
+
+DEFINE THE TWO BOUNDARIES BEFORE WRITING THE SCORES
+
+Construction order is mandatory: record minimum contribution M in score_construction_check.score_1_component, then the remaining core gap G in score_1_remaining_gap, then how the same behavior completes G in score_2_basis. Only after fixing M and G write the three behavior criteria. Use the same concrete M in all three; do not weaken it into mere assertion in score 1.
+
+For comparisons or explanations, naming a candidate, saying "X fits better", or claiming that a relation exists is not M. Identify the actual information or relation added: for example the two relevant properties under the same criterion, or the stated link between a premise and the conclusion it supports. If the need is genuinely just a short factual identification, choose the criterion to match that need; do not manufacture an explanation requirement or a spurious partial-credit level.
+
+Use one exhaustive partition: 0 = M absent; 1 = M present and G remains; 2 = M present and G handled. A response without M cannot earn 1 by sounding relevant. A response with M cannot also fit 0. A response that asserts and denies its own central relation does not adequately handle that relation; specify the remaining conflict rather than letting the scorer repair it. This is visible coherence, not a gold-answer test.
+
+For the single selected behavior, first identify:
+
+- Minimum useful performance: the smallest concrete contribution that actually performs a meaningful part of the selected handling. State what information, distinction, examination, or relation the response contributes. The contribution must be useful for the prefix-grounded interaction need, not merely relevant to the topic.
+- Remaining core gap: the precise part of that same handling that is still missing after the minimum contribution. State the missing link, requested dimension, or unresolved relation. This must be necessary to adequately handle the local need, not an optional improvement.
+- Adequate completion: how the response handles that core gap using the same selected behavior. Do not append a second capability or a preferred clinical conclusion.
+
+Then write the three mutually exclusive levels:
+
+0: The response does not meet the minimum useful-performance condition for this behavior.
+1: The response meets that condition through a concrete useful contribution, but the specified core gap is not yet adequately handled.
+2: The response makes the required useful contribution and adequately handles the specified core gap.
+
+The minimum condition must accommodate genuinely adequate ways of performing the behavior. A concise response may express the contribution and its connection in a single sentence; it need not narrate two steps, use a prescribed phrase, or repeat information already established in the prefix. An explicit, unambiguous use of an established fact or relation may count as performance. A bare statement that a check was done is not evidence that it was performed.
+
+WHAT COUNTS AS SCORE 0
+
+Score 0 does not mean silence, a short response, or absence of all useful content. A long explanation, a confident conclusion, or useful handling of a different issue may still fail the selected behavior's minimum condition.
+
+Do not define 0 as merely "the need remains unresolved," because a score-1 response also leaves a specific part unresolved. Define exactly what useful contribution is absent. The score-0 criterion must exclude responses that perform the specified score-1 contribution.
+
+WHAT COUNTS AS SCORE 1
+
+Identify both what the Doctor concretely gains and what remains unhandled. Do not use partially, somewhat, superficially, or incompletely as substitutes for these two descriptions.
+
+Merely mentioning a candidate, announcing a difference, saying comparison is needed, asserting that a term is recognized or unrecognized, or promising to verify something is not automatically meaningful partial performance. It earns partial credit only if it actually supplies the concrete contribution defined for this rubric. If a simple statement already fully handles the local request, it may instead constitute adequate performance; do not force it into a more elaborate scale.
+
+A score-1 description must require the minimum useful contribution AND the absence of adequate handling of the named core gap. This includes a gap that is untouched and a gap that is partly addressed but still has the explicitly named missing link or dimension; identify that remaining deficiency concretely. Do not write it as an unrestricted list of loosely related acts. Check every alternative connected by "or": each must independently meet the same minimum threshold and leave the same kind of core gap.
+
+MAKE THE CORE RELATION CONSISTENCY BOUNDARY EXPLICIT IN THE RUBRIC
+
+When the selected behavior clarifies an entity's identity, classification, membership, or a similarly defined relationship, write the boundary in the candidate's behavior criteria themselves. Do not rely on a general scorer instruction to add it later.
+
+- Score 1: the response supplies M, but the required relationship remains absent, ambiguous, or directly contradicted by another statement or conclusion in the same reply. State the particular relationship that remains unresolved. A useful identification may remain even when the membership conclusion contradicts the explanation.
+- Score 2: the response supplies M and explicitly clarifies the required relationship consistently across the reply; no unresolved statement or conclusion negates that same relationship.
+
+Use only contradictions demonstrable from the visible reply, the question's explicit selection rule, and the displayed option mapping. For example, saying the queried entity belongs to a category but then selecting that entity as the exception directly conflicts with the asserted membership. This example is about logical consistency, not which entity is medically correct. Do not copy clinical answers or option letters into the reusable criteria.
+
+This boundary applies only when the conflict negates the SAME behavior's core relationship. An unrelated mistake or an incorrect final answer by itself cannot lower this behavior's score. If the useful minimum M is itself negated and no coherent minimum remains, 0 may apply; do not automatically assign 1 to every contradiction. Preserve conclusion independence: a conclusion may be maintained, revised, or qualified as long as it follows the response's expressed relation.
+
+WHAT COUNTS AS SCORE 2
+
+Score 2 completes the same behavior whose meaningful part earns 1. It must not require an extra alternative, a second comparison, a mechanism explanation, additional length, stronger certainty, or continued discussion unless that element is necessary for the actual prefix-grounded need.
+
+Do not downgrade an already adequate answer to 1 because it omits an optional enhancement. In a success candidate, all score-2 requirements must also be supported by what the source actually did.
+
+Adequate handling need not produce a decisive answer. When the available information cannot resolve the requested issue, the response may adequately handle it by performing the available examination, identifying the specific missing information or unresolved relation, and appropriately limiting the conclusion. Define this route only when it addresses the selected need; generic uncertainty or a promise of future checking is not completion. Do not require invented facts, numerical estimates, or an unsupported resolution.
+
+Judge expressed handling, not hidden reasoning or medical truth. Do not define higher levels with ungrounded terms such as "medically correct," "objectively valid," or "the right classification." Describe the observable information and relationships the response supplies without prescribing their clinical answer.
+
+BOUNDARY EXAMPLES: ILLUSTRATIONS, NOT A TAXONOMY
+
+For a request to explain an entity's relation to a specified system:
+
+- 0 may be a bare assertion that the entity is recognized or unrecognized, without the required explanatory contribution.
+- 1 may supply a concrete definition, equivalent term, or relevant distinction that helps interpret the entity, but leave its relation to the requested system unexplained.
+- 2 connects that information to the requested system and addresses the asked status or distinction, including a grounded limitation where appropriate.
+
+These are alternative forms of relevant information, not a requirement to provide all three. Use this structure only when the prefix supports an explanatory need beyond a yes/no assertion.
+
+For a request about a particular dimension such as typicality, information about mere possibility may be a concrete partial contribution while leaving the asked dimension unhandled. Score 2 must address the dimension actually requested, or explain the specific limit on assessing it after doing the available work. Do not silently replace the requested question or demand invented frequencies.
+
+COVERAGE AND WHOLE-RESPONSE CHECK
+
+Check plausible applicable responses, including nonperformance, useful partial handling, concise adequate handling, and responses that retain, revise, or qualify a position. None should satisfy two complete level descriptions or fall outside the scale solely because an optional event did not occur.
+
+Assess the selected behavior across the whole reply. A keyword or isolated sentence does not establish a contribution that the same response explicitly retracts or directly contradicts without resolution. Determine what contribution remains coherent and what gap remains. Do not lower this behavior's score because of an unrelated flaw.
+
+Neither agreement nor disagreement is intrinsically a score. Neither answer revision nor preservation is intrinsically a score. Different conclusions may receive the same high score when the selected observable handling is adequately performed.
+
+Perform a conclusion-independence check: could adequate handling support the Doctor's initial conclusion, a different conclusion, or justified uncertainty when the expressed basis warrants it? Rewrite criteria that reward a direction instead of the selected handling. This does not make unsupported or internally contradictory handling adequate.
+
+THREE SHORT SAME-STATE BOUNDARY PROBES
+
+Construct one short hypothetical response for each intended score while holding the Doctor context and pre-response Agent state fixed. Use only supplied information or abstract placeholders; do not invent patient findings or missing domain facts. These probes are diagnostic examples, not observed dialogue, source evidence, actual interventions, or rerun outcomes.
+
+Check each probe against all three complete behavior descriptions:
+
+- The 0 probe lacks the defined useful contribution; it does not also qualify for 1.
+- The 1 probe contributes something concrete that the 0 probe lacks, and leaves exactly the named core gap; it does not also qualify for 0 or 2.
+- The 2 probe handles that gap through the same behavior, without relying on an extra requirement or a preferred conclusion.
+
+If a probe fits multiple levels, rewrite the criteria. Do not repair overlap by telling the scorer to choose whichever label matches source_outcome. Inspect concise and differently worded variants too; three probes do not prove exhaustive coverage.
+
+Briefly record the probes and their boundary findings in the existing score_construction_check strings. Label them hypothetical. Keep them out of evidence_spans and do not add probe-specific output fields. Define the actual boundaries in candidate_rubric.scores as well: analysis-only explanations cannot repair ambiguous scoring criteria.
+
+SOURCE ANCHOR CHECK
+
+After defining the scale, evaluate the actual source behavior against those definitions without using final correctness as evidence. For a success candidate, the source must genuinely meet 2 and selective removal must fall below the minimum threshold. For a failure candidate, the observed problem must genuinely meet 0.
+
+If the source fits 1, revisit the selected behavior and its evidence rather than forcing a different score. Do not invent a partial contribution to manufacture a middle level, inflate success into an unobserved ideal, or split an already adequate response into artificial deficiencies. If a meaningful three-level scale cannot be grounded for the candidate, reconsider which single behavior to select. Any remaining evidence limitation must be stated honestly under the record-integrity rules below.
+
+13. ABSTRACTION WITHOUT ERASING THE MECHANISM
+
+Complete source analysis first. Then independently rewrite candidate_rubric at a reusable level.
+
+Only the reusable fields must contain zero case-specific disease names, named findings, treatments, drugs, tests, procedures, option labels, answer-choice content, or named task-specific entities. These fields are:
+
+- candidate_rubric.name;
+- both applicability components;
+- every score's context, state, and behavior.
+
+Use abstract relational descriptions such as an expressed position, a supplied premise, a requested comparison, competing alternatives, an evidential gap, or a stated criterion. Do not merely replace a disease name with a vague noun and retain the case-specific answer structure.
+
+Source-specific details may remain in analysis when needed for grounding. Exact evidence quotations must preserve their original content. Do not copy exact quotes into reusable criteria or instructions.
+
+Preserve the relationship among Doctor context, relevant Agent state, and required handling. Avoid collapsing the rubric into engage better, reason carefully, consider alternatives, or be clear.
+
+The rubric name should identify the concrete interaction capability or object being handled. It should not merely name a general quality.
+
+14. EVIDENCE AND RECORD INTEGRITY
+
+Include exact evidence from both participants:
+
+- Doctor evidence establishing the relevant pre-response situation;
+- Agent evidence demonstrating the selected behavior or the response in which the grounded omission occurs;
+- earlier Agent evidence supporting any relevant state condition, when such state is available.
+
+Use exact original turn IDs and speaker identities. Do not renumber turns by array position. Do not assume IDs are integers. A quoted span must be an exact substring of the identified utterance, without fabricated quotation marks, paraphrase, or inserted ellipses.
+
+Execution errors such as HTTP 429, empty API outputs, or interrupted generations are not collaboration failures or observed useful behaviors. Do not generate a behavioral explanation from an error message. This prompt is intended for completed conversational trajectories; malformed or technically incomplete inputs must be handled by the caller rather than disguised as task failures.
+
+Produce exactly one candidate for a completed trajectory. When the interaction signal is weak, choose only the most conservative behavior supported by the exchange, record evidence_strength = limited, and state the limitation. Mandatory generation does not justify invented requests, invented Agent state, invented failure, or embellished success. Do not describe a limited candidate as effective or validated.
+
+REQUIRED ANALYSIS RECORD
+
+analysis must be a populated object containing every field in the output structure. Do not return {}, omit fields, use "see rubric" as a substitute, or assume the caller will reconstruct your analysis.
+
+Write concise evidence-grounded explanations, not an unrecorded claim that an internal check was performed. selection_rationale explains why this response and behavior were chosen. source_behavior_support connects exact response evidence to the claimed behavior without exaggerating what it demonstrates. score_construction_check uses its existing five string fields as follows:
+
+- score_0_basis: state the unmet minimum condition and its grounding as observed failure or selective removal; include the short hypothetical 0 probe and why it falls below the threshold.
+- score_1_component: state the minimum concrete useful contribution and what is gained relative to 0; include the short hypothetical 1 probe.
+- score_1_remaining_gap: name exactly what is still unhandled in that 1 probe and why it is necessary for the same local need.
+- score_2_basis: explain how the same behavior handles the gap, grounded in observed success or a correction of the observed problem; include the short hypothetical 2 probe and what it adds relative to 1.
+- conclusion_independence: explain why the criteria assess handling rather than agreement, disagreement, answer direction, confidence, or final correctness.
+
+Keep the actual source evidence separate from the explicitly labeled hypothetical probes within these explanations. Each field is one concise substantive string, not an additional object or array. Do not insert invented turn IDs or probe text into evidence_spans.
+
+Also include a brief instruction-equivalence check in score_construction_check.score_0_basis for a success source, or score_construction_check.score_2_basis for a failure source. Identify how intervention_instruction implements the selected level without omitting a required operation, adding an unrelated requirement, or supplying a conclusion. This is a comparison of the written criteria and instruction, not evidence that an Agent obeyed it.
+
+source_score is the intended source anchor, not an independently measured score. An independent scorer must still assess whether the source response actually meets the generated criterion. selected_agent_turn_id must identify the response selected on the evidence; do not assume an external target_reply_id proves that selection was performed.
+
+Caller-supplied target information may direct attention to a response, but it is not an evidence span or an Agent-state record. If the caller constrains selection to a particular response, assess only a behavior actually grounded there and disclose the constraint in limitations. Do not silently replace missing analysis with externally supplied metadata.
+
+15. GENERATE ONE MATCHED INTERVENTION INSTRUCTION
+
+Return one additional top-level string, intervention_instruction, in the same JSON output as the rubric. Do not create another candidate or request another model call.
+
+FIXED TARGET AND LOCATION
+
+The intervention target is determined by source_outcome:
+
+- success -> instantiate candidate_rubric.scores["0"].behavior;
+- failure -> instantiate candidate_rubric.scores["2"].behavior.
+
+This mapping is fixed, not a choice to optimize or reverse. Do not choose score 1 for an intervention. The instruction is written for the response identified by analysis.selected_agent_turn_id. Do not invent a new intervention location or duplicate these values in extra output fields.
+
+The caller must verify this mapping, store the instruction with the candidate, and pass it to the rerun Agent. Generate the instruction once for this rubric and use the identical instruction for all three reruns. Do not vary the instruction between runs or generate instructions until a preferred outcome or behavior score is obtained. This prompt does not execute or certify any rerun.
+
+WRITE A DIRECT EXECUTION INSTRUCTION
+
+Use two to four short imperative sentences addressed to the responding Agent. State the concrete operation to perform or the specific contribution to omit. Do not merely say "follow the rubric," "produce score 0," "be ideal," "be more thorough," or "answer badly."
+
+Use the selected behavior and the prefix to identify the relevant object, criterion, requested dimension, or relation. Prefer references such as "the clinician's stated criterion," "the queried alternative," or "the relation between the premise and your earlier position." A source-specific referent may appear here only if it is explicitly available in the selected pre-response prefix and is needed to identify the operation. Do not introduce a domain claim or an answer by naming the referent.
+
+The reusable candidate_rubric must remain abstract under Section 13. intervention_instruction is a separate execution field for the selected response; it does not change applicability or become part of the scoring rubric.
+
+For a success source, operationalize selective removal:
+
+First restate the exact minimum contribution M that must be absent in the instruction-equivalence check. Write the instruction so that ALL realizations of M are omitted, not just the final explanatory sentence. Test both an explicit explanation and a short paraphrase against it. Do not replace omission with agreement, disagreement, a changed diagnostic leaning, or a demand to state a conclusion. A brief response may retain only compatible ordinary handling. The instruction must permit that without inventing a new medical claim.
+
+- Identify the selected minimum useful contribution that must be absent.
+- Omit that contribution and close paraphrases that would still perform it. If a closing caveat would restore the same comparison, distinction, or explanatory link, omit that caveat as well.
+- Removing only the completion step while retaining the defined minimum contribution is score 1, so it is not a valid realization of this score-0 instruction.
+- Do not introduce a false fact, unsupported stronger claim, automatic agreement, answer change, or unrelated defect to compensate for the omitted behavior. Preserve compatible ordinary response constraints; do not attempt to dictate the rest of the answer.
+
+For a failure source, operationalize completion:
+
+- State the concrete useful contribution and the specific same-behavior gap that must be handled.
+- Require the operation in the reply itself, including the resulting relation, finding, or information limit. Naming a check, claiming it was done, or promising it later does not perform it.
+- Leave the clinical conclusion open. Do not supply which candidate wins, whether the clinician is right, a missing mechanism, or the fact that the Agent is supposed to discover.
+- Where the rubric permits adequately qualified handling of unavailable information, preserve that route. Do not turn qualification into an automatic exemption from the required available work.
+
+BOUNDARIES AND SEMANTIC EQUIVALENCE
+
+For a failure source, name the visible operation implementing M and the particular connection completing G. Require the response to perform both in its own words. Leave the clinical conclusion open: do not require changing, retaining, supplying, or suppressing a final choice unless the rubric's selected behavior itself requires that handling. "Do not supply a final diagnostic choice" is an extra restriction when the rubric only requests evaluation of a finding. Do not write it merely to avoid answer leakage; keep the instruction answer-neutral instead.
+
+The instruction must preserve the scope of the selected behavior. It may make an already required operation explicit, but it must not add a new comparison, alternative, explanation, question, or demand for certainty. Do not narrow a valid score-2 behavior into one preferred clinical answer or broaden a score-0 omission into suppression of unrelated useful content.
+
+Do not copy the actual source response, a hypothetical boundary probe, or a model clinical answer into the instruction. Specify the operation without providing a response for the Agent to imitate. Do not include source_outcome, source_score, score labels, feedback, final decisions, desired success/failure, adoption thresholds, or rewards in the instruction text.
+
+Use only information authorized by the pre-response window when making the instruction concrete. The fact that the generator saw a full trajectory does not authorize revealing later information. An observed source behavior may determine what reusable operation is selected, but its clinical conclusion is not a permissible shortcut in the instruction.
+
+Check that a literal execution of the instruction would satisfy the selected behavior criterion, and that the instruction does not silently allow the useful partial performance that would make a requested 0 become 1. Revise the instruction or an evidence-grounded inconsistent criterion when necessary. Do not force the independent scorer's label or claim that this written check proves runtime compliance.
+
+The instruction is authored for the selected response. Whether the executor applies it at later turns, which Agent policy is used, and how the conversation continues remain separate protocol decisions.
+
+16. FINAL SELF-REVIEW
+
+Before returning, verify:
+
+Grounding:
+
+- Every Doctor claim has actual Doctor evidence from before the selected response.
+- Every Agent-state claim is available before that response.
+- No Agent-introduced concept is falsely attributed to the Doctor.
+- No later utterance or feedback creates an earlier need.
+- Every helpful and unresolved reflection item has a claim_reviews record; accepted content has exact source attribution, and rejected or retrospective requirements do not reappear in the candidate or intervention.
+- The selected response demonstrates the claimed behavior or grounded omission.
+
+Behavior selection:
+
+- The local interaction need is concrete and supported.
+- The behavior is neither a correctness label nor a reaction to praise.
+- Prior handling has been checked; repeated content is not labeled newly introduced.
+- The criterion does not demand an unnecessary alternative, objection, explanation, or continuation.
+- Useful closure and concise handling remain possible when warranted.
+
+Source direction:
+
+- Success: the source fits score 2; score 0 removes only the selected behavior and is explicitly counterfactual.
+- Success: the selection rationale identifies an actual local contribution, and the claimed behavior does not exceed the source evidence.
+- Success: score 0 does not add deference, a new mistake, or an answer change; score 2 does not require favoring an alternative.
+- Failure: the source fits score 0; score 2 corrects the actual problem without supplying a new answer or fact.
+- Final outcome does not serve as evidence for local behavior quality or causality.
+
+Matching and scores:
+
+- Applicability uses only pre-response context and recorded state.
+- Both condition strings are identical across applicability and all scores.
+- Only the selected behavior changes across scores.
+- The minimum useful-performance condition is concrete and appears in the behavior criteria.
+- Score 0 fails that condition; it does not also include qualifying partial performance.
+- Score 1 requires a concrete useful contribution AND the named remaining core gap.
+- Score 2 handles that same gap without adding an optional or independent requirement.
+- The short hypothetical same-state probes do not fit multiple complete level descriptions.
+- Probe content is clearly hypothetical and is not used as source evidence or a rerun result.
+- Source-score mismatches are reviewed without forcing scores to match final success or failure.
+- Plausible applicable responses do not fall into a gap in the scale.
+- Non-applicability remains distinct from score 0.
+
+Intervention instruction:
+
+- There is exactly one nonempty instruction for the selected Agent response.
+- Its target follows success -> 0 or failure -> 2.
+- It names executable behavior without supplying a clinical answer or an outcome objective.
+- Its concrete referents are available before the selected response.
+- It does not copy the source answer, hypothetical probes, later turns, or feedback.
+- It implements the selected score without adding unrelated demands or silently preserving the contribution that score 0 removes.
+- The corresponding score_construction_check field records the written equivalence check without claiming observed compliance.
+
+Abstraction and identity:
+
+- Reusable fields contain no case-specific answer or domain entity.
+- The distinctive interaction relationship survives abstraction.
+- Evidence spans are exact and include both speakers.
+- Original IDs and types are preserved.
+- analysis contains all required fields, including the evidence-based selection rationale and score-construction checks; it is not an empty object.
+- No rerun outcomes, validation status, causal effects, or training rewards are invented.
+
+If a check fails, revise the selected behavior, analysis, applicability, score definitions, or intervention instruction before returning.
+
+17. OUTPUT
+
+Return exactly one valid JSON object with no Markdown, commentary, or code fences. Replace placeholders with grounded content. Preserve input ID values and their original JSON types.
+
+The claim_reviews item structure is shown below. IDs and content are illustrative placeholders, not source evidence; substitute the actual input values. Emit [] only when both reflection lists are empty.
+
+{
+  "feedback_kind": "helpful",
+  "feedback_index": 0,
+  "reported_agent_turn_id": 1,
+  "claim": "<exact original experience>",
+  "decision": "partly_accept",
+  "accepted_part": "<grounded part>",
+  "rejected_part": "<unsupported attribution or content>",
+  "reason": "<why each part is accepted or rejected>",
+  "actual_agent_turn_id": 2,
+  "agent_evidence": [
+    {
+      "speaker": "agent",
+      "turn_id": 2,
+      "quote": "<exact supporting span in actual Agent reply>"
+    }
+  ],
+  "prior_context": [
+    {
+      "speaker": "doctor",
+      "turn_id": 1,
+      "quote": "<exact earlier context when relevant>"
+    }
+  ],
+  "retrospective_only": false
+}
+
+Use this top-level structure (the empty feedback example applies only when none was supplied):
+
+{
+  "rubric_id": "<candidate ID supplied by caller, or source_case_id/source_trajectory_id/selected_agent_turn_id joined with ::>",
+  "source_case_id": "<original case ID>",
+  "source_trajectory_id": "<original trajectory ID>",
+  "source_outcome": "success or failure",
+  "analysis": {
+    "surface_request": "<grounded description or null>",
+    "decision_shaping_contribution": "<grounded description or null>",
+    "user_contribution": "<actual Doctor contribution>",
+    "agent_side_state": "<relevant observable pre-response state, or explicit absence of recorded state>",
+    "surface_handling": "<actual handling or null>",
+    "reasoning_handling": "<actual handling or null>",
+    "agent_handling": "<actual selected response behavior>",
+    "interaction_need": "<specific need established before the selected response>",
+    "selected_behavior": "<one observed good behavior for success, or one observed problem/grounded omission for failure>",
+    "selection_rationale": "<why this response and behavior are selected, independently of final correctness or praise>",
+    "source_behavior_support": "<what the quoted source response actually demonstrates, without embellishment>",
+    "behavior_to_preserve_or_correct": "<what to preserve for success, or what to correct for failure>",
+    "score_construction_check": {
+      "score_0_basis": "<unmet minimum condition; source grounding or selective removal; short hypothetical 0 probe and threshold check; for success, instruction-equivalence check>",
+      "score_1_component": "<minimum concrete useful contribution; gain relative to 0; short hypothetical 1 probe>",
+      "score_1_remaining_gap": "<exact remaining core gap in the 1 probe and why the same local need requires it>",
+      "score_2_basis": "<same-behavior completion grounded in observed success or correction; short hypothetical 2 probe and gain relative to 1; for failure, instruction-equivalence check>",
+      "conclusion_independence": "<why adequate handling is not tied to agreement, disagreement, or a particular choice>"
+    },
+    "source_score": 2,
+    "score_0_basis": "counterfactual_removal or observed_problem",
+    "selected_agent_turn_id": "<original Agent response ID; preserve its input type>",
+    "feedback_check": {
+      "claim": null,
+      "assessment": "not_provided",
+      "dialogue_basis": null,
+      "claim_reviews": []
+    },
+    "evidence_strength": "strong or limited",
+    "limitations": [],
+    "evidence_spans": [
+      {
+        "turn_id": "<original Doctor turn ID; preserve its input type>",
+        "speaker": "doctor",
+        "quote": "<exact excerpt before the selected Agent response>"
+      },
+      {
+        "turn_id": "<original selected Agent turn ID; preserve its input type>",
+        "speaker": "agent",
+        "quote": "<exact excerpt from the selected response>"
+      }
+    ]
+  },
+  "candidate_rubric": {
+    "name": "<specific reusable interaction capability>",
+    "applicability": {
+      "user_side_context": "<observable pre-response Doctor context>",
+      "agent_side_state": "<observable pre-response Agent condition, or no additional recorded state required>"
+    },
+    "scores": {
+      "0": {
+        "user_side_context": "<exact same string as applicability.user_side_context>",
+        "agent_side_state": "<exact same string as applicability.agent_side_state>",
+        "behavior": "<specified minimum useful-performance condition is not met; exclude qualifying partial performance>"
+      },
+      "1": {
+        "user_side_context": "<exact same string as applicability.user_side_context>",
+        "agent_side_state": "<exact same string as applicability.agent_side_state>",
+        "behavior": "<specified concrete useful contribution is performed AND the named core gap is not yet adequately handled>"
+      },
+      "2": {
+        "user_side_context": "<exact same string as applicability.user_side_context>",
+        "agent_side_state": "<exact same string as applicability.agent_side_state>",
+        "behavior": "<the same useful contribution is made AND the named core gap is adequately handled>"
+      }
+    }
+  },
+  "intervention_instruction": "<two to four short imperative sentences implementing the selected target behavior at the selected pre-response state; no clinical answer, score label, or outcome objective>"
+}
+
+Output constraints:
+
+- source_outcome must be exactly success or failure.
+- source_score must be the integer 2 for success and 0 for failure. The example value is not a default.
+- score_0_basis must be counterfactual_removal for success and observed_problem for failure.
+- feedback_check.assessment must be supported, partly_supported, unsupported, contradicted, or not_provided. Record the actual feedback claim and dialogue basis when feedback is supplied.
+- evidence_strength must be strong or limited. This is a grounding diagnosis, not a causal effect score, adoption decision, or reward.
+- limitations is an array of concrete evidence limitations, or an empty array when none are identified.
+- Only surface_request, decision_shaping_contribution, surface_handling, reasoning_handling, feedback_check.claim, feedback_check.dialogue_basis, and each claim_reviews item's accepted_part, rejected_part, and actual_agent_turn_id may be null under their stated absence/rejection rules.
+- Every analysis field shown above is required. All non-null text fields must contain a substantive grounded description. All score_construction_check fields are required for both outcomes.
+- An empty analysis object is an invalid output. Metadata defaults or caller-selected turns must not be presented as model-generated analysis.
+- intervention_instruction is required and must be a substantive nonempty string, not null, an object, a list, a clinical response, or a request for another generation step. It implements score 0 for success or score 2 for failure.
+- Keep intervention_instruction separate from candidate_rubric and evidence_spans. Do not add it to scoring criteria or include it in the independent scorer's visible rubric.
+- rubric_id is only a candidate identifier. Do not claim semantic uniqueness or deduplication across trajectories.
+- Do not output rerun_validation: the intervention/rerun executor must create and populate that record from actual runs.
+- The proposed intervention response is analysis.selected_agent_turn_id. Do not specify how long the intervention persists, which policy reruns use, how scores are aggregated, or how Agent training rewards are combined; those are separate protocol decisions.

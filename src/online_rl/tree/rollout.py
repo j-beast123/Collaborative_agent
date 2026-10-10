@@ -84,29 +84,37 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
     from concurrent.futures import ThreadPoolExecutor
     from src.online_rl.doctor import doctor_seed, minimum_agent_turns
     cid = case['case_id']; ident = {'case': cid, 'policy': policy_sha256, 'protocol': protocol_sha256}
-    pmap = (lambda f, xs: list(ThreadPoolExecutor(workers).map(f, xs))) if workers > 1 else (lambda f, xs: [f(x) for x in xs])
-    amap = (lambda f, xs: list(ThreadPoolExecutor(agent_workers).map(f, xs))) if agent_workers > 1 else (lambda f, xs: [f(x) for x in xs])
+    from contextvars import copy_context
+    def ordered_map(count, f, xs):
+        if count == 1: return [f(x) for x in xs]
+        with ThreadPoolExecutor(count) as pool:
+            futures = [pool.submit(copy_context().run, f, x) for x in xs]
+            return [future.result() for future in futures]
+    pmap = lambda f, xs: ordered_map(workers, f, xs)
+    amap = lambda f, xs: ordered_map(agent_workers, f, xs)
     s1 = doctor_seed(run_seed, cid, 'doctor', 1)
     d1 = (opening(case, s1) if opening is not None else
           cache.call('doctor_turn', {**ident, 'path': '', 'round': 1, 'seed': s1}, lambda: doctor.turn(case, [], 1, max_agent_turns, s1)))
-    frontier = [('', None, [{'speaker': 'doctor', 'stage': 'D1', 'round': 1, 'text': d1['visible']}], d1['status'])]
+    def need_row(d):
+        return ({**d['private_need'], 'audit': d.get('need_audit', {})},) if d.get('private_need') is not None else ()
+    frontier = [('', None, [{'speaker': 'doctor', 'stage': 'D1', 'round': 1, 'text': d1['visible']}], d1['status'], need_row(d1))]
     nodes, leaves = [], []
     for depth in range(1, max_agent_turns + 1):
         entries, specs = [], []
-        for path, parent, prefix, prev_status in frontier:
+        for path, parent, prefix, prev_status, needs in frontier:
             for j in range(branching):
                 cpath = f'{path}.{j}' if path else str(j); nid = f'{cid}/{cpath}'; seed = derive_seed(run_seed, nid, 'agent', 0)
-                specs.append((cpath, nid, parent, prefix, prev_status, seed))
+                specs.append((cpath, nid, parent, prefix, prev_status, seed, needs))
 
         def traced(sp):
-            cpath, _, _, prefix, _, seed = sp
+            cpath, _, _, prefix, _, seed, _ = sp
 
             def sample():
                 tr = agent.sample(case, prefix, depth, seed)
                 if behavior_logprobs is not None: tr = {**tr, 'behavior_logprobs': behavior_logprobs([tr])[0]}   # pi_old, before any update
                 return tr
             return cache.call('agent', {**ident, 'path': cpath, 'seed': seed}, sample)
-        for (cpath, nid, parent, prefix, prev_status, seed), trace in zip(specs, amap(traced, specs)):
+        for (cpath, nid, parent, prefix, prev_status, seed, needs), trace in zip(specs, amap(traced, specs)):
             reply = trace['completion_text']
             dialogue = prefix + [{'speaker': 'agent', 'stage': f'A{depth}', 'round': depth, 'text': reply}]
             early = stop_rule(depth, prefix[-1]['text'], reply) if depth >= minimum_agent_turns(doctor) else None
@@ -114,7 +122,7 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
                     and repeated_agent_reply(prefix,reply)): early='agent_repeated_reply'
             why = early or ('max_agent_turns' if depth == max_agent_turns else None)
             entries.append({'cpath': cpath, 'nid': nid, 'parent': parent, 'prefix': prefix, 'prev_status': prev_status, 'seed': seed, 'trace': trace,
-                            'reply': reply, 'dialogue': dialogue, 'why': why, 'nd': None})
+                            'reply': reply, 'dialogue': dialogue, 'why': why, 'nd': None, 'needs': needs, 'prefix_need': needs[-1] if needs else None})
 
         def doctor_turn(e):
             ds = doctor_seed(run_seed, e['nid'], 'doctor', depth + 1)
@@ -123,6 +131,7 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
         open_ = [e for e in entries if e['why'] is None]
         for e, nd in zip(open_, pmap(doctor_turn, open_)):
             e['nd'] = nd
+            e['needs'] = e['needs'] + need_row(nd)
             e['dialogue'] = e['dialogue'] + [{'speaker': 'doctor', 'stage': f'D{depth + 1}', 'round': depth + 1, 'text': nd['visible']}]
             e['why'] = doctor.halt(agent_turns=depth, status=nd['status'], prev_status=e['prev_status'], last_agent=e['reply'], options=case['options'])
 
@@ -133,7 +142,7 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
                 opt=final_option(text)
                 full=e['dialogue']+[{'speaker':'doctor','stage':'FINAL','round':0,'text':text}]
                 path_ids=tuple(f'{cid}/{".".join(e["cpath"].split(".")[:k])}' for k in range(1,depth+1))
-                on_leaf(Leaf(e['nid'],cid,path_ids,to_turns(full),text,opt,outcome_fn(case,opt),e['why']))
+                on_leaf(Leaf(e['nid'],cid,path_ids,to_turns(full),text,opt,outcome_fn(case,opt),e['why'],e['needs']))
             return text
         done = [e for e in entries if e['why'] is not None]
         finals = dict(zip((e['nid'] for e in done), pmap(final, done)))
@@ -141,13 +150,13 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
         for e in entries:
             nd = e['nd']
             nodes.append(AgentNode(e['nid'], e['parent'], cid, depth, to_turns(e['prefix']), e['reply'], e['trace'], policy_sha256, e['seed'], e['why'],
-                                   e['why'] is not None, nd and nd['visible'], nd and {k: nd[k] for k in ('status', 'status_error', 'seed')}, e['prev_status']))
+                                   e['why'] is not None, nd and nd['visible'], nd and {k: nd[k] for k in ('status', 'status_error', 'seed')}, e['prev_status'], e['prefix_need']))
             if e['why'] is None:
-                nxt.append((e['cpath'], e['nid'], e['dialogue'], nd['status'])); continue
+                nxt.append((e['cpath'], e['nid'], e['dialogue'], nd['status'], e['needs'])); continue
             final_text = finals[e['nid']]; opt = final_option(final_text)
             full = e['dialogue'] + [{'speaker': 'doctor', 'stage': 'FINAL', 'round': 0, 'text': final_text}]
             path_ids = tuple(f'{cid}/{".".join(e["cpath"].split(".")[:k])}' for k in range(1, depth + 1))
-            leaves.append(Leaf(e['nid'], cid, path_ids, to_turns(full), final_text, opt, outcome_fn(case, opt), e['why']))
+            leaves.append(Leaf(e['nid'], cid, path_ids, to_turns(full), final_text, opt, outcome_fn(case, opt), e['why'], e['needs']))
         frontier = nxt
     return Tree(cid, policy_sha256, max_agent_turns, branching, tuple(nodes), tuple(leaves))
 

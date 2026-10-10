@@ -1,0 +1,55 @@
+{
+  "checked_at_utc": "2026-10-10T11:15:37.787511+00:00",
+  "scope": "editing server, CPU only",
+  "config": "configs/experiments/train120_max4_rubric_only_b200.json",
+  "cpu_tests": {
+    "command": "SHERPA_PYTHON=.venv/bin/python PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 bash scripts/online_rl/test_b200.sh",
+    "passed": 743,
+    "skipped": 12,
+    "deselected": 9,
+    "new_b200_tests": 75,
+    "seconds": 56.53,
+    "local_socket_tests_outside_sandbox": true
+  },
+  "cpu_preflight_blockers": [],
+  "live_gpu_api_training_evaluation_executed": false,
+  "files": [
+    {
+      "path": "data/interim/medmcqa/five_gpu_train120_seed20261008/train120_excluding_calibration_seed20261008.jsonl",
+      "sha256": "3d34929094925c822062d03839b49de8f6fb43afba71fb573de409471bb5b8ab",
+      "expected_sha256": "3d34929094925c822062d03839b49de8f6fb43afba71fb573de409471bb5b8ab",
+      "verified": true
+    },
+    {
+      "path": "data/interim/medmcqa/five_gpu_train120_seed20261008/train120_order_seed20261008.json",
+      "sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
+      "expected_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
+      "verified": true
+    },
+    {
+      "path": "data/interim/casimedicos/all_en_622.jsonl",
+      "sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+      "expected_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+      "verified": true
+    }
+  ],
+  "doctor_setup_addition": {
+    "targeted_cpu_tests_passed": 59,
+    "new_setup_tests": 8,
+    "seconds": 7.12,
+    "real_download_install_service_start": false,
+    "scope": "setup plus existing B200 runner/need/verification tests; previous full-suite result above is retained"
+  },
+  "parallel_bank": {
+    "version": "parallel_candidates_consolidate_v1",
+    "new_fake_api_tests": 16,
+    "global_api_max_in_flight": 100,
+    "candidate_batch_size": 8,
+    "generator_model": "openai/gpt-6-luna",
+    "consolidate_model": "openai/gpt-6-luna",
+    "reasoning_effort": "none",
+    "real_provider_support_verified": false,
+    "real_training_or_gpu_execution": false
+  },
+  "config_sha256": "abcd4b873db21006eabb0c5ca9f621221125358a884e2f0b33e5b02359a26f1a"
+}

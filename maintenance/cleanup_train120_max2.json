@@ -1,0 +1,573 @@
+{
+  "base_commit": "de756fc3e88b600860eb5948c8f1d783045ff41c",
+  "scope": "Only sherpa-jh worktree; no runtime algorithm/config/prompt changes",
+  "policy": "Keep all src and tests; keep active README launch/prepare/monitor/export/test entrypoints and recursively referenced configs, scripts and assets. Scan full paths, basenames/stems, Python imports and rooted dynamic paths; preserve compatibility/default references.",
+  "active_identity_before": {
+    "resolved_config_sha256": "b6475b72d7f8bd5892008bcf2af1d6b8f7402fbb26b0beef9eb0ebf28a248d6a",
+    "blockers": [],
+    "prompt_sha256": {
+      "prompts/agent.txt": "5ef5bb764ee955f067e66d1cb8e51950e40c3e7e021994fc8b561cfeaa22942f",
+      "prompts/sherpa/doctor_post_final_reflection_v1.txt": "595b384270dc1bd8a80bc006ec1550bbe2a0207fc7dddce1cdc2f1e4ebdd426f",
+      "prompts/sherpa/luna_gate_v2_1.txt": "eb29b703a2ef4f2825e3ed0d80f84f04cd52d3c53a4745b983c754c81dc3f3fc",
+      "prompts/sherpa/observed_context_behavior_v2.txt": "5d48dd7533799eb7762b1e0fd4709b1f9494024623d4fd0fbfc8e2f48893618a",
+      "prompts/sherpa/pilot_joint_v2_1/agent_system.txt": "05da16d22d2f30dd9829ef19252a9156582378ebe6c29086d23c6f8bc47e5eec",
+      "prompts/sherpa/pilot_joint_v2_1/score0.txt": "deab6dbd055a131cca57285df16da5debcb7719b4ebd656628e7767e0457332d",
+      "prompts/sherpa/pilot_joint_v2_1/score2.txt": "cd76b7346fdd74641c4df933003e64cd12df36b9a9abf05dad9960eeee3dfab0",
+      "prompts/sherpa/pilot_joint_v2_1/scorer.txt": "8110687819c4ce80ca1a09144766a5752b60ace693ab289d1e043a103b841a59",
+      "prompts/sherpa/trajectory_rubric_generator_v2_2_reflection_audit.schema.json": "ad5722330bc7f6eef085b374c7e911f0a5f433fd0c8fb44dab3993d48d3e3644",
+      "prompts/sherpa/trajectory_rubric_generator_v2_2_reflection_audit.txt": "8f74fb98d8a9b229f7f11a0b4d88f4e15deb6851c4475bd9726f8defcee71e9c",
+      "prompts/sherpa/tree_prompt_feedback_v3.txt": "56e410f15d6016ccad01aec20f1b0e3959bbbf0ce0f3a4d2be47c809f4366b9d",
+      "prompts/sherpa/tree_prompt_refiner_v3.txt": "750432a59f4f1a94b6ec5ece3230101b932af8a0d82cfc7cc22b7156e325fd7d",
+      "prompts/user_simulator_v4_final_label.txt": "026f3771659f97b16f7d8985169478bd0b9eb5c141316a982eb49f3f60cff3a2"
+    }
+  },
+  "deleted_counts": {
+    "configs": 22,
+    "prompts": 5,
+    "scripts": 102
+  },
+  "deleted": [
+    {
+      "path": "configs/eval/agentclinic_train30_4b_base.json",
+      "sha256": "b4ba74da98a8801a34fbc3e51532835482187e6db3f27d71239b98e3c0cf8326"
+    },
+    {
+      "path": "configs/evaluation/tree_checkpoint_queue.json",
+      "sha256": "59d7d51addd0abc69a9c580532666746ac5ad19ab6a7c5b1821177b8975c12e4"
+    },
+    {
+      "path": "configs/experiments/train30_14b_clean_diagnostic/ours_decision.json",
+      "sha256": "67f3b3c4c0442b7ae6a53311b471693e86f2e705a2eef5214183bb0ed5783a6e"
+    },
+    {
+      "path": "configs/online_rl/casimedicos_base_gpu1.json",
+      "sha256": "0dda511c0346f0689f381853780b44feba126bfd8100f54ce751bef72ffa6966"
+    },
+    {
+      "path": "configs/online_rl/casimedicos_base_gpu2.json",
+      "sha256": "791d951910cdc0988a59c577c9fe67c7b32249e428da41fc163d5760e3bd9779"
+    },
+    {
+      "path": "configs/online_rl/casimedicos_base_gpu3.json",
+      "sha256": "353d6616258085017672a51c32e83d89f5bc18054714956a7cd7b1b3090c7cb1"
+    },
+    {
+      "path": "configs/online_rl/casimedicos_base_gpu4.json",
+      "sha256": "8e4bd67bf5cdc256467a2763603f554a593c2b93a8cd39f3858222267c8a9b8c"
+    },
+    {
+      "path": "configs/online_rl/tree_batch12_100cases_haiku_gemini_luna.json",
+      "sha256": "06a4e2d246eedb1908e17abe7dd0f96a9cf44a390fef728f348c1d1a483aa67a"
+    },
+    {
+      "path": "configs/online_rl/tree_batch12_haiku_gemini_luna.json",
+      "sha256": "61bbf21197e9c447ee3d0719a1b55c9b9b04d641f4022434c390696a377dff0d"
+    },
+    {
+      "path": "configs/online_rl/tree_pilot5_casewise_haiku_gemini_luna.json",
+      "sha256": "cd3c9deed47e59d68a633b602d132551ed13cc6e99b69178ef4a20f576e45b66"
+    },
+    {
+      "path": "configs/online_rl/tree_pilot5_gpu.json",
+      "sha256": "dd3c157791aee606028f56baae1a606cbc66a59b7faa5f831030dfc1328d5c2d"
+    },
+    {
+      "path": "configs/online_rl/tree_pilot5_gpu_gemini38_resume.json",
+      "sha256": "446ad0ca266f2a5a79474a648b3e47654d722195cab463708a42d096ac72918c"
+    },
+    {
+      "path": "configs/online_rl/tree_pilot5_next.json",
+      "sha256": "2167b559e69e3fd3513d89b9e95d2108433eb9257301e34eeb01761aba97d726"
+    },
+    {
+      "path": "configs/online_rl/tree_v21_base622.json",
+      "sha256": "42d007cefb24948aeeffa17861e62c31d6230cf41a2434594a2b93b30a410cfd"
+    },
+    {
+      "path": "configs/online_rl/tree_v21_five_gpu_min2.json",
+      "sha256": "81629ebdac77ae3070db0f7e72c019d6c5872c2fab8a8f1dcf2aa841e22da446"
+    },
+    {
+      "path": "configs/online_rl/tree_v21_five_gpu_min2_ollama0125.json",
+      "sha256": "b8e5fc30b314e1c701fbb8d16b44e7088c25e3c326390e878379d32f9439960e"
+    },
+    {
+      "path": "configs/online_rl/tree_v21_five_gpu_min2_parallel.json",
+      "sha256": "b25c33a30a9d665e4573972bb0b946fb2044a3971538fa511698f1d25dcd32fd"
+    },
+    {
+      "path": "configs/online_rl/tree_v21_five_gpu_shared5_halt4_visible_pipeline_match8.json",
+      "sha256": "c9fc4ecc371d132576c437ba80671f09b3604dd5c40f3f17d81211f5badcfe69"
+    },
+    {
+      "path": "configs/online_rl/tree_v21_five_gpu_shared5_random10_promptv5.json",
+      "sha256": "12b3d62bb1f68f2d315bf968e7d66923b3e22d3e7b315ae8bf187c2e22218386"
+    },
+    {
+      "path": "configs/online_rl/tree_v21_five_gpu_shared5_random10_promptv6.json",
+      "sha256": "a0986907b000cbfc321046348353559423c30db6f8b5d8c0e0b9fe9cdc8e471c"
+    },
+    {
+      "path": "configs/online_rl/tree_v21_witness_calibration.json",
+      "sha256": "6d54dd75806a68e146ef6ea03a3f23b7a0d177012b36e1c9c4c4c5a9ce6e9b53"
+    },
+    {
+      "path": "configs/online_rl/tree_v2_witness_calibration.json",
+      "sha256": "aea5308f100c84201338ce8786644a41ea4dda658c8ba8818e67d17278454b1e"
+    },
+    {
+      "path": "prompts/medqa_causal/localization_v1.txt",
+      "sha256": "7c99706cfe64387f91403829753cc0c30116ff8b1d43c7e42eedbae633bf4235"
+    },
+    {
+      "path": "prompts/medqa_causal/rubric_generator_v1.txt",
+      "sha256": "b4a6f02e65f6afcdb7e85a648f11fdda1f1ed865452dae7b4c1e159531bac975"
+    },
+    {
+      "path": "prompts/rubric_reason_assessor.txt",
+      "sha256": "a174ca8a1627c65dfc031e4126c6ea3e8269f5d7cf1e6528c27725000072950c"
+    },
+    {
+      "path": "prompts/sherpa/guided_response_template_score0_target_only_v3.txt",
+      "sha256": "10c9cce0ded043f1a9d08e2bbb2c827a79f015a6d1ab2b7a974ea3ce4b950b23"
+    },
+    {
+      "path": "prompts/sherpa/guided_response_template_score2_target_only_v3.txt",
+      "sha256": "aeda58e390db733fbdf69a9073dd010ac6940ea4d50e51689d4f337f509e3d63"
+    },
+    {
+      "path": "scripts/build_effectiveness_labels.py",
+      "sha256": "7cb1f38293d104f9f5a900a01c9af60e0d134bd328b3b0a72f66b8b5d34e2a9c"
+    },
+    {
+      "path": "scripts/build_observable_revalidation_candidates.py",
+      "sha256": "c81f41c1d1583fb65ddd48b2523421e1b778ad071c4ef5cd3dc16b615a86f67d"
+    },
+    {
+      "path": "scripts/build_pass_rubric_guidance_set.py",
+      "sha256": "792fed991af8b7ac8391a987b2cc1d0abbf24f232bb9dc69c70188822124a217"
+    },
+    {
+      "path": "scripts/consolidate_v2_passes.py",
+      "sha256": "ca94121bb44ad4483aa2ed05e4d32a66e2f42daa886d4504a3ad5a97c208e418"
+    },
+    {
+      "path": "scripts/consolidate_v2_passes_original.py",
+      "sha256": "eb547752a1623de2a9bfdcb92c241f6e43e108669ba338e4df7610c261e2095e"
+    },
+    {
+      "path": "scripts/diagnostics/agent_doctor_bench_resume.py",
+      "sha256": "87cd3a52da8144d5ae24c6fe06b82669e8d39340a099e8530ebd5762fb93b3e8"
+    },
+    {
+      "path": "scripts/diagnostics/agentfirst_signal_check.py",
+      "sha256": "7ea3cdbf1345dfd9c3685cddaab3511467156d638e37c89406093e589cd95c28"
+    },
+    {
+      "path": "scripts/diagnostics/audit_a2_labels.py",
+      "sha256": "089e774ceadfccfc4901fcea6cfd5fdbb05b50bce984188c9eb6da4238ecb79f"
+    },
+    {
+      "path": "scripts/diagnostics/backbone_capacity_pilot.py",
+      "sha256": "0e524ea4865aeda0dda3e48f5ea5bb708efcecd280ba1a3e1724ac9472f361a8"
+    },
+    {
+      "path": "scripts/diagnostics/benchmark_124.sh",
+      "sha256": "0b241402b6420b39fadf59cbc1507b2b8925219c18e9270c402f9191ee123693"
+    },
+    {
+      "path": "scripts/diagnostics/causal_validation_table.py",
+      "sha256": "2179618e9f9651fb1a59053a50eddd3de91b8786a1c224c379af2914eba9ec24"
+    },
+    {
+      "path": "scripts/diagnostics/commitment_pilot.py",
+      "sha256": "1cc756aa8229837b47ef54e7789ff66047dbd55c9b8508d13bf0bf95cc5de588"
+    },
+    {
+      "path": "scripts/diagnostics/compare_agentclinic_views.py",
+      "sha256": "6bebb8fdbc3301a29d4319eb159b818444e1c189a95d79dd391b208c136e9759"
+    },
+    {
+      "path": "scripts/diagnostics/controlled_disagreement_pilot.py",
+      "sha256": "44fa312d8c203a42d1fe0bd904f553fb01e0a908d8f6a7622de1e8213d0a6294"
+    },
+    {
+      "path": "scripts/diagnostics/decision_rubric_pilot.py",
+      "sha256": "a6cd60e382c57327b189e4602734942981740162032a3b981071eab76ef1974f"
+    },
+    {
+      "path": "scripts/diagnostics/eligibility_audit.py",
+      "sha256": "c038d760ab6447d9432e6d9dae486bd26daa06bd19b28ac80a0a84eb6227fb85"
+    },
+    {
+      "path": "scripts/diagnostics/equivalence_audit.py",
+      "sha256": "e062f3c22ba36d91d5cedd007424300e284b68c2fc0fd549c9b80d34e653599d"
+    },
+    {
+      "path": "scripts/diagnostics/equivalence_judges.py",
+      "sha256": "ca632bb3b54c3b7147b06c8196bda332c5682f77f621918c7d113cbf1f3c6695"
+    },
+    {
+      "path": "scripts/diagnostics/gpu1_one_case.py",
+      "sha256": "5d4cfc6128922a4fff4a18097eacdf24c0dab26496dc50abb88d3def9d7c7216"
+    },
+    {
+      "path": "scripts/diagnostics/intervention_local_effect.py",
+      "sha256": "40e952b7a409b816c95f55718728266e9c480e63a87f3477c343fef780193b38"
+    },
+    {
+      "path": "scripts/diagnostics/medqa_causal_rubric_pilot.py",
+      "sha256": "f4dff762b8c95103f104c396503624519ab3532fc2f83b7e2672de178804650a"
+    },
+    {
+      "path": "scripts/diagnostics/medqa_mechanism_pilot.py",
+      "sha256": "ce945ff932cde49f7a61d901c796edee22db0e657c1556261ee0b96c94a1d4c5"
+    },
+    {
+      "path": "scripts/diagnostics/migration_manifest.py",
+      "sha256": "4e34af4580691ca04c7ec9f6fbdfb295b04e9f6084989d63af16297ba0949474"
+    },
+    {
+      "path": "scripts/diagnostics/native_rubric_comparison.py",
+      "sha256": "37aa99f59caf78f4dc4ecd5be48a1580c45c269f25cc1b074fb6f6136838e45d"
+    },
+    {
+      "path": "scripts/diagnostics/near_miss_diagnostic.py",
+      "sha256": "27587eae90eabb9ffb99ae8cebcb901acad9d5f6015402f73f0dc6c70102a0c5"
+    },
+    {
+      "path": "scripts/diagnostics/persistent_rubric_pilot.py",
+      "sha256": "52758faaced592f25a5b1a11d7b01704fdf6e53602e639a2bacb7689de7b3bae"
+    },
+    {
+      "path": "scripts/diagnostics/predictor_diagnostics.py",
+      "sha256": "20289d0c7135801c5c902614b76d77707dd3bf3ffab63c3c130267b73daefd89"
+    },
+    {
+      "path": "scripts/diagnostics/prepare_agent_requests.py",
+      "sha256": "396a6ebe9c4c6e65c7bf4404d61b65f6434b6ea86c55e9296947e8bc3ccac811"
+    },
+    {
+      "path": "scripts/diagnostics/profile_grpo_step.py",
+      "sha256": "bcb48f5b4a59a8d0a7842ffdbfdfc3b53a74280dde8238c04faf67d202922d3f"
+    },
+    {
+      "path": "scripts/diagnostics/protocol_signal_report.py",
+      "sha256": "52f615eec7eafabbbf756bfe79645be84263875517e4dff1cb3ca013c1b6c55a"
+    },
+    {
+      "path": "scripts/diagnostics/restart_random10_reuse.py",
+      "sha256": "7406a7d0540e50841a05d44cc7517dfcd3e1708bf4de7006b6b7aa709ada16e3"
+    },
+    {
+      "path": "scripts/diagnostics/reward_group_diagnostic.py",
+      "sha256": "13836326cc286c64042d4b6c01a682369522518e3b14743df6ed680e3979d811"
+    },
+    {
+      "path": "scripts/diagnostics/summarize_parallel_bench.py",
+      "sha256": "5ab1e4a34b1fe55cafb9af69658398f9ca4eba7807a2ca0f2ee1c486e084a8c0"
+    },
+    {
+      "path": "scripts/diagnostics/targeted_rubric_pilot.py",
+      "sha256": "64f037ac351034acc3f7fe8fdf396c2c78737544b341899dcd2f8c4dfebd95b7"
+    },
+    {
+      "path": "scripts/diagnostics/train_pool_audit.py",
+      "sha256": "afbd5f31aebe042559f0ec498876e16a801707b005259eba9bffaa8f8f7030e3"
+    },
+    {
+      "path": "scripts/diagnostics/turn_count_api.py",
+      "sha256": "196f06ffd293c5ffd210df126d7802017ca8a8df8fb6fd97479800a1ffc4d671"
+    },
+    {
+      "path": "scripts/env_base_trajectories.py",
+      "sha256": "f210557380852a1128507f91ff8163a90690fefa8a32f6391f841fd16c420038"
+    },
+    {
+      "path": "scripts/evaluation/base_status.py",
+      "sha256": "7602ba1db240a10776e1358f7b4c301ae0d6c9437be7b3baefe797d1fcec4ddd"
+    },
+    {
+      "path": "scripts/evaluation/launch_casimedicos_base.py",
+      "sha256": "53498573dd4342a61d961dc29346e5ad229b80f10eeacc608be0ba6a89251622"
+    },
+    {
+      "path": "scripts/evaluation/launch_checkpoint_queue.py",
+      "sha256": "d3691517e396df3ce2ab2e63806e42c163845a49e87c8b96e3093c135124dd03"
+    },
+    {
+      "path": "scripts/evaluation/run_checkpoint_queue.py",
+      "sha256": "d37c0b93b4c6048f2008c2f4087e2960e3fc8dc0a89724885cab706c7d1c2560"
+    },
+    {
+      "path": "scripts/finalize_observable_rubric_set.py",
+      "sha256": "b3e28527f3067ecf6054c6a057c80be67150378d362604ee8cfdd50c189d6c94"
+    },
+    {
+      "path": "scripts/freeze_clean_judge.py",
+      "sha256": "5fe790c77411cd8dff8b02e68479e4fa89fb5cd3e8fa75c7fab3caad49b43833"
+    },
+    {
+      "path": "scripts/label_shards.py",
+      "sha256": "67731e0704d1fc9d579d9069418cc357d8798fc293f10a82447113fa610a0fa2"
+    },
+    {
+      "path": "scripts/label_smoke_report.py",
+      "sha256": "65bca000fa2abce921c87f4c2fe117a21e810a6f5cff16c9203f1b0bc9724fb5"
+    },
+    {
+      "path": "scripts/launch_collaboration_300_gpu.sh",
+      "sha256": "916df7371af25e639f60ba1ccf9f0a5d1c7bb3be4857c9f9d76da29d21160502"
+    },
+    {
+      "path": "scripts/launch_medmcqa_full_trajectories_100x4_7gpu.sh",
+      "sha256": "222290c5254ada2375ccd3e44abb5003577007c416c5942c042c38861d4acf4c"
+    },
+    {
+      "path": "scripts/launch_observable_v2_revalidation_7gpu.sh",
+      "sha256": "640d9aac1009027eec0cf33e7d74be6c68dbf4ec29d75bc50fd815aeda1e1f91"
+    },
+    {
+      "path": "scripts/launch_rubric_reruns_300_agent_state_only.sh",
+      "sha256": "07bb3d940ce8628a1755a081f2789576a03e9e98ffbc9b5e64b2ddc7a0fa59a2"
+    },
+    {
+      "path": "scripts/launch_rubric_reruns_300_gpt56_sol.sh",
+      "sha256": "f331964d38611e9a4e052e23f0e276a71fda811edf789d94376261650d0a72a5"
+    },
+    {
+      "path": "scripts/launch_test200_baseline_gpu.sh",
+      "sha256": "07af3aa01bbf60e33bcb18307091dbeeaf1c5b819d98af3ef5b55c9b38848ea1"
+    },
+    {
+      "path": "scripts/launch_test200_rubric11_gpu.sh",
+      "sha256": "9be2da0a11700a86647594545924afca2bf29d771adbe6a6c5897988976928f0"
+    },
+    {
+      "path": "scripts/merge_collaboration_shards.py",
+      "sha256": "02021816d6e275e7ed56c6a560549bb07171d7a5046c4077260fb2a642ebad6e"
+    },
+    {
+      "path": "scripts/merge_medmcqa_full_trajectories.py",
+      "sha256": "1be9dbf6c988215c36f9a33b968e0aed095517562d512b732bc930d33c40ed4a"
+    },
+    {
+      "path": "scripts/merge_medmcqa_rollouts.py",
+      "sha256": "3470bc1fc237c61a2876d58f5d92585c336f5da4e700df9221ea4c8d59b4e01e"
+    },
+    {
+      "path": "scripts/monitor_collaboration_progress.py",
+      "sha256": "898f217b49a9d6d1ec8cfdb8b58a42222c31426293759fb9b07c8fbdf8c9b35f"
+    },
+    {
+      "path": "scripts/online_rl/consolidate_completed30.py",
+      "sha256": "eee0163fad7ab90570e40b6e75542e012a4567b16604821bd4a8a917e1ef0ac3"
+    },
+    {
+      "path": "scripts/online_rl/continue_after_pilot.py",
+      "sha256": "6f831614f7268190bf448b0af71c92cc9b92831e9e0ff00445b5e272b4fb6051"
+    },
+    {
+      "path": "scripts/online_rl/continue_completed30_p1.py",
+      "sha256": "b83c483631bd2f0df12b6b073de38f01aeae86267423fbf822102e1b05012130"
+    },
+    {
+      "path": "scripts/online_rl/export_scoring_review.py",
+      "sha256": "09ce419d7ff91f77a01191306b1accf2c17585d8f0bfa342fb3b686e81b172d5"
+    },
+    {
+      "path": "scripts/online_rl/export_tree_review.py",
+      "sha256": "c02e1a5cdf177b59b3a27305ddb5488f894c0f860b2c6571dbc48c778af7c629"
+    },
+    {
+      "path": "scripts/online_rl/feedback_residual_audit.py",
+      "sha256": "3ab7bf59eb2bca3ebb88c62c6f2d0c730ba92982c480ecdc14e93ecd5e1e5526"
+    },
+    {
+      "path": "scripts/online_rl/launch_tree_batch.py",
+      "sha256": "b15eb3ad77077adc2d0a7af9e5d5154e9aa6d92e049816b1639406059d935c77"
+    },
+    {
+      "path": "scripts/online_rl/launch_tree_v21_rubric_100.sh",
+      "sha256": "d2bc7584bdc35651378d306921ff23968c746b2228d5abdbf37ba9a9bf241706"
+    },
+    {
+      "path": "scripts/online_rl/launch_tree_v2_100.sh",
+      "sha256": "bafecd9b0d327e1ecb8b2490c420f94b70fea975dd0d5f7f7e7648883076b181"
+    },
+    {
+      "path": "scripts/online_rl/pilot_status.py",
+      "sha256": "116903932d7d626735a0ac06dcfdbcfcba230a6507181d61ef44547f3c0a41f1"
+    },
+    {
+      "path": "scripts/online_rl/pin_local_doctor.py",
+      "sha256": "59bb7399a1c43e3cd66c0f1cbbca9cb351ff9dbc6cc56200e30634a8658f58d9"
+    },
+    {
+      "path": "scripts/online_rl/pregroup_completed30.py",
+      "sha256": "9089a6bcdfc7771b9c213016b90bb1a54592f12f37adf3bd9cc0ebc5533d500e"
+    },
+    {
+      "path": "scripts/online_rl/prepare_five_gpu_train500.py",
+      "sha256": "3968de6ccbc705d385653f4097ddb1b89f0b57f480cd02d8cf41c3ccbb3161aa"
+    },
+    {
+      "path": "scripts/online_rl/prepare_live_five_gpu.py",
+      "sha256": "60c8ceadc2527b6dc322990a2d633c439545f80919c35cad73e562bb2b1c0826"
+    },
+    {
+      "path": "scripts/online_rl/rerun_consolidated30.py",
+      "sha256": "09ada49843b917e19b277cb3fc0110be49ca3bf2529b626b6e7ed122482e8edb"
+    },
+    {
+      "path": "scripts/online_rl/rescore_retained22.py",
+      "sha256": "88011fb44f046ab28748c9232674635850f32deb8deba838c4807aa8c534d31e"
+    },
+    {
+      "path": "scripts/online_rl/resume_pilot_gemini38.py",
+      "sha256": "abb9e3816c939b9bd4cc23d03848bd6d0d7fe6a58274d239656776240b7b0acf"
+    },
+    {
+      "path": "scripts/online_rl/reuse_completed30_case.py",
+      "sha256": "c7d233e718bb1172cca8af44d4c24ce753c727b7a06bc01feef3ac540bbbb619"
+    },
+    {
+      "path": "scripts/online_rl/run_base622.py",
+      "sha256": "384e8fe229049067c9773c380560995e0dd7e5ac2fd2485d5720a60f16cf00ef"
+    },
+    {
+      "path": "scripts/online_rl/run_completed30.py",
+      "sha256": "c2839d40a23b9f7692a23087c590e14cce902fda1642eb5a8998b550d37743ec"
+    },
+    {
+      "path": "scripts/online_rl/run_prompt_pilot.py",
+      "sha256": "2eaabb438f7a5de72f1a29bcf737aec2caed063e125538474c41c189065bf60c"
+    },
+    {
+      "path": "scripts/online_rl/run_stop10.py",
+      "sha256": "25171bde73308e5cba4014c8af7b5cad8f6ad0828a5ad25d032e8be9c4d564b5"
+    },
+    {
+      "path": "scripts/online_rl/run_tree_batch.py",
+      "sha256": "b5b628043570d6d263e020c4d9617e4c5c79f4858e97a4314bd8e67ced53e84e"
+    },
+    {
+      "path": "scripts/online_rl/score_reuse_retained.py",
+      "sha256": "fa700efd65ad18cb6d3dcc0e02340a781631b59e154c51370e2ecc1d2b920269"
+    },
+    {
+      "path": "scripts/online_rl/source_consistency_replay.py",
+      "sha256": "75a6e5b9520bcc52e51977527a4ab4ed7128025852fbf7f4dc643c05f0dbf874"
+    },
+    {
+      "path": "scripts/online_rl/start_batch_doctors.py",
+      "sha256": "7a268ff24e20ce59188bacce0e3220f1a8e0d563846f7c16b88650188e94feb0"
+    },
+    {
+      "path": "scripts/online_rl/watch_progress.py",
+      "sha256": "6cb62ccb4120446423bdb4b365b4abdf80d0bf8f346befb3105a19d1eb8aaf7f"
+    },
+    {
+      "path": "scripts/pause_at_checkpoint.sh",
+      "sha256": "67fa119fdacafa734f7f84055b65c5e8535f56dc47533ab1465147b0fc41aa80"
+    },
+    {
+      "path": "scripts/predictor_checkpoint_report.py",
+      "sha256": "91695429af452e480fcc32ebb6b40e5c0c06e89f9dbbcc500d0be5e08dac64a5"
+    },
+    {
+      "path": "scripts/prepare_casimedicos_arg.py",
+      "sha256": "df1585e8b1cb7336a28eb0d8a8cb57df4829af5af4e48b9300c749a1938ede05"
+    },
+    {
+      "path": "scripts/rq2_controlled_inputs.py",
+      "sha256": "6b36b41c666d425e412715078fb6f89bdb00d3f6f9fc8992c776b03674e69998"
+    },
+    {
+      "path": "scripts/run_casimedicos_arg_baseline_7gpu.sh",
+      "sha256": "14bad7bedc38d9e9b8087d842003d8efd721f063534456941ff9ed59140a66ed"
+    },
+    {
+      "path": "scripts/run_clean_prep.sh",
+      "sha256": "f30b33d840e045b817af960816de93009e12866ad0b0948fc4cf0886b4882183"
+    },
+    {
+      "path": "scripts/run_eval.sh",
+      "sha256": "60a83c11a06038a663ee5c0355c2229bed05769945fccfcda2e87638dc778bd1"
+    },
+    {
+      "path": "scripts/run_gemma_effectiveness.sh",
+      "sha256": "c92ca68528620a80459419b29ea78755f6a44be26c7f4b2782e46281cfecaf81"
+    },
+    {
+      "path": "scripts/run_label_shard.sh",
+      "sha256": "b718e90739794053b677fee1c7f922fda8d3806b855cf1b9e88d6f9e2f230b1c"
+    },
+    {
+      "path": "scripts/run_labels_finish_predictor.sh",
+      "sha256": "5009fd7879f1a489fa51eccf0967b6faca230e94fe072e20efd2c32a3c44b51a"
+    },
+    {
+      "path": "scripts/run_labels_predictor.sh",
+      "sha256": "58772c60a40d299c3ac9c4d9922c50c74352c409d04c4e078a9e42d7dadaebd8"
+    },
+    {
+      "path": "scripts/run_main_effectiveness.sh",
+      "sha256": "6fdaed5c13db84e58555a5c0b790a2dbac504428b25cf6087e8b0e9c685ac223"
+    },
+    {
+      "path": "scripts/run_max7_labels_oof.sh",
+      "sha256": "6eb8b1d8fcdc5a6c20c612f84cc5420bf2502568c3e3321cfbbb715222ac85f0"
+    },
+    {
+      "path": "scripts/run_medmcqa_rollouts.py",
+      "sha256": "23409d350c288be021408df2a89db297ec065197ec19510a02edda7dac969c19"
+    },
+    {
+      "path": "scripts/run_rubric_candidates_and_reruns.py",
+      "sha256": "e7d7ab4bdbb6507fae0673404f1f27d33e28d5d952e6365b27217955e5701d52"
+    },
+    {
+      "path": "scripts/run_rubric_reruns_sharded.py",
+      "sha256": "52e2e3da81ef9eccf4989341093b7a65b4917b904ca2bfe57c1a386100b739a9"
+    },
+    {
+      "path": "scripts/sample_medmcqa_train.py",
+      "sha256": "c54a120ac7d231a1a73512fc00ee3dc2ed1e9d6399db9cf60e58bc65c5008d15"
+    },
+    {
+      "path": "scripts/score_rubrics_reason_jev.py",
+      "sha256": "6824224ce1457cb07a87f5dac869931603c2af9dcf71611e27487c7c6388f854"
+    },
+    {
+      "path": "scripts/summarize_effectiveness_run.py",
+      "sha256": "cc10000d683b22d9fdddfceaa2838c044b13c4960c447fcf72c3196d97470581"
+    }
+  ],
+  "preexisting_user_deletion_not_changed": [
+    "analysis/plot_rq2_behavior.py"
+  ],
+  "validation": {
+    "suite": "scripts/online_rl/test_active_training.sh",
+    "command": "SHERPA_PYTHON=.venv/bin/python PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 bash scripts/online_rl/test_active_training.sh",
+    "cpu_only": true,
+    "models_downloaded_or_gpu_training_started": false,
+    "before_sandbox": {
+      "passed": 660,
+      "skipped": 12,
+      "deselected": 9,
+      "failed": 3,
+      "errors": 5,
+      "failure_reason": "Local socket creation blocked by sandbox"
+    },
+    "after_local_sockets_allowed": {
+      "passed": 668,
+      "skipped": 12,
+      "deselected": 9,
+      "failed": 0,
+      "errors": 0
+    },
+    "active_config_and_13_prompt_asset_hashes_unchanged": true,
+    "src_and_tests_unchanged": true
+  }
+}

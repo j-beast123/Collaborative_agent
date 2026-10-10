@@ -30,6 +30,7 @@ class AgentNode:
     next_doctor: Optional[str]            # Doctor reply to this branch (non-terminal nodes)
     next_doctor_status: Optional[dict] = None    # protocol v2: hidden status of next_doctor (audit / halting only; never in a dialogue)
     prefix_doctor_status: Optional[dict] = None  # protocol v2: hidden status of the Doctor message this reply answers
+    prefix_doctor_need: Optional[dict] = None    # prospective side record, never part of prefix/trace inputs
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class Leaf:
     final_option: str
     outcome: Optional[float]              # 1.0 success, 0.0 failure, None if the FINAL has no parseable option
     stop_reason: str
+    private_needs: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,8 @@ class TrajectoryRubricInput:
     sha256: str
     feedback_kind: str = 'physician_after_decision'   # how the feedback was produced (part of the sha only when not the default)
     target_reply_id: Optional[int] = None  # v2.1: the feedback's behavioral locus, shown to the Rubric Generator (in the sha only when set)
+    private_needs: tuple[dict, ...] = ()
+    reflection_need_links: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)

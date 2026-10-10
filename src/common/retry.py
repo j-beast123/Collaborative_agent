@@ -56,6 +56,21 @@ class Retry:
         self.retries = {'rate_limit': 0, 'transient': 0}; self.total_wait_s = 0.0
 
     def _say(self, msg: str) -> None:
+        # Opt-in metadata-only audit. Never store headers, credentials or remote
+        # exception bodies. Existing retry budgets and timing remain unchanged.
+        import os
+        path = os.environ.get('SHERPA_RETRY_AUDIT')
+        if path:
+            import json
+            from pathlib import Path
+            from src.common import usage
+            row = {'case_id': usage._case.get(), 'role': usage.current_stage(),
+                   'label': self.label, 'event': 'exhausted' if msg.startswith('FAILED') else
+                   'succeeded' if msg.startswith('succeeded') else 'retry',
+                   'retries': dict(self.retries), 'wait_seconds': self.total_wait_s, 'unix_time': time.time()}
+            with usage._lock:
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+                with open(path, 'a') as stream: stream.write(json.dumps(row) + '\n')
         if self.log: self.log(f'[retry] {self.label}: {msg}')
         else: print(f'[retry] {self.label}: {msg}', flush=True)
 

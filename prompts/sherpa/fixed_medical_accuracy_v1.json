@@ -1,0 +1,26 @@
+{
+  "rubric_id": "fixed_medical_accuracy_v1",
+  "name": "Medical accuracy",
+  "applicability": {
+    "user_side_context": "Any clinical discussion of the supplied case; no additional clinician request is required.",
+    "agent_side_state": "No additional prior Agent state or behavior is required."
+  },
+  "required_behavior": "Provide medically accurate information and recommendations consistent with the case evidence.",
+  "scores": {
+    "0": {
+      "user_side_context": "Any clinical discussion of the supplied case; no additional clinician request is required.",
+      "agent_side_state": "No additional prior Agent state or behavior is required.",
+      "behavior": "The response gives materially medically incorrect or case-contradicting information/recommendations, or offers no assessable medical information or appropriately qualified clinical statement. A major harmful or decision-relevant error makes this level apply even if other claims are accurate."
+    },
+    "1": {
+      "user_side_context": "Any clinical discussion of the supplied case; no additional clinician request is required.",
+      "agent_side_state": "No additional prior Agent state or behavior is required.",
+      "behavior": "The response contains assessable medically accurate information but also a limited factual inaccuracy, minor case inconsistency or insufficient qualification; it contains no major harmful or decision-relevant error."
+    },
+    "2": {
+      "user_side_context": "Any clinical discussion of the supplied case; no additional clinician request is required.",
+      "agent_side_state": "No additional prior Agent state or behavior is required.",
+      "behavior": "All substantive medical information and recommendations in the response are medically accurate, consistent with case evidence and appropriately qualified. A supported statement of uncertainty or insufficient evidence can satisfy this level; no forced conclusion, agreement, additional explanation or particular answer choice is required."
+    }
+  }
+}

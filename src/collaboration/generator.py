@@ -200,8 +200,8 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, t
     retry = _retry.Retry(f"OpenRouter {model}")
     while True:
         try:
-            with urllib.request.urlopen(req, timeout=180) as response:
-                body = json.loads(response.read().decode())
+            from src.common.http_audit import request_json
+            body = request_json(req, 180)
             error = body.get("error") if isinstance(body, dict) else None
             if error:  # a 200 response carrying a provider error instead of a completion
                 raise _ProviderError(error)

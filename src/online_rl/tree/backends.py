@@ -51,7 +51,7 @@ class PolicyAgent:
     def __init__(self, policy): self.policy = policy
 
     def sample(self, case: dict, prefix: list[dict], turn: int, seed: int) -> dict:
-        tr = self.policy.sample_completions(case, prefix, turn, [seed])[0]
+        tr = with_role('rollout_agent', lambda: self.policy.sample_completions(case, prefix, turn, [seed])[0])
         keep = ('prompt_text', 'prompt_input_ids', 'completion_ids', 'old_policy_logprobs', 'completion_text', 'seed',
                 'sampling_logprobs', 'sampling_temperature', 'sampling_top_p', 'sampling_top_k',
                 'logprob_semantics', 'batch_sampling_protocol',
@@ -226,6 +226,8 @@ def generation_settings(rubric_cfg: dict) -> dict:
     # Do not add a null/default key to legacy settings: these identify old caches.
     if feedback_check_protocol is not None:
         settings['feedback_check_protocol'] = feedback_check_protocol
+    if g.get('strict_provider_parameters'):
+        settings['strict_provider_parameters'] = True
     return settings
 
 
@@ -355,12 +357,20 @@ def _openrouter_json(key: str, model: str, system: str, user: str, settings: dic
     from src.prompt_opt import harness as H
     extra = {}
     if settings.get('reasoning_effort'): extra['reasoning'] = {'effort': settings['reasoning_effort']}
+    if settings.get('strict_provider_parameters'):
+        extra['provider'] = {'require_parameters': True, 'allow_fallbacks': False}
     if settings.get('response_format') == 'json_schema_strict':
         extra['response_format'] = {'type': 'json_schema', 'json_schema': {'name': name, 'strict': True, 'schema': schema}}
     meta: dict = {}
     if not extra:                                                     # legacy settings: the plain call, as before
         return with_role(role, lambda: H.doctor_call(key, model, system, user, settings['max_tokens'], settings['temperature'])), meta
     raw = with_role(role, lambda: H.doctor_call(key, model, system, user, settings['max_tokens'], settings['temperature'], extra=extra, meta=meta))
+    if settings.get('strict_provider_parameters') and meta.get('model') != model:
+        raise RuntimeError(f'{role}: returned model {meta.get("model")!r} differs from pinned {model!r}; no substitution allowed')
+    if settings.get('strict_provider_parameters') and settings.get('reasoning_effort') == 'none':
+        reasoning_tokens = ((meta.get('usage') or {}).get('completion_tokens_details') or {}).get('reasoning_tokens')
+        if reasoning_tokens is not None and reasoning_tokens > 0:
+            raise RuntimeError(f'{role}: provider reported reasoning tokens despite reasoning effort none')
     if meta.get('finish_reason') not in (None, 'stop'):
         raise RubricOutputIncomplete(f"{model} stopped with finish_reason={meta.get('finish_reason')} "
                                      f"(native {meta.get('native_finish_reason')}, usage {meta.get('usage')}) before a complete {name}")
@@ -456,7 +466,7 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
             raw_attempts.append(raw); usages.append(meta.get('usage'))
             parsed_output, err = H.parse_rubric(raw)
             rubric, err = normalize(raw, parsed_output, err, tin)
-        if err and settings.get('response_format') == 'json_schema_strict': raise RubricOutputIncomplete(f'{model}: schema output did not parse after bounded correction: {err}')
+        if err and (settings.get('response_format') == 'json_schema_strict' or settings.get('strict_provider_parameters')): raise RubricOutputIncomplete(f'{model}: schema output did not parse after bounded correction: {err}')
         return {'raw': raw, 'raw_attempts': raw_attempts, 'rubric': rubric,
                 'intervention_instruction': (parsed_output or {}).get('intervention_instruction') if output_contract == 'trajectory_analysis_candidate_v2_with_intervention' and not err else None,
                 'parse_error': err,

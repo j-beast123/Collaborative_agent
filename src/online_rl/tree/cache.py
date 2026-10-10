@@ -46,13 +46,15 @@ class CallCache:
         except Exception as exc:
             # Failed evidence is diagnostic only: never insert it into the
             # immutable success cache or convert it to NA/a zero reward.
-            if self.path and getattr(exc, 'audit', None) is not None:
+            import os
+            if self.path and (getattr(exc, 'audit', None) is not None or os.environ.get('SHERPA_AUDIT_ALL_ERRORS') == '1'):
                 try:
                     from datetime import datetime, timezone
                     failure = {'time': datetime.now(timezone.utc).isoformat(),
                                'key': key, 'kind': kind, 'identity': identity,
-                               'exception_type': type(exc).__name__, 'error': str(exc),
-                               'audit': exc.audit}
+                               'exception_type': type(exc).__name__,
+                               'error': str(exc) if getattr(exc, 'audit', None) is not None else type(exc).__name__,
+                               'audit': getattr(exc, 'audit', None)}
                     line = json.dumps(failure, ensure_ascii=False) + '\n'
                     with self._lock:
                         self.path.parent.mkdir(parents=True, exist_ok=True)

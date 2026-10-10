@@ -7,6 +7,7 @@ __pycache__/
 *.egg-info/
 build/
 .venv/
+.local/
 .ipynb_checkpoints/
 
 # Local env / secrets
@@ -63,3 +64,8 @@ configs/online_rl/*_approval*.json
 docs/
 *.md
 !README.md
+
+# Published setup guide for the B200 experiment; keep other internal docs ignored.
+!docs/
+docs/*
+!docs/B200_SHERPA.md

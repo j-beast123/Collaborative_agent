@@ -40,7 +40,8 @@ RANDOM10_PROTOCOL = 'random10_witness_v1'
 RANDOM5_PROTOCOL = 'random5_witness_v1'
 RANDOM10_SAMPLING = 'uniform_random_without_replacement_v1'
 RANDOM5_SAMPLING = 'uniform_random5_without_replacement_v1'
-PROTOCOLS = (PROTOCOL, ALL_MEMBERS_PROTOCOL, RANDOM10_PROTOCOL, RANDOM5_PROTOCOL)
+FIXED_SOURCE_PROTOCOL = 'fixed_source_linear_majority_v1'
+PROTOCOLS = (PROTOCOL, ALL_MEMBERS_PROTOCOL, RANDOM10_PROTOCOL, RANDOM5_PROTOCOL, FIXED_SOURCE_PROTOCOL)
 
 
 @dataclasses.dataclass(frozen=True)

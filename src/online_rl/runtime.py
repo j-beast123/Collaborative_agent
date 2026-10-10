@@ -54,6 +54,9 @@ class SharedPolicy:
         self.doctor_system = (ROOT / ro.get('doctor_system_prompt_file', 'prompts/user_simulator.txt')).read_text()
         from src.online_rl.doctor import make_doctor
         self.doctor = make_doctor(ro, self.doctor_system)              # None: legacy OpenRouter Doctor
+        if cfg.get('doctor_need', {}).get('enabled'):
+            from src.online_rl.tree.doctor_need import attach
+            attach(self.doctor, cfg)
         import threading; self.gen_lock = threading.RLock()            # one generation at a time on the shared model
         self.precommit = ro.get('agent_protocol') == 'precommit_v1'
         if ro.get('agent_protocol') not in (None, 'precommit_v1'): raise ValueError(f"unknown rollout.agent_protocol {ro['agent_protocol']!r}")
@@ -299,17 +302,24 @@ class SharedPolicy:
                         'tokens': len(out['completion_ids']), 'seed': seed, 'mode': 'process'})
         return out
 
-    def agent_turn(self, case, prefix, turn, seed) -> dict:
+    def agent_turn(self, case, prefix, turn, seed, *, verification_guidance=None) -> dict:
         """One Agent action at (case, dialogue prefix, turn). Legacy: one completion of the Agent prompt. precommit_v1
         (src/online_rl/agent_protocol.py): a blind private assessment z, then the visible reply conditioned on the state and
         z; both are segments of the same action."""
-        user = self.agent_user_prompt(case, prefix, turn); base = self.ST.chat_prompt(self.tok, self.agent_system, user)
+        # Opt-in, call-local guidance: never mutate the shared rollout system or
+        # expose the instruction to the private independent assessment.
+        system = self.agent_system
+        if verification_guidance is not None:
+            if not self.precommit or not isinstance(verification_guidance, str) or not verification_guidance.strip():
+                raise ValueError('Verification guidance requires precommit_v1 and nonempty text')
+            system += '\n\n[Verification guidance for this reply only]\n' + verification_guidance
+        user = self.agent_user_prompt(case, prefix, turn); base = self.ST.chat_prompt(self.tok, system, user)
         if not self.precommit:
             return {'stage': f'A{turn}', 'prompt_text': base, 'seed': seed, **self._generate(base, self.args.max_completion_length, seed)}
         from src.online_rl import agent_protocol as AP
         sa, sb = AP.stage_seeds(seed, case['case_id'])
         pa = self.ST.chat_prompt(self.tok, AP.ASSESS_SYSTEM, AP.blind_case_prompt(case)); z = self._generate(pa, AP.ASSESS_MAX_TOKENS, sa, *_segment(self, f'A{turn}/private_assessment'))
-        pb = self.ST.chat_prompt(self.tok, self.agent_system, user + AP.HIDDEN_BLOCK.format(assessment=z['completion_text'].strip()))
+        pb = self.ST.chat_prompt(self.tok, system, user + AP.HIDDEN_BLOCK.format(assessment=z['completion_text'].strip()))
         r = self._generate(pb, self.args.max_completion_length, sb, *_segment(self, f'A{turn}/visible_reply'))
         seg = lambda role, prompt, t, s: {'role': role, 'prompt_text': prompt, 'seed': s,
                                          **{k: t[k] for k in ('prompt_input_ids', 'completion_ids', 'old_policy_logprobs', 'completion_text',

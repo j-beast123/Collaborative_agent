@@ -31,8 +31,12 @@ def doctor_feedback(case: dict, leaf: Leaf, feedback_fn: Callable, prompt_sha256
                 'transcript': getattr(feedback_fn, 'transcript', TRANSCRIPT_FORMAT), 'model': model}
     if getattr(feedback_fn, 'protocol', None) is not None:
         identity.update(protocol=feedback_fn.protocol, settings=getattr(feedback_fn, 'settings', None))
+    need_kw = {}
+    if getattr(feedback_fn, 'accepts_private_needs', False):
+        identity['private_needs_sha256'] = sha256_json(leaf.private_needs)
+        need_kw['private_needs'] = leaf.private_needs
     value = cache.call('feedback', identity,
-                       lambda: feedback_fn(case_view(case), to_dialogue(leaf.dialogue), label))
+                       lambda: feedback_fn(case_view(case), to_dialogue(leaf.dialogue), label, **need_kw))
     if isinstance(value, dict):                                     # feedback v3 / v4: text without the locus line + the behavioral locus
         return DoctorFeedback(leaf.leaf_id, leaf.outcome, value['text'], prompt_sha256, value.get('target_reply_id'),
                               {k: v for k, v in value.items() if k not in ('text', 'target_reply_id', 'valid', 'kind')}, bool(value.get('valid', True)),
@@ -96,8 +100,11 @@ def freeze_trajectory_input(case: dict, leaf: Leaf, feedback: DoctorFeedback, in
                'feedback': feedback.text, **({'feedback_kind': kind} if kind != 'physician_after_decision' else {})}
     locus = feedback.target_reply_id if include_locus else None                  # v2.1: the generator sees the behavioral locus
     if include_locus: payload['target_reply_id'] = locus
+    needs = getattr(leaf, 'private_needs', ())
+    links = tuple((feedback.locus or {}).get('reflection_need_links') or ())
+    if needs: payload.update(private_needs=needs, reflection_need_links=links)
     return TrajectoryRubricInput(leaf.leaf_id, v['case_id'], v['scenario'], v['question'], tuple(tuple(o) for o in payload['options']),
-                                 leaf.dialogue, payload['outcome'], feedback.text, sha256_json(payload), kind, locus)
+                                 leaf.dialogue, payload['outcome'], feedback.text, sha256_json(payload), kind, locus, needs, links)
 
 
 def rubric_problems(rubric: Optional[dict]) -> list[str]:
@@ -116,10 +123,19 @@ def generate_rubric(prompt_text: str, prompt_sha256: str, tin: TrajectoryRubricI
     """One Rubric-Generator call per trajectory: generate_fn(prompt_text, tin) -> {'raw', 'rubric'} gives the ONE rubric r_tau.
     gate_fn(tin, rubric) -> {'passed', ...} runs on a structurally complete rubric; it is valid iff structure and gate pass."""
     gid = {'tin': tin.sha256, 'prompt': prompt_sha256, 'transcript': TRANSCRIPT_FORMAT, 'model': getattr(generate_fn, 'model', None)}
+    if getattr(tin, 'private_needs', ()):
+        count = sum(t[0] == 'agent' for t in tin.dialogue)
+        if not any(n['status'] == 'present' and n['before_agent_turn'] <= count for n in tin.private_needs):
+            return TrajectoryRubric(f'{prompt_sha256[:12]}-{tin.sha256[:12]}', tin.leaf_id, prompt_sha256,
+                None, None, False, ('need_public_evidence_insufficient: no eligible prospective need; generator skipped',), None)
     if getattr(generate_fn, 'settings', None) is not None: gid['settings'] = generate_fn.settings     # reasoning / token budget / output format
     g = cache.call('rubric_generation', gid,
                    lambda: generate_fn(prompt_text, tin))
     rubric = g.get('rubric'); problems = rubric_problems(rubric)
+    if getattr(tin, 'private_needs', ()):
+        from src.online_rl.tree.doctor_need import criterion_need_problem
+        problem = criterion_need_problem(tin, rubric)
+        if problem: problems.append(problem)
     rid = f'{prompt_sha256[:12]}-{tin.sha256[:12]}'
     if rubric is not None: rubric = {**rubric, 'rubric_id': rid, 'scores': {str(a): b for a, b in (rubric.get('scores') or {}).items()}}
     instruction = g.get('intervention_instruction')
@@ -200,6 +216,9 @@ def trajectory_message(tin: TrajectoryRubricInput) -> str:
             f'Source trajectory ID (JSON value; preserve type): {json.dumps(tin.leaf_id, ensure_ascii=False)}\n\n'
             f'{case_text(view)}\n\nCompleted discussion, including the Doctor FINAL:\n{transcript}\n\n'
             f'Outcome: the final decision was a {tin.outcome}.\n\n{FEEDBACK_HEADERS[getattr(tin, "feedback_kind", "physician_after_decision")]}\n{tin.feedback}\n\n'
+            + (('Immutable prospective Doctor needs (generator only):\n' + json.dumps(tin.private_needs, ensure_ascii=False) +
+                '\nSeparate retrospective need-response links:\n' + json.dumps(tin.reflection_need_links, ensure_ascii=False) + '\n')
+               if getattr(tin, 'private_needs', ()) else '')
             + locus_section(tin) + 'Write ONE behavioral rubric for the Agent\'s replies in this discussion.')
 
 

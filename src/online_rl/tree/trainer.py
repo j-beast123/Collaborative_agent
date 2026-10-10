@@ -38,6 +38,8 @@ def model_roles(cfg: dict) -> dict:
     doctor = cfg.get('rollout', {}).get('doctor_model') if not b else f"{b['model']} ({b['engine']} {b['ollama_version']}, {b['quantization']}, digest {b['model_digest']}; source {b.get('source_model')})"
     return {'doctor': doctor, 'agent': f"{cfg.get('policy', {}).get('base_model')} + LoRA (local)",
             'feedback_generator': (cfg.get('feedback') or {}).get('model'), 'rubric_generator': r.get('generator_model'),
+            'rubric_consolidate': (r.get('consolidate') or {}).get('model'),
+            'generator_settings': r.get('generation'), 'consolidate_settings': r.get('consolidate'),
             'rubric_gate': j.get('gate_model'), 'rubric_scorer': j.get('scorer_model'),
             'prompt_reflection': pu.get('reflection_model'), 'prompt_refiner': pu.get('refiner_model')}
 
@@ -76,6 +78,7 @@ class TreeEnv:
     behavior_logprobs: Optional[Callable] = None
     assign_fn: Optional[Callable] = None        # MATCH-vs-NEW decision (rubric.reuse)
     opening: Optional[Callable] = None          # frozen shared D1 table (rollout.doctor_opening; src/online_rl/doctor_openings.py)
+    consolidate_fn: Optional[Callable] = None
 
 
 class TreeTrainer:
@@ -89,11 +92,14 @@ class TreeTrainer:
         self.backend, self.policy_sha, self.protocol_sha, self.fb_sha, self.updater = search_backend, policy_sha, protocol_sha, feedback_prompt_sha256, updater
         self.every = (cfg.get('evaluation') or {}).get('checkpoint_every_cases'); self.evaluator = evaluator
         self.rubric_on = cfg['rubric'].get('enabled', True); self.fb_model = (cfg.get('feedback') or {}).get('model')
+        self.parallel_bank = cfg['rubric'].get('bank_mode') == 'parallel_candidates_consolidate_v1'
         self.reuse = cfg['rubric'].get('reuse') == RB.ASSIGNMENT_VERSION
+        if self.parallel_bank and (not self.reuse or env.consolidate_fn is None):
+            raise ValueError('Parallel candidate bank requires reuse records and a consolidator')
         from src.online_rl.tree.member_intervention import MEMBER_INTERVENTION_VERSION
         self.member_intervention_version = (MEMBER_INTERVENTION_VERSION if self.rubric_on and
             cfg['rubric'].get('generation', {}).get('output_contract') == 'trajectory_analysis_candidate_v2_with_intervention' else None)
-        if self.member_intervention_version and self.reuse and getattr(env.assign_fn, 'member_intervention_version', None) != self.member_intervention_version:
+        if self.member_intervention_version and self.reuse and not self.parallel_bank and getattr(env.assign_fn, 'member_intervention_version', None) != self.member_intervention_version:
             raise ValueError('joint rubric reuse requires a matcher that produces per-trajectory intervention instructions')
         ex = cfg.get('execution') or {}                                # execution only: same values, more threads
         self.doctor_workers, self.rerun_workers = int(ex.get('doctor_workers', 1)), int(ex.get('rerun_workers', 1))
@@ -102,9 +108,10 @@ class TreeTrainer:
         self.agent_workers, self.api_workers, self.member_workers = (int(rx.get(k, 1)) for k in ('agent_workers', 'api_workers', 'member_workers'))
         self.before_case = before_case                                 # e.g. Agent replica sync + hash barrier
         if cfg['rubric'].get('reuse') not in (None, RB.ASSIGNMENT_VERSION): raise ValueError(f"unknown rubric.reuse {cfg['rubric']['reuse']!r}")
-        if self.reuse and self.rubric_on and getattr(env, 'assign_fn', None) is None: raise ValueError('rubric.reuse needs env.assign_fn')
+        if self.reuse and self.rubric_on and not self.parallel_bank and getattr(env, 'assign_fn', None) is None: raise ValueError('rubric.reuse needs env.assign_fn')
         if not self.rubric_on and cfg['prompt_update']['enabled']: raise ValueError('prompt evolution needs the rubric pipeline (rubric.enabled)')
         self.verification = (cfg.get('verification') or {}).get('mode', 'exhaustive_members_v1')     # training-time rubric verification
+        self.rerun_protocol = W.FIXED_SOURCE_PROTOCOL if self.verification == W.FIXED_SOURCE_PROTOCOL else RERUN_CONTINUATION_PROTOCOL
         if self.verification not in ('exhaustive_members_v1', *W.PROTOCOLS): raise ValueError(f'unknown verification.mode {self.verification!r}')
         if self.verification == W.ALL_MEMBERS_PROTOCOL and cfg['verification'].get('max_valid_supports') is not None:
             raise ValueError('all_members_witness_v1 has no max_valid_supports cap')
@@ -162,7 +169,7 @@ class TreeTrainer:
         atomic_write_json(self.out / 'run_manifest.json', {'version': VERSION, 'config': self.cfg, 'config_sha256': self.config_sha,
                                                            'rubric_only_na_policy': RUBRIC_ONLY_NA_POLICY if self._rubric_only_reward() else None,
                                                            'rerun_outcome_policy': RERUN_OUTCOME_POLICY if self.rubric_on else None,
-                                                           'rerun_continuation_protocol': RERUN_CONTINUATION_PROTOCOL if self.rubric_on else None,
+                                                           'rerun_continuation_protocol': self.rerun_protocol if self.rubric_on else None,
                                                            'protocol_sha256': self.protocol_sha, 'initial_prompt_sha256': sha, 'initial_policy_sha256': self.policy_sha(),
                                                            'lora_init_seed': (pol.get('lora') or {}).get('init_seed'), 'init_adapter': pol.get('init_adapter'),
                                                            'initial_checkpoint': ckpt, 'initial_checkpoint_sha256': dir_sha256(Path(ckpt)) if ckpt else None,
@@ -191,7 +198,7 @@ class TreeTrainer:
             raise RuntimeError('rubric-only NA reward policy differs from this run; use a fresh output directory')
         if self.rubric_on and man.get('rerun_outcome_policy') != RERUN_OUTCOME_POLICY:
             raise RuntimeError('rerun outcome policy differs from this run; use a fresh output directory')
-        if self.rubric_on and man.get('rerun_continuation_protocol') != RERUN_CONTINUATION_PROTOCOL:
+        if self.rubric_on and man.get('rerun_continuation_protocol') != self.rerun_protocol:
             raise RuntimeError('rerun continuation protocol differs from this run; use a fresh output directory')
         if man.get('protocol_sha256') != self.protocol_sha:
             raise RuntimeError('protocol changed since the run started; refusing to resume')
@@ -247,6 +254,7 @@ class TreeTrainer:
         if prompt_text is not None:
             s = dataclasses.replace(s, prompt_sha256=self.store.put(prompt_text), prompt_id=prompt_id or s.prompt_id)
         early_feedback = None
+        phase_times = {}
         if frozen_record is not None:
             tree = from_dict(Tree, frozen_record['tree'])
             if tree.case_id != cid or tree.policy_sha256 != s.policy_sha256:
@@ -268,7 +276,8 @@ class TreeTrainer:
                         if leaf.outcome is None:return
                         with lock:
                             if leaf.leaf_id in futures:raise RuntimeError('Duplicate completed leaf')
-                            futures[leaf.leaf_id]=pool.submit(doctor_feedback,case,leaf,e.feedback_fn,self.fb_sha,self.cache,self.fb_model)
+                            from contextvars import copy_context
+                            futures[leaf.leaf_id]=pool.submit(copy_context().run,doctor_feedback,case,leaf,e.feedback_fn,self.fb_sha,self.cache,self.fb_model)
                     tree = rollout(on_leaf)
                     rollout_seconds = time.perf_counter() - rollout_started
                     early_feedback = [futures[l.leaf_id].result() for l in tree.leaves if l.outcome is not None]
@@ -286,7 +295,10 @@ class TreeTrainer:
             elif early_feedback is not None:feedback = early_feedback
             elif self.api_workers > 1:                                 # independent per trajectory; collected in leaf order
                 from concurrent.futures import ThreadPoolExecutor
-                with ThreadPoolExecutor(self.api_workers) as pool: feedback = list(pool.map(fb, decided))
+                from contextvars import copy_context
+                with ThreadPoolExecutor(self.api_workers) as pool:
+                    futures = [pool.submit(copy_context().run, fb, leaf) for leaf in decided]
+                    feedback = [future.result() for future in futures]
             else: feedback = [fb(l) for l in decided]
             invalid_fb = [f.leaf_id for f in feedback if not getattr(f, 'valid', True)]    # v4 leakage guard failed after its repair
             ruled = [l for l, f in zip(decided, feedback) if getattr(f, 'valid', True)]       # trajectories that get a rubric mapping
@@ -297,8 +309,17 @@ class TreeTrainer:
                 tin_of = {t.leaf_id: t for t in tins}
                 ssf = (lambda leaf: W.source_stage1_for(case, nodes, leaf, tin_of[leaf.leaf_id].target_reply_id, e.scorer.applicability, self.cache)
                        ) if self.source_consistency else None             # v2.1: source-self-applicability before the quality gate
-                canon, assignments = RB.build_banks(case, ruled, tin_of, prompt, s.prompt_sha256, e.generate_fn,
-                                                    e.assign_fn, e.gate_fn, self.cache, parallel_strata=self.parallel_strata, source_stage1_for=ssf)
+                phase_started = time.monotonic()
+                candidate_report = None
+                if self.parallel_bank:
+                    from src.online_rl.tree.parallel_bank import build_bank
+                    canon, assignments, candidate_report = build_bank(case, ruled, tin_of, prompt, s.prompt_sha256,
+                        e.generate_fn, e.consolidate_fn, e.gate_fn, self.cache,
+                        chunk_size=cfg['rubric']['candidate_batch_size'], source_stage1_for=ssf)
+                else:
+                    canon, assignments = RB.build_banks(case, ruled, tin_of, prompt, s.prompt_sha256, e.generate_fn,
+                                                        e.assign_fn, e.gate_fn, self.cache, parallel_strata=self.parallel_strata, source_stage1_for=ssf)
+                phase_times['rubric_generation_gate_seconds'] = time.monotonic() - phase_started
                 rubrics = list(canon.values()); assignments_raw = [to_dict(a) for a in assignments]
                 telemetry = {**RB.assignment_telemetry(canon, assignments),
                              'protocol': self.verification,
@@ -312,15 +333,21 @@ class TreeTrainer:
                                                                                      if r.source_check is not None))}
                 bank = {'assignments': assignments_raw, 'witness': [], 'telemetry': telemetry,
                         'member_intervention_version': self.member_intervention_version,
-                        'verification_pending': bool(defer_verification)}
+                        'verification_pending': bool(defer_verification), 'candidate_bank': candidate_report}
                 if not defer_verification:
+                    phase_started = time.monotonic()
                     wit = self._verify_bounded(case, tree, feedback, ruled, canon, assignments)
+                    phase_times['verification_seconds'] = time.monotonic() - phase_started
                     kept = {rid for rid, w in wit.items() if w.decision == 'KEEP'}
                     selection = self._witness_selection(canon, wit)
                     bank['witness'] = [to_dict(w) for w in wit.values()]
                     bank['telemetry'].update(W.witness_telemetry(wit))
-                    scores = score_nodes(case, list(tree.nodes), [canon[c] for c in sorted(kept)], e.scorer, self.cache, workers=self.api_workers) if score_responses else []
-                    weights = {rid: 1.0 for rid in sorted(kept)}                 # verification is a gate only
+                    phase_started = time.monotonic()
+                    from src.online_rl.tree.fixed_accuracy import scoring_book
+                    book = scoring_book([canon[c] for c in sorted(kept)], cfg)
+                    scores = score_nodes(case, list(tree.nodes), book, e.scorer, self.cache, workers=self.api_workers) if score_responses else []
+                    phase_times['scoring_seconds'] = time.monotonic() - phase_started
+                    weights = {r.rubric_id: 1.0 for r in book}                 # verification is a gate only
                 else:
                     selection, scores, weights = [], [], {}
             elif self.reuse:                                         # same-reason REUSE vs NEW (src/online_rl/tree/rubric_bank.py)
@@ -365,7 +392,10 @@ class TreeTrainer:
                   'group_diagnostics': sibling_group_diagnostics(tree, targets, update if isinstance(update, dict) else None),
                   'interaction_diagnostics': interaction_diagnostics(tree, targets if isinstance(targets, dict) else None),
                   'seconds': time.time() - t_case,
-                  'timings': {'rollout_wall_seconds': rollout_seconds}}
+                  'timings': {'rollout_wall_seconds': rollout_seconds, **phase_times}}
+        if cfg.get('fixed_accuracy', {}).get('enabled'):
+            from src.online_rl.tree.fixed_accuracy import criterion
+            record['fixed_criteria'] = [to_dict(criterion(cfg))]
         if commit:
             atomic_write_json(self._case_path(s.case_cursor), record)
             self._commit()
@@ -375,6 +405,11 @@ class TreeTrainer:
         nodes = {n.node_id: n for n in tree.nodes}
         loci = {f.leaf_id: f.target_reply_id for f in feedback if getattr(f, 'valid', True)}
         vcfg = self.cfg['verification']
+        if self.verification == W.FIXED_SOURCE_PROTOCOL:
+            from src.online_rl.tree.partner_verification import verify_fixed_source
+            return verify_fixed_source(case, nodes, {l.leaf_id: l for l in ruled}, canon, assignments,
+                backend=self.env.writer.__self__, run_seed=self.state.run_seed,
+                policy_sha256=tree.policy_sha256, cache=self.cache)
         return W.verify_witness(case, nodes, {l.leaf_id: l for l in ruled}, canon, assignments, loci,
                                 applicability=self.env.scorer.applicability, writer=self.env.writer,
                                 continuation=self.env.continuation,

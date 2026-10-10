@@ -189,7 +189,10 @@ def build_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubric
         return canon, out
     if parallel_strata:
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(len(STRATA)) as pool: parts = list(pool.map(lambda so: stratum_bank(*so), STRATA))
+        from contextvars import copy_context
+        with ThreadPoolExecutor(len(STRATA)) as pool:
+            futures = [pool.submit(copy_context().run, stratum_bank, *so) for so in STRATA]
+            parts = [future.result() for future in futures]
     else: parts = [stratum_bank(*so) for so in STRATA]
     canon = {k: v for c, _ in parts for k, v in c.items()}; out = [a for _, o in parts for a in o]
     if sorted(a.leaf_id for a in out) != sorted(l.leaf_id for l in leaves if l.outcome in (0.0, 1.0)):

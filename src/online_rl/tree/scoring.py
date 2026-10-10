@@ -62,12 +62,12 @@ def _score_record(node, rid, source, applicable, result=None):
     return ResponseRubricScore(node.node_id, rid, source, True, score, hard_score, probabilities, 'scored', evidence)
 
 
-def _state_key(view, node):
-    return sha256_json([view, to_dialogue(node.prefix), (node.trace or {}).get('pre_response_belief')])
+def _state_key(view, node, public_only=False):
+    return sha256_json([view, to_dialogue(node.prefix), None if public_only else (node.trace or {}).get('pre_response_belief')])
 
 
-def _mask_unscorable(scores, view, nodes):
-    states = {n.node_id: _state_key(view, n) for n in nodes}
+def _mask_unscorable(scores, view, nodes, public_only=False):
+    states = {n.node_id: _state_key(view, n, public_only) for n in nodes}
     excluded = {(states[s.response_node_id], s.rubric_id) for s in scores if s.scoring_status == 'rubric_unscorable'}
     return [replace(s, score=None, hard=None, probabilities=None, scoring_status='group_unscorable',
                     individual_assessment={'scoring_status': s.scoring_status, 'score': s.score, 'hard': s.hard,
@@ -90,6 +90,7 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
     if [r['rubric_id'] for r in rubrics] != [r.rubric_id for r in kept]:
         raise ScoringContractError('Kept rubric IDs disagree with rubric content')
     view = case_view(case)
+    public_only = bool(getattr(scorer, 'public_history_only', False))
 
     # Structured scorers can split state applicability from reply-level behavior.
     # Sibling replies with identical pre-reply context share Stage 1, while their
@@ -97,7 +98,7 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
     if callable(getattr(scorer, 'review_state', None)) and callable(getattr(scorer, 'score_behavior', None)):
         state_groups = {}
         for n in nodes:
-            state_sha = _state_key(view, n)
+            state_sha = _state_key(view, n, public_only)
             state_groups.setdefault(state_sha, []).append(n)
         batch_fn = getattr(scorer, 'score_behavior_batch', None)
         batch_size = int(getattr(scorer, 'response_batch_size', 1)) if callable(batch_fn) else 1
@@ -150,7 +151,7 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
                 part = group[start:start + batch_size]
                 first = part[0]; prefix = to_dialogue(first.prefix)
                 responses = [{'response_id': node.node_id, 'reply': node.response} for node in part]
-                identity = {'state_sha256': sha256_json([view, prefix, (first.trace or {}).get('pre_response_belief')]),
+                identity = {'state_sha256': _state_key(view, first, public_only),
                             'policy': first.policy_sha256, 'rubrics': sha256_json(on),
                             'responses': [{'id': node.node_id, 'reply_sha256': sha256_json(node.response)} for node in part],
                             'model': getattr(scorer, 'model', None), 'protocol': getattr(scorer, 'protocol', None),
@@ -199,7 +200,7 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
                 r = behavior.get(rid) if applicable else None
                 record = _score_record(n, rid, src[rid], applicable, r)
                 out.append(replace(record, scoring_evidence={**(record.scoring_evidence or {}), 'applicability': review[rid]}))
-        return _mask_unscorable(out, view, nodes)
+        return _mask_unscorable(out, view, nodes, public_only)
 
     def one(n):
         def validate_result(value):

@@ -1,4 +1,34 @@
-# SHERPA — active 120-case, two-turn training
+# SHERPA — B200 two-GPU improvement
+
+The new `sherpa-jh` experiment uses train120, four Agent turns, branching four,
+five-case frozen-policy batches and rubric-only GRPO. It adds prospective private
+Doctor needs, need-linked reflection, fixed-source linear continuation verification,
+and one always-applicable medical-accuracy criterion per case.
+
+Generator and consolidate now use `openai/gpt-6-luna` with reasoning `none`.
+Independent candidates run in configurable chunks (default8); one case-level
+consolidation fixes the bank and source mappings before gate/verification.
+All API roles and retries share a global100 in-flight limit. Gate/scorer,
+Doctor, rubric-only reward and the five-case update barrier remain unchanged.
+
+**Setup, complete commands, resume rules and changes:** [B200 execution guide](docs/B200_SHERPA.md).
+Configuration: [train120_max4_rubric_only_b200.json](configs/experiments/train120_max4_rubric_only_b200.json).
+Launcher: [launch_b200.sh](scripts/online_rl/launch_b200.sh).
+Outputs after Doctor preparation: `outputs/sherpa_b200_max4_parallel_bank_v2/doctor_<digest12>/`.
+The execution guide includes an account-local Ollama0.12.5 installer and Doctor
+download/pinning commands; `.local/b200_doctor.json` automatically binds runtime
+paths and the actual downloaded digest. Existing system services are left intact.
+CPU regressions: `SHERPA_PYTHON=.venv/bin/python bash scripts/online_rl/test_b200.sh`.
+
+Unlike the earlier rule, all partner criteria being N/A does **not** exclude the
+group: a valid fixed accuracy score still contributes to learning. Outcome never
+fills a missing rubric reward. The fixed criterion bypasses verification and is
+inserted once per case, with the same weight as each verified partner criterion.
+
+The following section documents the preserved **older two-turn configuration**;
+its reward, GPU layout and immediate-FINAL verification do not describe the new run.
+
+## Earlier 120-case, two-turn training
 
 This branch packages the current fixed-P0 training setup. Start with
 [`configs/experiments/train120_max2_fixed_p0.json`](configs/experiments/train120_max2_fixed_p0.json)
@@ -65,6 +95,7 @@ insufficient valid responses or no reward variation do not produce an update.
 
 Active prompt assets:
 
+- [Main Agent](prompts/agent.txt) and [Doctor discussion/FINAL](prompts/user_simulator_v4_final_label.txt)
 - [Generator v2.2](prompts/sherpa/trajectory_rubric_generator_v2_2_reflection_audit.txt)
   and [local output schema](prompts/sherpa/trajectory_rubric_generator_v2_2_reflection_audit.schema.json)
 - [Doctor reflection](prompts/sherpa/doctor_post_final_reflection_v1.txt)
@@ -76,9 +107,38 @@ Active prompt assets:
 
 The `pilot_joint_v2_1` filenames are retained because these exact files are used
 by the active training path. Prompt/schema hashes are checked before execution.
-Legacy utilities and compatibility fields inherited from the repository remain;
-this branch's entry point is the standalone config above. Inactive prompt-search
+Compatibility files referenced by runtime defaults, validation or retained tests remain.
+This branch's entry point is the standalone config above. Inactive prompt-search
 fields and historical notes do not enable P1 or evaluation.
+
+## Execution map and repository cleanup
+
+| Stage | Files to edit or inspect |
+|---|---|
+| Training settings | `configs/experiments/train120_max2_fixed_p0.json` |
+| Shell entry / environment | `scripts/online_rl/launch_train120_max2.sh` → `launch_five_gpu.sh` |
+| Preflight / Doctor startup | `scripts/online_rl/run_five_gpu.py`, `start_five_gpu_doctors.py` |
+| Five-case rollout barrier / checkpoints | `src/online_rl/tree/five_gpu.py`, `five_gpu_worker.py`, `gpu_pool.py` |
+| Tree and method wiring | `scripts/online_rl/run_tree.py`, `src/online_rl/tree/trainer.py`, `backends.py` |
+| Doctor reflection / grounding | `src/online_rl/tree/doctor_reflection.py`, `feedback_grounding.py` |
+| Rubric reuse / quality gate / witness | `src/online_rl/tree/rubric_bank.py`, `quality_gate.py`, `witness.py` |
+| Behavior scoring / reward / update | `src/online_rl/tree/scoring.py`, `team.py`, `src/online_rl/integrated/grpo.py` |
+| Monitoring / review export | `scripts/online_rl/watch_five_gpu.py`, `export_training_snapshot.py` |
+
+The `sherpa-jh` cleanup removed 129 unreferenced legacy files: 5 prompt assets,
+22 old configurations, and 102 diagnostic/one-off launch/recovery scripts.
+The [cleanup manifest](maintenance/cleanup_train120_max2.json) records every
+removed path and its original SHA-256 against base commit `de756fc`.
+All `src/` modules and tests remain. Prompt/configuration files referenced by
+those tests, default arguments or shared helpers are retained even if inactive
+in the standalone training setup. In particular, `pilot_joint_v2_1` is active;
+`observed_context_behavior_v2` and the v3 prompt-search files remain pinned
+compatibility assets. They must not be removed just because their flags are off.
+
+No active prompt, algorithm, model role, reward weight, seed, or training setting
+was changed. The effective configuration hash below remains unchanged. This
+cleanup is local to the `sherpa-jh` worktree; existing baseline run directories
+and the parent `method-comparisons` checkout are separate.
 
 ## Prepare another server
 

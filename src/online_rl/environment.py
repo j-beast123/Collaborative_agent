@@ -185,9 +185,11 @@ def generate_trajectory_v2(model: Any, tokenizer: Any, case: dict, agent_system:
     if seed is None: raise ValueError('protocol-v2 episodes need an episode seed (it derives every Doctor seed)')
     cid = case['case_id']; dialogue: list[dict] = []; agent_traces: list[dict] = []; statuses: list[dict] = []
     termination_reason = "max_agent_turns"; prev_status = None
+    private_needs = []
     for round_index in range(1, args.rounds + 1):
         ds = doctor_seed(seed, cid, 'doctor', round_index)
         d = opening(case, ds) if (round_index == 1 and opening is not None) else doctor.turn(case, dialogue, round_index, args.rounds, ds)
+        if d.get('private_need') is not None: private_needs.append({**d['private_need'], 'audit': d.get('need_audit', {})})
         dialogue.append({"speaker": "doctor", "stage": f"D{round_index}", "text": d['visible'], "round": round_index})
         statuses.append({'stage': f'D{round_index}', 'status': d['status'], 'status_error': d['status_error'], 'seed': d['seed']})
         if round_index > 1:
@@ -221,4 +223,5 @@ def generate_trajectory_v2(model: Any, tokenizer: Any, case: dict, agent_system:
     dialogue.append({"speaker": "doctor", "stage": "FINAL", "text": final_text, "final": True})
     return {"dialogue": dialogue, "agent_traces": agent_traces, "final_decision_text": final_text,
             "final_option": final_answer_option(final_text), "num_discussion_rounds": len(agent_traces),
-            "max_discussion_rounds": args.rounds, "termination_reason": termination_reason, "doctor_status": statuses}
+            "max_discussion_rounds": args.rounds, "termination_reason": termination_reason, "doctor_status": statuses,
+            **({'private_needs': private_needs} if private_needs else {})}

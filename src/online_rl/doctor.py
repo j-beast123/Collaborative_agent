@@ -119,7 +119,8 @@ def doctor_seed(base_seed: int, key: str, role: str, index: int) -> int:
 def http_json(url: str, payload: Optional[dict], timeout: float) -> dict:
     req = urllib.request.Request(url, data=None if payload is None else json.dumps(payload).encode(), method='GET' if payload is None else 'POST',
                                  headers={'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=timeout) as r: return json.loads(r.read().decode())
+    from src.common.http_audit import request_json
+    return request_json(req, timeout)
 
 
 class DoctorUnavailable(RuntimeError):
@@ -138,6 +139,8 @@ class OllamaDoctor:
             if not backend.get(k): raise ValueError(f'rollout.doctor_backend.{k} is required')
         if backend['engine'] != 'ollama': raise ValueError(f"unsupported Doctor engine {backend['engine']!r}")
         self.backend, self.system, self.max_tokens, self.http, self.sleep, self.timeout_s = backend, system, max_tokens, http, sleep, timeout_s
+        import threading
+        self._chat_metadata = threading.local()
         self.halting = halting or {'enabled': False, 'min_agent_turns': 2}
         self.min_agent_turns = int(self.halting.get('min_agent_turns', 2))
         self.stable_choice_no_objection_after_turns = self.halting.get('stable_choice_no_objection_after_turns')
@@ -225,6 +228,8 @@ class OllamaDoctor:
         usage.record('collaboration', self.model, {'prompt_tokens': n_in, 'completion_tokens': n_out, 'cost': 0.0}, retry.attempts,
                      latency_seconds=time.monotonic()-(started or time.monotonic()), request_seconds=request_seconds,
                      retry_wait_seconds=retry_wait_seconds)
+        self._chat_metadata.last = {'input_tokens': n_in, 'output_tokens': n_out, 'transport_retries': retry.attempts - 1,
+                                   'request_seconds': request_seconds, 'retry_wait_seconds': retry_wait_seconds}
         retry.succeeded(); return text
 
     def turn(self, case: dict, dialogue: list[dict], round_: int, rounds: int, seed: int) -> dict:

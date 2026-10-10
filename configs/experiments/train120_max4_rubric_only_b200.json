@@ -1,0 +1,361 @@
+{
+  "name": "sherpa_b200_max4_parallel_bank_v2",
+  "output_dir": "outputs/sherpa_b200_max4_parallel_bank_v2",
+  "policy": {
+    "base_model": "Qwen/Qwen3-8B",
+    "init_adapter": null,
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.0,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "use_rslora": true,
+      "init_seed": 20261006
+    }
+  },
+  "data": {
+    "train": "data/interim/medmcqa/five_gpu_train120_seed20261008/train120_excluding_calibration_seed20261008.jsonl",
+    "train_sha256": "3d34929094925c822062d03839b49de8f6fb43afba71fb573de409471bb5b8ab",
+    "train_manifest": "data/interim/medmcqa/five_gpu_train500/train500_excluding_calibration.manifest.json",
+    "excluded_calibration_case_ids": [
+      "medmcqa_1b8e64f8-bbec-496b-8460-3359bd24d326",
+      "medmcqa_1d184378-ee3b-46c9-8391-3557e141e653",
+      "medmcqa_2335f0d1-c480-409a-a022-b7c84eca71ca",
+      "medmcqa_507feb54-647f-46c5-906b-4b2233c59ddf",
+      "medmcqa_52673829-5fed-493c-9c73-7f998842e442",
+      "medmcqa_5855dbc9-15c4-4305-8c7c-8cfd659b4f7b",
+      "medmcqa_78a5e288-2c7d-44a0-9e9b-816dfaa7f0f7",
+      "medmcqa_858f875a-344d-45da-bf0a-7f2b7fc93bac",
+      "medmcqa_899e79e3-37f6-46e1-ab3c-d585647f4d96",
+      "medmcqa_9422d9f9-0e8d-4aee-a4b1-93d09b399bb2",
+      "medmcqa_dfe8b671-5d53-4cf8-832a-c5bae5fb36c7",
+      "medmcqa_ecb57f7e-806c-414c-af8a-a90078b796fa",
+      "medmcqa_eda5f31a-9eac-42a8-8ce3-5b233cb3eb90"
+    ]
+  },
+  "rollout": {
+    "branching": 4,
+    "rounds": 4,
+    "budget": "full_tree",
+    "doctor_model": "ollama/gemma3:12b-it-q8_0@997a7c2c0975",
+    "max_tokens_doctor": 256,
+    "max_completion_length": 400,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 0,
+    "doctor_backend": {
+      "engine": "ollama",
+      "endpoint": "http://127.0.0.1:11985",
+      "model": "gemma3:12b-it-q8_0",
+      "model_digest": "997a7c2c09753e9011ec18a3fcb498e27c0ba330599dfb26a2e05b58cfbdc1bc",
+      "quantization": "Q8_0",
+      "ollama_version": "0.12.5",
+      "source_model": "google/gemma-3-12b-it",
+      "gpu": "physical GPU0 dedicated Doctor; physical GPU1 Assistant rollout/update",
+      "options": {
+        "temperature": 0.4,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "num_ctx": 8192,
+        "num_batch": 64
+      },
+      "final_response": {
+        "mode": "label_only_v1",
+        "max_tokens": 32
+      }
+    },
+    "halting": {
+      "enabled": true,
+      "min_agent_turns": 2,
+      "repeat_agent_reply_after_turns": 4
+    },
+    "doctor_system_prompt_file": "prompts/user_simulator_v4_final_label.txt",
+    "doctor_system_prompt_sha256": "026f3771659f97b16f7d8985169478bd0b9eb5c141316a982eb49f3f60cff3a2",
+    "agent_protocol": "precommit_v1",
+    "agent_sampling_protocol": "per_row_rng_batch_v1",
+    "agent_system_prompt_file": "prompts/agent.txt",
+    "agent_system_prompt_sha256": "5ef5bb764ee955f067e66d1cb8e51950e40c3e7e021994fc8b561cfeaa22942f"
+  },
+  "schedule": {
+    "seed": 0,
+    "cases": 120,
+    "calibration_only_cursors": []
+  },
+  "optimizer": {
+    "learning_rate": 1e-05,
+    "beta": 0.04,
+    "clip_epsilon": 0.2,
+    "grad_clip": 1.0,
+    "logprob_token_chunk_size": 16,
+    "pre_update_ratio_tolerance": 0.001,
+    "require_raw_on_policy_sampling": true
+  },
+  "advantage_normalization": {
+    "mode": "mean_center"
+  },
+  "rubric": {
+    "enabled": true,
+    "generator_prompt_file": "prompts/sherpa/trajectory_rubric_generator_v3_need.txt",
+    "prompt_id": "P0-fixed-v3-prospective-need",
+    "prompt_sha256": "929356ea47f4080129dc806f8ecef94fb5830928cba811aa270d723ae9588e40",
+    "gold_answer_visible": false,
+    "generator_model": "openai/gpt-6-luna",
+    "reuse": "assign_or_create_v1",
+    "generation": {
+      "max_tokens": 6144,
+      "temperature": 0.7,
+      "reasoning_effort": "none",
+      "response_format": null,
+      "output_contract": "trajectory_analysis_candidate_v2_with_intervention",
+      "local_schema_file": "prompts/sherpa/trajectory_rubric_generator_v2_2_reflection_audit.schema.json",
+      "local_schema_sha256": "ad5722330bc7f6eef085b374c7e911f0a5f433fd0c8fb44dab3993d48d3e3644",
+      "selected_turn_policy": "generator_v1",
+      "feedback_check_protocol": "all_reflection_claims_v1",
+      "strict_provider_parameters": true
+    },
+    "source_consistency": "source_locus_v1",
+    "schema": "observed_context_behavior_v1",
+    "state_addendum_file": "prompts/sherpa/observed_context_behavior_v2.txt",
+    "state_addendum_sha256": "5d48dd7533799eb7762b1e0fd4709b1f9494024623d4fd0fbfc8e2f48893618a",
+    "state_addendum_enabled": false,
+    "bank_mode": "parallel_candidates_consolidate_v1",
+    "candidate_batch_size": 8,
+    "consolidate": {
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "none",
+      "strict_provider_parameters": true,
+      "max_tokens": 16384,
+      "temperature": 0.7,
+      "prompt_file": "prompts/sherpa/consolidate_partner_bank_v1.txt",
+      "prompt_sha256": "cb40a48e86643bf2fcd9061b90c2fb151bd280992f1b359249835fd022e3cd7a"
+    }
+  },
+  "feedback": {
+    "model": "ollama/gemma3:12b-it-q8_0@997a7c2c0975",
+    "protocol": "physician_post_final_reflection_v1",
+    "prompt_file": "prompts/sherpa/doctor_post_final_reflection_v1.txt",
+    "prompt_sha256": "595b384270dc1bd8a80bc006ec1550bbe2a0207fc7dddce1cdc2f1e4ebdd426f",
+    "max_tokens": 1024,
+    "behavioral_locus": true,
+    "leakage_guard": "No ground truth or outcome label in Doctor input; validate original Agent reply IDs; structured none-supported experience allowed"
+  },
+  "intervention": {
+    "reruns_per_intervention": 3,
+    "score2_template_file": "prompts/sherpa/verification_linear_v1/score2.txt",
+    "score2_template_sha256": "3489823da0462a8f2574aee7f724597722e259ff5590c7c39049c7e059d5edc8",
+    "score0_template_file": "prompts/sherpa/verification_linear_v1/score0.txt",
+    "score0_template_sha256": "901999f06d9323b65287f5999587add06cb14b6f5aa719acf91625aeacdf9776",
+    "guided_protocol": "joint_instruction_v2_1",
+    "agent_system_prompt_file": "prompts/agent.txt",
+    "agent_system_prompt_sha256": "5ef5bb764ee955f067e66d1cb8e51950e40c3e7e021994fc8b561cfeaa22942f"
+  },
+  "selection": {
+    "mode": "threshold",
+    "min_R_O": 0.6666666666666666
+  },
+  "verification": {
+    "mode": "fixed_source_linear_majority_v1",
+    "source_selection": "canonical_creator_no_search_v1",
+    "source_selection_seed": null,
+    "reruns_per_support": 3,
+    "max_valid_supports": 1,
+    "outcome_parse_failure": "INCOMPLETE unless two parsed outcomes establish majority; no FINAL regeneration",
+    "continuation": "anchored precommit followed by normal linear dialogue through global max4",
+    "early_decision": "first two parallel; third only without two parsed hits or two parsed misses"
+  },
+  "agent_reward": {
+    "w_outcome": 0.0,
+    "w_rubric": 1.0,
+    "r_a_weighting": "equal"
+  },
+  "prompt_update": {
+    "enabled": false,
+    "every_n_cases": 5,
+    "minimum_trajectories": 0,
+    "reruns_per_intervention": 3,
+    "candidate_count": 1,
+    "retain_top_k": 1,
+    "refinement_depth": 1,
+    "feedback_prompt_file": "prompts/sherpa/tree_prompt_feedback_v3.txt",
+    "feedback_prompt_sha256": "56e410f15d6016ccad01aec20f1b0e3959bbbf0ce0f3a4d2be47c809f4366b9d",
+    "refiner_prompt_file": "prompts/sherpa/tree_prompt_refiner_v3.txt",
+    "refiner_prompt_sha256": "750432a59f4f1a94b6ec5ece3230101b932af8a0d82cfc7cc22b7156e325fd7d",
+    "reflection_model": "anthropic/claude-sonnet-5.5-20260928",
+    "refiner_model": "anthropic/claude-sonnet-5.5-20260928",
+    "mode": "five_case_p0_p1_v1",
+    "aggregation": "mean_sampled_witness_effect_per_direction_product_v1",
+    "tie": "keep_parent",
+    "missing_direction": "keep_parent",
+    "training_rubrics": "union_both_kept_deduplicated_v1",
+    "candidate_seed": null
+  },
+  "evaluation": null,
+  "notes": {
+    "base_config": "configs/experiments/train120_max2_fixed_p0.json",
+    "base_config_sha256": "6eef3a8de25f0d7e9ba37325b6feee638eaf6db2383b3149c3fb8ed1587eb4b7",
+    "changes": [
+      "max Agent turns 2 -> 4; branching remains 4",
+      "outcome/rubric .5/.5 -> 0/1; no outcome fallback",
+      "creator-only source fixed before trial outcomes; remove existential random5 search",
+      "verification uses normal precommit + anchored guidance then linear remaining dialogue",
+      "two dedicated GPUs, one Assistant and one Doctor; five-case frozen batch preserved",
+      "no prompt optimization; no training-time test; explicit final-checkpoint-only test action",
+      "Prospective needs jointly generated with public Doctor discussion; structured output budget640 (public instruction256), one format repair",
+      "Need-linked reflection budget512 ->1024; original prospective needs immutable",
+      "Fixed generator/gate/scorer prompt adaptations for public need grounding and medical accuracy; no prompt optimization",
+      "One fixed accuracy criterion per case bypasses generation/gate/verification and always applies; equal weight with partner KEEP criteria",
+      "Independent trajectory candidates in parallel chunks of 8; one deterministic-ID-sorted case consolidation; verbatim representative, no rubric rewriting",
+      "Generator and consolidate: openai/gpt-6-luna, reasoning none, strict provider parameters and no fallback",
+      "Single process-wide physical HTTP in-flight limit100, including all roles/retries; retry sleeps release slots"
+    ],
+    "preserved": [
+      "train120 bytes/order/seed",
+      "base model, seeded rsLoRA and GRPO optimizer",
+      "Agent/Doctor dialogue prompts, hidden status and decoding",
+      "common-state applicability, equal normalized KEEP scores",
+      "gate/scorer model IDs unchanged; P0 remains fixed throughout run"
+    ],
+    "outcome_usage": "verification, original success/failure rubric-generation strata, source consistency and diagnostics; never directly in GRPO reward",
+    "need_cost_measurement": "Exact combined Doctor output tokens/time from Ollama; isolated private-need token/time increment not reported by provider and remains null; no extra counterfactual call."
+  },
+  "acceptance": {
+    "rule": "strictly_higher_product_v1"
+  },
+  "judges": {
+    "gate_model": "openai/gpt-5.6-luna",
+    "gate_prompt_file": "prompts/sherpa/luna_gate_need_v1.txt",
+    "gate_prompt_sha256": "42dcc9d94e279e7f0c161c62b7aa3d19503232de8a43975c7e77412fee62ce7a",
+    "scorer_model": "openai/gpt-6-luna",
+    "scorer_prompt_file": "prompts/sherpa/scorer_need_accuracy_v1.txt",
+    "scorer_prompt_sha256": "ddc2c95e10af844ae82111ccd3ec11a28f8e2bd8f29b328f01ea54faaf76549a",
+    "luna_canonical_slug": "openai/gpt-6-luna",
+    "scorer_protocol": "response_evidence_v1",
+    "scorer_max_tokens": 4096,
+    "gate_protocol": "evidence_gate_v2",
+    "gate_max_tokens": 3072,
+    "gate_quote_protocol": "visible_field_enum_v1"
+  },
+  "execution": {
+    "doctor_workers": 1,
+    "rerun_workers": 2,
+    "note": "execution only (thread counts); values and cache keys are unchanged. Doctor worker endpoints come from SHERPA_DOCTOR_ENDPOINTS (provenance in the manifest)",
+    "agent_workers": 4,
+    "member_workers": 1,
+    "rubric_score_batch_size": 4,
+    "global_api_max_in_flight": 100
+  },
+  "condition": "sherpa_b200_max4_parallel_bank_v2",
+  "five_gpu": {
+    "rollout_gpus": [
+      1
+    ],
+    "lanes_per_gpu": 5,
+    "update_gpu": 1,
+    "checkpoint_every_cases": 30,
+    "doctor_urls": [
+      "http://127.0.0.1:11985"
+    ],
+    "eval_file": "data/interim/casimedicos/all_en_622.jsonl",
+    "eval_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+    "eval_cases": 622,
+    "eval_seed": 0,
+    "opening_mode": "immutable_runtime_D1_v1",
+    "api_workers": 3,
+    "opening_identity": {
+      "engine": "ollama",
+      "model": "gemma3:12b-it-q8_0",
+      "model_digest": "997a7c2c09753e9011ec18a3fcb498e27c0ba330599dfb26a2e05b58cfbdc1bc",
+      "quantization": "Q8_0",
+      "ollama_version": "0.12.5",
+      "source_model": "google/gemma-3-12b-it",
+      "options": {
+        "temperature": 0.4,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "num_ctx": 8192,
+        "num_predict": 256,
+        "num_batch": 64
+      },
+      "system_prompt_sha256": "026f3771659f97b16f7d8985169478bd0b9eb5c141316a982eb49f3f60cff3a2",
+      "private_need": {
+        "enabled": true,
+        "protocol": "doctor_public_and_prospective_need_v1",
+        "prompt_file": "prompts/sherpa/doctor_prospective_need_v1.txt",
+        "prompt_sha256": "aab3121933fb57585fba08ffe2de7dca1a70b22a2bb42671466a4c6f9aaaa964",
+        "combined_max_tokens": 640,
+        "format_repair_attempts": 1,
+        "feedback_only": true
+      }
+    },
+    "train_order_file": "data/interim/medmcqa/five_gpu_train120_seed20261008/train120_order_seed20261008.json",
+    "train_order_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
+    "batch_cases": 5,
+    "base_evaluation": {
+      "enabled": false,
+      "mode": "original_base_no_precommit_v1",
+      "priority": "before_checkpoint_evaluation",
+      "cases": 622
+    },
+    "ollama_binary": null,
+    "agent_batch_size": 4,
+    "doctor_concurrency": 1,
+    "execution_mode": "two_gpu_frozen_batch_v1",
+    "checkpoint_evaluation_enabled": false,
+    "doctor_gpu_ids": [
+      0
+    ],
+    "ollama_models_dir": null
+  },
+  "experiment": {
+    "feedback_model": "ollama/gemma3:12b-it-q8_0@997a7c2c0975",
+    "seed": 0,
+    "train_order_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
+    "output_root": "outputs/sherpa_b200_max4_parallel_bank_v2",
+    "pfinal_artifact": null,
+    "family": "reward_sweep",
+    "reward_weight_rubric": 1.0,
+    "reward_weight_outcome": 0.0,
+    "prompt_mode": "p0_fixed",
+    "output_dir": null
+  },
+  "rollout_protocol_sha256_override": null,
+  "two_gpu": {
+    "doctor_gpu": 0,
+    "assistant_gpu": 1,
+    "assistant_replicas": 1,
+    "doctor_replicas": 1,
+    "case_workers": 5,
+    "batch_cases": 5,
+    "agent_batch_size": 4,
+    "doctor_concurrency": 1,
+    "evaluation_workers": 4
+  },
+  "doctor_need": {
+    "enabled": true,
+    "protocol": "doctor_public_and_prospective_need_v1",
+    "prompt_file": "prompts/sherpa/doctor_prospective_need_v1.txt",
+    "prompt_sha256": "aab3121933fb57585fba08ffe2de7dca1a70b22a2bb42671466a4c6f9aaaa964",
+    "combined_max_tokens": 640,
+    "format_repair_attempts": 1,
+    "feedback_only": true
+  },
+  "fixed_accuracy": {
+    "enabled": true,
+    "criterion_file": "prompts/sherpa/fixed_medical_accuracy_v1.json",
+    "criterion_sha256": "334789a66ca569ae5f6525550816cd53a1e61f59b5809e73b0746e3466054f1a"
+  },
+  "expected_initial_adapter_sha256": "9018ce3bbacd319049576e8ace88afb4777621a8769919bf46676fca8a85b17c"
+}

@@ -34,6 +34,12 @@ def blockers(cfg: dict) -> list[str]:
     """Unresolved settings plus every approved prompt/template whose file differs from its pinned sha256 (as run_integrated)."""
     from src.online_rl.tree.conditions import active_unresolved
     out = active_unresolved(cfg)                                    # only settings the condition uses
+    for section, file_key, hash_key in (('doctor_need', 'prompt_file', 'prompt_sha256'), ('fixed_accuracy', 'criterion_file', 'criterion_sha256')):
+        settings = cfg.get(section, {})
+        if settings.get('enabled'):
+            path = ROOT / settings.get(file_key, '')
+            if not path.is_file() or settings.get(hash_key) != file_sha(str(path)):
+                out.append(f'{section} prompt/criterion is missing or its hash differs')
     raw_sampling = (cfg.get('optimizer') or {}).get('require_raw_on_policy_sampling', False)
     if not isinstance(raw_sampling, bool):
         out.append('optimizer.require_raw_on_policy_sampling must be boolean')
@@ -232,7 +238,7 @@ def setup_problems(cfg: dict, config_path: str) -> list[str]:
         g = rb.get('generation') or {}
         local_joint = (g.get('output_contract') == JOINT_OUTPUT_CONTRACT and g.get('local_schema_file') and
                        g.get('local_schema_sha256') and g.get('response_format') is None)
-        if g.get('reasoning_effort') != 'low' or (g.get('response_format') != 'json_schema_strict' and not local_joint) or not isinstance(g.get('max_tokens'), int) or g['max_tokens'] < 2048:
+        if g.get('reasoning_effort') != ('none' if rb.get('bank_mode') == 'parallel_candidates_consolidate_v1' else 'low') or (g.get('response_format') != 'json_schema_strict' and not local_joint) or not isinstance(g.get('max_tokens'), int) or g['max_tokens'] < 2048:
             out.append('rubric.generation must pin reasoning_effort low, response_format json_schema_strict and max_tokens >= 2048 (Gemini truncation fix)')
         if g.get('output_contract') not in (None, 'trajectory_analysis_candidate_v2', JOINT_OUTPUT_CONTRACT):
             out.append(f"unknown rubric.generation.output_contract {g.get('output_contract')!r}")
@@ -286,7 +292,11 @@ def make_scorer(cfg: dict, client):
     jm = cfg['judges']
     if jm.get('scorer_protocol') == EVIDENCE_SCORER_PROTOCOL:
         from src.online_rl.tree.pilot_evidence_scorer import evidence_scorer
-        return evidence_scorer(client, response_batch_size=rubric_score_batch_size(cfg))
+        scorer = evidence_scorer(client, response_batch_size=rubric_score_batch_size(cfg))
+        if cfg.get('fixed_accuracy', {}).get('enabled'):
+            from src.online_rl.tree.fixed_accuracy import always_applicable
+            scorer = always_applicable(scorer)
+        return scorer
     if jm['scorer_model'].startswith('typesafe/jev'):
         return two_stage_scorer(client)
     if jm.get('scorer_protocol') == 'structured_v2':
@@ -344,7 +354,8 @@ def make_feedback(cfg: dict, policy, key: str):
         from src.online_rl.tree.doctor_reflection import local_doctor_feedback
         if policy.doctor.model != feedback['model']:
             raise RuntimeError('Reflection model differs from the participating Doctor')
-        return local_doctor_feedback(policy.doctor, system, feedback['max_tokens'], run_seed=cfg['schedule']['seed'])
+        return local_doctor_feedback(policy.doctor, system, feedback['max_tokens'], run_seed=cfg['schedule']['seed'],
+                                    prospective_needs=cfg.get('doctor_need', {}).get('enabled', False))
     from src.online_rl.tree.backends import api_behavior_feedback, api_feedback
     if protocol in ('behavior_observer_v4', 'behavior_observer_v5'):
         return api_behavior_feedback(key, feedback['model'], system, feedback['max_tokens'], protocol)
@@ -395,6 +406,10 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
                              guided_protocol=cfg['intervention'].get('guided_protocol'),
                              agent_system=text(cfg['intervention']['agent_system_prompt_file']) if cfg['intervention'].get('agent_system_prompt_file') else None)
     doctor = RoleDoctor(policy.doctor) if ro.get('doctor_backend') else ApiDoctor(key, ro['doctor_model'], policy.doctor_system, ro['max_tokens_doctor'])
+    if cfg.get('verification', {}).get('mode') == 'fixed_source_linear_majority_v1':
+        from src.online_rl.tree.partner_verification import LinearInterventions
+        iv = LinearInterventions(policy, cfg)
+    from src.online_rl.tree.parallel_bank import api_consolidator
     env = TreeEnv(agent=PolicyAgent(policy), doctor=doctor,
                   stop_rule=stop_reason, final_option=final_answer_option, outcome_fn=final_outcome,
                   feedback_fn=make_feedback(cfg, policy, key),
@@ -403,7 +418,9 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
                   writer=iv.write, continuation=iv.continue_, gate_fn=make_gate(cfg, gate_client, cases),
                   behavior_logprobs=getattr(policy, 'on_primary', lambda f: f)(behavior),
                   assign_fn=api_rubric_matcher(key, cfg['rubric']['generator_model'], generation_settings(cfg['rubric']), context_addendum,
-                                              cfg['rubric'].get('match_batch_size',1)) if cfg['rubric'].get('reuse') else None,
+                                              cfg['rubric'].get('match_batch_size',1)) if cfg['rubric'].get('reuse') and not cfg['rubric'].get('bank_mode') else None,
+                  consolidate_fn=api_consolidator(
+                      key, cfg['rubric']['consolidate']) if cfg['rubric'].get('bank_mode') == 'parallel_candidates_consolidate_v1' else None,
                   opening=opening_table(cfg, policy, 'train'))
     # the tree prompt search uses only the reflection / refinement calls of this backend
     backend = sol_backend(key, text(pu['feedback_prompt_file']), text(pu['refiner_prompt_file']), env.generate_fn, env.gate_fn, env.scorer,

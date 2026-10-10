@@ -97,7 +97,7 @@ def parse_reflection(raw: str, count: int) -> dict:
     return result
 
 
-def local_doctor_feedback(doctor, system: str, max_tokens: int, run_seed: int = 0):
+def local_doctor_feedback(doctor, system: str, max_tokens: int, run_seed: int = 0, *, prospective_needs=False):
     """Return the posthoc feedback interface; its outcome argument is ignored.
 
     One deterministic, bounded format repair is allowed. Persistent invalid
@@ -113,14 +113,22 @@ def local_doctor_feedback(doctor, system: str, max_tokens: int, run_seed: int = 
     if isinstance(run_seed, bool) or not isinstance(run_seed, int):
         raise ValueError('Doctor reflection run_seed must be an integer')
     combined = f'{doctor.system}\n\n{PHASE}\n{system.strip()}\n\n{OUTPUT}'
+    if prospective_needs:
+        combined += NEED_OUTPUT
     settings = {'protocol': PROTOCOL, 'transcript': TRANSCRIPT, 'doctor_protocol': doctor.protocol,
                 'model': doctor.model, 'system_sha256': sha256_text(combined),
                 'max_tokens': max_tokens, 'run_seed': run_seed, 'format_repair_attempts': 1,
                 'format_normalization': FORMAT_NORMALIZATION}
+    if prospective_needs: settings['prospective_need_linkage'] = 'immutable_need_reply_links_v1'
 
-    def feedback(view, dialogue, outcome):
+    def feedback(view, dialogue, outcome, *, private_needs=()):
         from src.online_rl.tree.backends import with_role
         user, count = reflection_message(view, dialogue)
+        if prospective_needs:
+            if not private_needs: raise ValueError('Prospective need records are required for this reflection')
+            user += '\n\nImmutable prospective needs (do not rewrite):\n' + json.dumps(private_needs, ensure_ascii=False)
+            from src.online_rl.tree.doctor_need import public_turns
+            user += '\n\nPublic utterance IDs for literal evidence:\n' + json.dumps(public_turns(dialogue), ensure_ascii=False)
         identity = sha256_json({'case_id': view.get('case_id'), 'user': user, 'settings': settings})
         raw, evidence, errors = [], [], []
         for attempt in range(2):
@@ -136,15 +144,22 @@ def local_doctor_feedback(doctor, system: str, max_tokens: int, run_seed: int = 
                              'messages_sha256': sha256_json(messages), 'max_tokens': max_tokens,
                              'response_sha256': sha256_text(body)})
             try:
-                result = parse_reflection(body, count)
-            except ValueError as exc:
+                links = []
+                if prospective_needs:
+                    obj = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', body.strip()))
+                    if set(obj) != {'helpful', 'unresolved', 'need_assessment'}: raise ValueError('Expected helpful, unresolved, need_assessment')
+                    links = validate_need_links(obj['need_assessment'], private_needs, dialogue, count)
+                    result = parse_reflection(json.dumps({k: obj[k] for k in ('helpful', 'unresolved')}), count)
+                else:
+                    result = parse_reflection(body, count)
+            except (ValueError, TypeError, KeyError) as exc:
                 errors.append(str(exc))
                 evidence[-1]['validation_error'] = str(exc)
                 continue
             refs = [item['agent_reply_id'] for field in ('helpful', 'unresolved') for item in result[field]]
             return {'text': json.dumps(result, ensure_ascii=False), 'target_reply_id': refs[0] if refs else None,
                     'status': 'ok' if attempt == 0 else 'repaired', 'valid': True, 'kind': PROTOCOL,
-                    'raw': raw, 'reflection': result, 'evidence': evidence, 'settings': dict(settings),
+                    'raw': raw, 'reflection': result, 'reflection_need_links': links, 'evidence': evidence, 'settings': dict(settings),
                     'protocol': sha256_json(settings), 'leakage': {'first': [], 'final': []}}
         raise DoctorReflectionError('Doctor post-FINAL reflection failed local validation after one repair: ' + errors[-1],
                                     raw=raw, evidence=evidence, settings=dict(settings))
@@ -153,4 +168,35 @@ def local_doctor_feedback(doctor, system: str, max_tokens: int, run_seed: int = 
     feedback.transcript = TRANSCRIPT
     feedback.settings = settings
     feedback.protocol = sha256_json(settings)
+    feedback.accepts_private_needs = prospective_needs
     return feedback
+
+
+NEED_OUTPUT = """
+For this prospective-need protocol, ADD exactly one top-level field to the JSON contract above:
+"need_assessment": [{"need_id": "the unchanged supplied id", "agent_reply_id": 1,
+"effect": "helped|hindered|no_effect", "reason": "how the actual reply handled this previously recorded information need",
+"public_evidence": [{"turn_id": "A1", "quote": "an exact public passage"}]}].
+Include exactly one entry for each Agent reply's previously recorded need. If the prospective record reports no need or inadequate public evidence, acknowledge that limitation; do not infer a past need from the eventual result. No-effect is legitimate and does not require inventing an omission. Preserve need_id and the linked Agent reply number. Do not output rewritten need descriptions or new needs. Public evidence may describe subsequent uptake, but later evidence cannot establish a requirement that was absent before the response. Reasons must discuss information, reasoning and uncertainty, not whether the final answer was correct. Helpful/unresolved arrays remain separate reported experiences in the original format.
+"""
+
+
+def validate_need_links(links, needs, dialogue, count):
+    from src.online_rl.tree.doctor_need import public_turns
+    expected = {n['before_agent_turn']: n['need_id'] for n in needs if n['before_agent_turn'] <= count}
+    if not isinstance(links, list) or len(links) != len(expected): raise ValueError('Need links must cover each actual Agent reply once')
+    evidence = public_turns(dialogue); seen = set()
+    for link in links:
+        if not isinstance(link, dict) or set(link) != {'need_id', 'agent_reply_id', 'effect', 'reason', 'public_evidence'}:
+            raise ValueError('Need linkage fields differ')
+        turn = link['agent_reply_id']
+        if isinstance(turn, bool) or turn in seen or expected.get(turn) != link['need_id']: raise ValueError('Need id/Agent reply mismatch')
+        seen.add(turn)
+        if link['effect'] not in ('helped', 'hindered', 'no_effect') or not isinstance(link['reason'], str) or not link['reason'].strip():
+            raise ValueError('Need linkage requires a supported effect and reason')
+        if not isinstance(link['public_evidence'], list): raise ValueError('Need linkage evidence must be an array')
+        if link['effect'] != 'no_effect' and not link['public_evidence']: raise ValueError('Help/hindrance requires public evidence')
+        for ref in link['public_evidence']:
+            if set(ref) != {'turn_id', 'quote'} or ref['turn_id'] not in evidence or not ref['quote'] or ref['quote'] not in evidence[ref['turn_id']]:
+                raise ValueError('Reflection linkage needs exact public quotes')
+    return links

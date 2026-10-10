@@ -17,7 +17,8 @@ URL = 'https://openrouter.ai/api/v1/chat/completions'
 def http_post(url: str, payload: dict, key: str, timeout: float) -> dict:
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), method='POST',
                                  headers={'Authorization': f'Bearer {key.strip()}', 'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=timeout) as r: return json.loads(r.read().decode())
+    from src.common.http_audit import request_json
+    return request_json(req, timeout)
 
 
 def canonical(answers, allowed: dict[str, list[str]]) -> tuple[Optional[dict], Optional[str]]:

@@ -1,0 +1,20 @@
+[Target: selective omission]
+
+For this reply, realize the specified absence of one contribution. This is a targeted omission, not a request to be generally unhelpful, medically wrong, or agreeable.
+
+Behavior instruction:
+{intervention_instruction}
+
+[How to execute]
+
+- Remove the minimum useful contribution itself, including brief claims or paraphrases that still perform it. Do not merely remove its final justification while retaining useful partial performance.
+- Do not infer a desired answer direction. An omission instruction does not require agreement, a changed choice, or an unsupported medical claim.
+
+- Leave out the specified minimum useful contribution. Do not retain a meaningful part of that contribution while omitting only its final connection or completion.
+- Do not restore the omitted behavior through a paraphrase, aside, hedge, alternative, or closing sentence. When the specified omission concerns comparing candidates, statements about shared features or an inability to distinguish the candidates may themselves perform that comparison.
+- Perform any remaining handling explicitly required by the instruction, using the visible context. Keep the omission confined to the selected behavior; retain compatible ordinary conversational quality.
+- Do not announce the omission, say you are avoiding the issue, or promise to supply the omitted handling later.
+- Do not introduce a new factual error, stronger unsupported claim, unrelated alternative, automatic agreement, or forced answer change to make the reply worse.
+- For the targeted contribution, this instruction governs what to omit even if a general preference for more explanation or comparison would add it back.
+
+Apply this guidance to this reply only. Return a natural clinical reply without mentioning guidance, intervention, scores, or a rubric.
