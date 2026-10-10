@@ -1,0 +1,21 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "notes": "Balanced-sampling diagnostic (2026-10-10): OURS reward Outcome 0.5 / R_A 0.5, unchanged. Fresh theta0 and optimizer; 60 TRAIN-pool cases = 30 Agent-correct/Doctor-wrong + 30 Agent-wrong/Doctor-correct at theta0 (both-wrong and both-correct excluded), interleaved (scripts/dev_opt/make_balanced_order.py, seed 20261010; TRAIN labels only). Otherwise the FINAL 120 recipe: lr 3e-5, FIXED_T2 (rounds 2, G 4, P0 fixed, scorer request cache), same prompts and generation settings; PromptOpt, SFT, structured roles and ANSWER_LAST off. A sampling/curriculum intervention only. Held-out MedMCQA DEV evaluation only.",
+  "schedule": {
+    "cases": 60
+  },
+  "optimizer": {
+    "learning_rate": 3e-05
+  },
+  "five_gpu": {
+    "train_order_file": "data/interim/medmcqa/five_gpu_train500/train500_order_balanced_disagreement_v1.json",
+    "train_order_sha256": "5f65e6e6934bc9ed29f8667a2d5f2a19f4cb2a1acf5537271fd16c2e65fd357c"
+  },
+  "experiment": {
+    "reward_weight_rubric": 0.5,
+    "reward_weight_outcome": 0.5,
+    "output_root": "outputs/fixed_t2_bal",
+    "variant": "t2bal",
+    "train_order_sha256": "5f65e6e6934bc9ed29f8667a2d5f2a19f4cb2a1acf5537271fd16c2e65fd357c"
+  }
+}
