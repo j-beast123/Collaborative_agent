@@ -5,9 +5,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 PYTHON="${SHERPA_PYTHON:-/home/common/miniconda3/bin/python}"
-CONFIG="${SHERPA_FIVE_GPU_CONFIG:-configs/experiments/train120_max4_qwen8b_gemma12b_luna_judges_v1.json}"
-SOURCE_RUN="${SHERPA_TRAIN120_RUN_DIR:-outputs/train120_max4_direct_luna_v9_1_20261011/r05_o05__p0fixed__gemma3doctor__seed0__train120_max4_directluna_v9_1}"
-EVAL_ROOT="${SHERPA_TRAIN120_IDLE_EVAL_ROOT:-outputs/train120_max4_idle_eval_622_20261011}"
+# Resume with the exact configuration identity that created this run.  The
+# qwen/gemma/luna role manifest is documentation-only; using its wrapper path
+# would change the persisted configuration hash even though model roles agree.
+CONFIG="${SHERPA_FIVE_GPU_CONFIG:-configs/experiments/train120_max4_direct_luna_v9_1.json}"
+SOURCE_RUN="${SHERPA_TRAIN120_RUN_DIR:-outputs/train120_max4_idle_eval_v1_20261011/r05_o05__p0fixed__gemma3doctor__seed0__train120_max4_idle_eval_v1}"
+EVAL_ROOT="${SHERPA_TRAIN120_IDLE_EVAL_ROOT:-outputs/train120_max4_idle_eval_v1_622_20261011}"
 PRIORITY_DIR="${SHERPA_IDLE_EVAL_PRIORITY_DIR:-$SOURCE_RUN/idle_eval_priority}"
 DOCTOR_BINARY="${SHERPA_OLLAMA_BINARY:-/home/kai/.local/ollama-v0.12.5/bin/ollama}"
 

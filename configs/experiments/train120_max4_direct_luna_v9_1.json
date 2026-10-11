@@ -1,8 +1,8 @@
 {
   "extends": "configs/experiments/train120_v9_1_gate8192_first5.json",
   "experiment": {
-    "output_root": "outputs/train120_max4_direct_luna_v9_1_20261011",
-    "run_label": "train120_max4_directluna_v9_1"
+    "output_root": "outputs/train120_max4_idle_eval_v1_20261011",
+    "run_label": "train120_max4_idle_eval_v1"
   },
   "policy": {
     "init_adapter": null
@@ -34,7 +34,7 @@
   "notes": {
     "start": "Fresh Qwen3-8B base, fresh LoRA, empty rubric bank, and no inherited score cache or KEEP evidence.",
     "training": "Pinned 120-case order, five cases per update, maximum four Agent turns.",
-    "evaluation": "Checkpoint every 30 committed cases. The separate cooperative idle evaluator processes all pinned 622 cases without blocking the training loop.",
+    "evaluation": "Checkpoint every 30 committed cases. A separate cooperative evaluator processes the pinned 622 cases only while each GPU is idle; training dispatch has priority.",
     "quality_contract": "Direct OpenAI gpt-6-luna roles and inherited v7.5/v7.6 active compact applicability/behavior contracts."
   }
 }
