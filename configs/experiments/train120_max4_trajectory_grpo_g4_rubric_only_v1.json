@@ -1,6 +1,6 @@
 {
-  "name": "train120_max4_trajectory_grpo_g4_v1",
-  "output_dir": "outputs/train120_max4_trajectory_grpo_g4_v1_20261012",
+  "name": "train120_max4_trajectory_grpo_g4_rubric_only_v1",
+  "output_dir": "outputs/train120_max4_trajectory_grpo_g4_rubric_only_v1_20261012",
   "policy": {
     "base_model": "Qwen/Qwen3-8B",
     "init_adapter": null,
@@ -261,7 +261,7 @@
     "member_workers": 2,
     "rubric_score_batch_size": 4
   },
-  "condition": "r05_o05__p0fixed__gemma3doctor__seed0__max4_trajectory_grpo_g4_v1",
+  "condition": "r10_o00__p0fixed__gemma3doctor__seed0__max4_trajectory_grpo_g4_rubric_only_v1",
   "five_gpu": {
     "rollout_gpus": [
       0,
@@ -323,14 +323,14 @@
   },
   "rollout_protocol_sha256_override": null,
   "experiment": {
-    "reward_weight_rubric": 0.5,
-    "reward_weight_outcome": 0.5,
+    "reward_weight_rubric": 1.0,
+    "reward_weight_outcome": 0.0,
     "prompt_mode": "p0_fixed",
     "pfinal_artifact": null,
     "feedback_model": "ollama/gemma3:12b-it-q8_0@997a7c2c0975",
     "seed": 0,
     "train_order_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
-    "output_root": "outputs/train120_max4_trajectory_grpo_g4_v1_20261012",
-    "run_label": "max4_trajectory_grpo_g4_v1"
+    "output_root": "outputs/train120_max4_trajectory_grpo_g4_rubric_only_v1_20261012",
+    "run_label": "max4_trajectory_grpo_g4_rubric_only_v1"
   }
 }

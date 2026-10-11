@@ -34,3 +34,15 @@ def test_trajectory_reward_and_group_carry_every_agent_trace():
     assert len(groups)==1 and len(groups[0])==4
     assert all(len(record['agent_traces'])==3 for record in groups[0])
     assert [r['reward'] for r in groups[0]][1::2]==[.5,.5]
+
+
+def test_rubric_only_trajectory_reward_ignores_outcome_and_excludes_unscored_paths():
+    tree=independent_tree()
+    outcomes={leaf.leaf_id:float(i%2) for i,leaf in enumerate(tree.leaves)}
+    first, second, third, fourth=tree.leaves
+    ra={first.path[0]:0.0, second.path[0]:1.0, third.path[0]:0.5}
+    targets=trajectory_credit(0.0,1.0)(tree,outcomes,ra)['trajectories']
+    assert targets[first.leaf_id]['reward']==0.0
+    assert targets[second.leaf_id]['reward']==1.0
+    assert targets[third.leaf_id]['reward']==0.5
+    assert targets[fourth.leaf_id]['reward'] is None
