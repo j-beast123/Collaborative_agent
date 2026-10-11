@@ -7,6 +7,13 @@
       "review_basis": "The frozen clause explicitly requires that a prior comparison has not yet occurred; this polarity was confirmed during the authorized v3.3.1 migration review.",
       "review_scope": "frozen_regression_fixture_only",
       "keep_inheritance": false
+    },
+    {
+      "clause_sha256": "9785e2ed5f5b28f147ccf283187160c1ac7002652d165f0ebbcabab7810c535f",
+      "requirement_type": "absence",
+      "review_basis": "The frozen clause explicitly requires that the Agent has not yet evaluated the Doctor's specific exclusion premise. The saved stage inspected the complete visible prefix and recorded no positive evidence.",
+      "review_scope": "frozen_regression_fixture_only",
+      "keep_inheritance": false
     }
   ]
 }

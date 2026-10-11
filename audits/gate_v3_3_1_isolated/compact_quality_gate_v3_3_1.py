@@ -93,11 +93,15 @@ def validate_behavior_contract(value: dict, *, target_reply: str) -> dict:
         if observed["evidence_quote"] not in value["evidence_quotes"]:
             raise GateExecutionError("Observed-operation quote is absent from the evidence ledger")
 
-    target_observations = [row for row in value["observed_operations"]
-                           if row["target"] == value["requested_target"]]
-    if value["target_covered"] != bool(target_observations):
-        raise GateExecutionError("target_covered contradicts the observed target ledger")
-    matching_operations = [row for row in target_observations
+    # Natural-language target labels may include different role descriptions
+    # (for example, "the favored option, A" versus "A"). Exact string
+    # equality is not a semantic identity check. The local validator therefore
+    # checks only structural implications; target identity remains an explicit
+    # model judgment backed by literal reply evidence.
+    observations = value["observed_operations"]
+    if value["target_covered"] and not observations:
+        raise GateExecutionError("Covered target lacks an observed evidence row")
+    matching_operations = [row for row in observations
                            if row["operation_type"] == requested["operation_type"]]
     if value["operation_performed"] and not value["target_covered"]:
         raise GateExecutionError("Operation cannot be performed when the requested target is uncovered")

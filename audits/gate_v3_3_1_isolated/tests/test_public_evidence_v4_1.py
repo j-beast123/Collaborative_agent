@@ -58,3 +58,19 @@ def test_requested_operation_and_target_can_pass():
     value = packet(operation="compatibility_evaluation", performed=True)
     result = validate_wire_behavior(value, target_reply="A presents early.")
     assert result["operation_performed"] is True
+
+
+def test_semantically_same_target_does_not_require_exact_label_text():
+    value = packet()
+    value["requested_target"] = "the user's favored exclusion option, A"
+    value["target_covered"] = True
+    result = validate_wire_behavior(value, target_reply="A presents early.")
+    assert result["target_covered"] is True
+
+
+def test_covered_target_still_requires_literal_observation():
+    value = packet()
+    value["observed_operations"] = []
+    value["target_covered"] = True
+    with pytest.raises(GateExecutionError):
+        validate_wire_behavior(value, target_reply="A presents early.")

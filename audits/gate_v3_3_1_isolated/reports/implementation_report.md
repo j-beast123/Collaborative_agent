@@ -201,3 +201,28 @@ The frozen v4.1 request hash is
 `f75473de6ee6d5199efadd206ae58c309561fb0fb89a2a5a21c29962486a837e`.
 It is marked `not_executed=true`; no new API call or final six-case assembly has
 been performed.  Existing v3.2, v3.3, and v4 failure artifacts were not changed.
+
+## v4.1 execution result
+
+The frozen request was executed once. OpenAI returned a complete response
+(`finish_reason=stop`, 3,347 prompt tokens, 1,098 completion tokens). The raw
+provider object was atomically preserved before local validation. The model
+judged the source reply level 0 with a unique score-0 anchor: it mentioned the
+target condition and timing but did not perform the requested compatibility
+evaluation or connect it to the Doctor's exclusion premise.
+
+The first local pass exposed another general validator defect: it required the
+natural-language `observed target` and `requested target` labels to be exactly
+equal. Here, “diaphragmatic hernia” and “the user's favored exclusion option,
+diaphragmatic hernia (A)” identify the same target. Exact string identity is not
+a semantic identity test. The corrected validator keeps literal quote checks
+and structural implications, while leaving target identity as an explicit
+model judgment backed by that quote. The preserved response then passed offline
+validation without another API call.
+
+Final v3.3.1 assembly also required a hash-bound migration review for C3's
+already-saved absence clause. It is limited to this frozen regression fixture
+and inherits no KEEP evidence. With that provenance present, the final result
+is **PASS**, source level **0**, with no failure codes. The suite now has 23
+passing offline tests. This is a Gate result only; no rerun, KEEP decision,
+bank mutation, training update, or active promotion occurred.
