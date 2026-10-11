@@ -175,3 +175,29 @@ The approved C3 blind-source attempt did not produce a usable score.
 The final state remains `EXECUTION_ERROR`; it was not converted to REJECT, UNSCORABLE, N/A, or score 0. The technical retry allowance is exhausted. The isolated runner also exposed a defect: it validated before serializing the raw completion, so the second response text was lost when validation raised. The execution summary preserves both error classifications and request hashes.
 
 Before another call, the general contract should remove or locally derive the redundant evidence ledger, and the runner must persist the raw provider response before validation. A new request hash and explicit authorization are required for another external call.
+# v4.1 execution-contract correction
+
+The first direct-API attempt failed before inference because OpenAI strict
+structured outputs rejected `uniqueItems`.  The authorized technical retry did
+produce a semantic completion, but the local contract rejected a mismatch
+between two model-maintained copies of the same quote.  The runner performed
+local validation before serialization, so that provider response was lost.
+Both attempts remain recorded under
+`results/candidates/C3_0.0/api_call_v4/`; C3 remains `EXECUTION_ERROR`.
+
+The isolated v4.1 correction makes `observed_operations[].evidence_quote` the
+only wire evidence ledger.  A flat quote list is derived locally after schema
+validation.  The strict provider schema contains neither `uniqueItems` nor the
+redundant `evidence_quotes`.  The new one-shot runner atomically writes the
+complete provider response before checking finish reason, parsing JSON, or
+performing schema and semantic validation.  Any later failure remains an
+execution error and points to the preserved raw response.  Automatic and
+semantic retries are disabled.
+
+Offline verification: 21 tests pass, including provider-schema compatibility,
+local quote derivation, operation/target mismatch rejection, applicability
+polarity fixtures, raw-write ordering, and the one-call/no-retry invariant.
+The frozen v4.1 request hash is
+`f75473de6ee6d5199efadd206ae58c309561fb0fb89a2a5a21c29962486a837e`.
+It is marked `not_executed=true`; no new API call or final six-case assembly has
+been performed.  Existing v3.2, v3.3, and v4 failure artifacts were not changed.

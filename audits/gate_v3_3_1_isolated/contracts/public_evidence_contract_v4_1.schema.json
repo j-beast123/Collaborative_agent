@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sherpa:public-evidence-contract:v4.1",
+  "title": "Public behavioral evidence contract v4.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "requested_operation",
+    "requested_target",
+    "observed_operations",
+    "target_covered",
+    "operation_performed",
+    "missing_component"
+  ],
+  "properties": {
+    "requested_operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_type", "dimension", "definition"],
+      "properties": {
+        "operation_type": {
+          "enum": ["mention", "comparison", "compatibility_evaluation", "causal_explanation", "exception_analysis", "decision_linkage"]
+        },
+        "dimension": {"type": "string", "minLength": 1},
+        "definition": {"type": "string", "minLength": 1}
+      }
+    },
+    "requested_target": {"type": "string", "minLength": 1},
+    "observed_operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operation_type", "dimension", "target", "evidence_quote"],
+        "properties": {
+          "operation_type": {
+            "enum": ["mention", "comparison", "compatibility_evaluation", "causal_explanation", "exception_analysis", "decision_linkage"]
+          },
+          "dimension": {"type": "string", "minLength": 1},
+          "target": {"type": "string", "minLength": 1},
+          "evidence_quote": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "target_covered": {"type": "boolean"},
+    "operation_performed": {"type": "boolean"},
+    "missing_component": {"type": "string"}
+  }
+}
