@@ -12,7 +12,7 @@ unchanged batch matcher (rubric_bank / api_rubric_matcher.batch) and attached on
 whose representative is rejected or whose re-check is not a reuse gets no rubric in this protocol (no further primary call).
 Judge errors and unresolved verdicts are not handled here: they propagate exactly as in the per-trajectory path. Layers never mix."""
 from __future__ import annotations
-import copy, hashlib, json, random, re
+import copy, hashlib, json, random, re, time
 from dataclasses import replace
 from pathlib import Path
 from src.online_rl.integrated.records import sha256_json, sha256_text, to_dict
@@ -191,6 +191,17 @@ def _ordered_map(fn, items, workers):
         return [future.result() for future in futures]
 
 
+def speculate(tasks, workers):
+    """Start independent, side-effect-free judge requests of one fixed candidate together (execution only). Each task only
+    fills the exact-identity call cache; nothing is decided here. The unchanged logic afterwards reads the cache in its
+    original order and simply never reads a result it would not have requested. A failing task is ignored: the original
+    call repeats it and reports the error exactly as before."""
+    def quiet(task):
+        try: task()
+        except Exception: pass
+    _ordered_map(quiet, [t for t in tasks if t is not None], workers)
+
+
 def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_text, snapshot):
     """Sequential chunk transactions of one case against the latest working bank; returns the pieces of the online-bank record."""
     from src.online_rl.tree import witness as W
@@ -205,6 +216,7 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
     selected, sampling = select(list(leaf_of), state.run_seed, cid)
     import os
     workers = int(os.environ.get('SHERPA_CHUNK_WORKERS', '1'))            # execution only: concurrent independent CREATE groups
+    speculative = os.environ.get('SHERPA_SPECULATIVE_VALIDATION', '0') == '1'   # execution only: source check, Gate and peer re-check together
     working = CB.validate_snapshot(snapshot)
     canon_all, assignments_all, witness_all, witness_objects, selection_all = {}, [], [], {}, []
     reuse_rows, decisions, chunk_reports = [], [], []
@@ -225,9 +237,11 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                     if attempt == bound - 1: raise
                     print(json.dumps({'event': 'generator_execution_retry', 'case_id': cid, 'chunk_index': index, 'attempt': attempt + 1,
                                       'of': bound, 'error': str(exc)[:160]}), flush=True)
+        chunk_started = time.monotonic()
         result = cache.call('offline_chunk_generation', identity, primary_call)
         if result.get('bank_sha256') != before['sha256']: raise RuntimeError('Chunk result belongs to another bank')
-        rows = result['decisions']; chunk_sha = sha256_json(identity); groups = {}; report = []
+        rows = result['decisions']; chunk_sha = sha256_json(identity); groups = {}; report = []; timing = {}
+        primary_seconds = round(time.monotonic() - chunk_started, 1); phase_started = time.monotonic()
         # Every CREATE group of this chunk was decided against the same frozen pre-chunk bank, so its validation calls are
         # independent of the other groups: they run concurrently (bounded; execution only) and are then applied below in the
         # original trajectory order, which alone determines assignment order, the bank transitions and the decision journal.
@@ -235,12 +249,11 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
 
         def admit(tid):                                          # generation -> source consistency -> Gate -> peer re-check
             row, tin, leaf, layer = rows[tid], tin_of[tid], leaf_of[tid], tin_of[tid].outcome
-            rub = generate_rubric(create_text, state.prompt_sha256, tin, _preset(context, chunk_sha, row), cache, env.gate_fn,
-                                  source_stage1=stage1(leaf) if stage1 else None)
+            started = time.monotonic()
             proposed = [pid for pid in ids if rows[pid]['action'] == 'PEER' and rows[pid]['peer']['peer_representative_id'] == tid]
-            confirmed = {}; matching_calls = 0
-            if rub.valid and proposed:                           # as rubric_bank.batched_stratum: followers are checked against the ACTUAL rubric
-                anchors = [rub]; peer_tins = [tin_of[pid] for pid in proposed]
+            peer_tins = [tin_of[pid] for pid in proposed]
+
+            def match_request(anchors):                          # the unchanged batch matcher against the ACTUAL generated rubric
                 match_identity = {'version': RB.BATCH_VERSION, 'case': cid, 'stratum': layer, 'prompt': state.prompt_sha256,
                                   'assignment_cache_version': RB.ASSIGNMENT_CACHE_VERSION, 'tins': [[t.leaf_id, t.sha256] for t in peer_tins],
                                   'bank': sha256_json(RB.bank_view(anchors)), 'transcript': TRANSCRIPT_FORMAT,
@@ -251,11 +264,38 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                         raise RuntimeError('Batch match returned incomplete trajectory IDs')
                     for pid in proposed: RB._validate_member_decision(value['decisions'][pid], anchors, tin_of[pid])
                     return value
-                confirmed = checked(cache.call('rubric_match_batch', match_identity,
-                                               lambda: checked(env.assign_fn.batch(package, peer_tins, anchors))))['decisions']
-                matching_calls = 1
+                return checked(cache.call('rubric_match_batch', match_identity,
+                                          lambda: checked(env.assign_fn.batch(package, peer_tins, anchors))))['decisions']
+
+            speculated = 0
+            if speculative and row['normalized'] is not None and not row['parse_error']:
+                # The candidate is fixed here. Its source check, Gate and peer re-check read only (trajectory, rubric): none of
+                # them consumes another's output, so their requests are sent together with the identities the unchanged code
+                # below uses (rubric id / scores normalisation as posthoc.generate_rubric; no repair exists for generator_v1).
+                from src.online_rl.tree.posthoc import rubric_problems
+                from src.online_rl.tree.records import TrajectoryRubric
+                rid = f'{state.prompt_sha256[:12]}-{tin.sha256[:12]}'
+                rubric = {**row['normalized'], 'rubric_id': rid, 'scores': {str(a): b for a, b in (row['normalized'].get('scores') or {}).items()}}
+                generator_v1 = (rubric.get('source_provenance') or {}).get('selected_turn_policy') == 'generator_v1'
+                if not rubric_problems(rubric) and (generator_v1 or stage1 is None):
+                    gate_identity = {'tin': tin.sha256, 'rubric': sha256_json(rubric), 'model': getattr(env.gate_fn, 'model', None),
+                                     'protocol': getattr(env.gate_fn, 'protocol', None)}
+                    if getattr(env.gate_fn, 'settings', None) is not None: gate_identity['settings'] = env.gate_fn.settings
+                    provisional = TrajectoryRubric(rid, tin.leaf_id, state.prompt_sha256, json.dumps(row['generation'], ensure_ascii=False), rubric,
+                                                   True, (), None, None, _preset(context, chunk_sha, row)(None, tin)['intervention_instruction'])
+                    tasks = [(lambda: stage1(leaf)(rubric)) if stage1 else None,
+                             (lambda: cache.call('posthoc_gate', gate_identity, lambda: env.gate_fn(tin, rubric))) if env.gate_fn else None,
+                             (lambda: match_request([provisional])) if proposed else None]
+                    speculate(tasks, 3); speculated = sum(t is not None for t in tasks)
+            rub = generate_rubric(create_text, state.prompt_sha256, tin, _preset(context, chunk_sha, row), cache, env.gate_fn,
+                                  source_stage1=stage1(leaf) if stage1 else None)
+            confirmed = {}; matching_calls = 0
+            if rub.valid and proposed:                           # as rubric_bank.batched_stratum: followers are checked against the ACTUAL rubric
+                confirmed = match_request([rub]); matching_calls = 1
+            timing[tid] = {'admit_s': round(time.monotonic() - started, 1), 'speculative_requests': speculated}
             return rub, proposed, confirmed, matching_calls
         admitted = dict(zip(creators, _ordered_map(admit, creators, workers)))
+        admit_seconds = round(time.monotonic() - phase_started, 1); phase_started = time.monotonic()
 
         for tid in creators:                                     # assignments in the original order (deterministic `order` fields)
             rub, proposed, confirmed, matching_calls = admitted[tid]; tin, layer = tin_of[tid], tin_of[tid].outcome
@@ -277,6 +317,7 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
         witnessed = dict(zip(creators, _ordered_map(
             lambda tid: trainer._verify_bounded(case, tree, feedback, groups[tid]['members'], groups[tid]['canon'], groups[tid]['assignments']),
             creators, workers)))
+        witness_seconds = round(time.monotonic() - phase_started, 1)
 
         for tid in ids:                                          # apply in the original trajectory order
             row, tin, leaf, layer, input_sha = rows[tid], tin_of[tid], leaf_of[tid], tin_of[tid].outcome, working['sha256']
@@ -327,6 +368,8 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
         chunk_reports.append({'chunk_index': index, 'trajectory_ids': ids, 'trajectories': len(ids), 'generator_calls': 1,
                               'generator_api_requests': result['api_calls'], 'generator_correction_requests': result['api_calls'] - 1,
                               'generator_execution_retries': result.get('execution_retries', 0),
+                              'timing_seconds': {'primary_generation': primary_seconds, 'admission_wall': admit_seconds, 'witness_wall': witness_seconds,
+                                                 'chunk_wall': round(time.monotonic() - chunk_started, 1), 'groups': timing},
                               'peer_matching_calls': sum(r.get('peer_matching_calls', 0) for r in report), 'bank_before_sha256': before['sha256'],
                               'bank_before_size': len(before['entries']), 'bank_after_sha256': working['sha256'],
                               'bank_after_size': len(working['entries']), 'rows': report})

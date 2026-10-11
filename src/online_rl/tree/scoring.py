@@ -121,7 +121,18 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
             if callable(getattr(scorer, 'match_state', None)):
                 matched = validate_match(cache.call('rubric_state_match', identity,
                     lambda: validate_match(scorer.match_state(view, prefix, rubrics))))
-            review = {r['rubric_id']: state_applicability(case, n, r, scorer, cache) for r in rubrics}
+            # One independent Stage-1 request per rubric (singleton requests, exact single-flight cache): bounded concurrency,
+            # results keyed in the original rubric order. SHERPA_SCORE_RUBRIC_WORKERS (default 1) is execution only.
+            import os
+            rubric_workers = int(os.environ.get('SHERPA_SCORE_RUBRIC_WORKERS', '1'))
+            if rubric_workers > 1 and len(rubrics) > 1:
+                from concurrent.futures import ThreadPoolExecutor
+                from contextvars import copy_context
+                with ThreadPoolExecutor(min(rubric_workers, len(rubrics))) as rubric_pool:
+                    pending = [rubric_pool.submit(copy_context().run, state_applicability, case, n, r, scorer, cache) for r in rubrics]
+                    review = {r['rubric_id']: future.result() for r, future in zip(rubrics, pending)}
+            else:
+                review = {r['rubric_id']: state_applicability(case, n, r, scorer, cache) for r in rubrics}
             on = [r for r in rubrics if review[r['rubric_id']]['applicable'] and
                   (matched is None or str(matched[r['rubric_id']]['value']).upper() == 'Y')]
             mask = tuple(r['rubric_id'] for r in on)

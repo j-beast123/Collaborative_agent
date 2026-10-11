@@ -80,6 +80,7 @@ def run(monkeypatch, workers):
     out = O.process_case(trainer, case={'case_id': 'c'}, state=NS(run_seed=0, case_cursor=0, prompt_sha256='p', policy_sha256='pol'),
                          tree=NS(nodes=[]), feedback=[], ruled=ruled, tin_of=tin_of, prompt_text='prompt',
                          snapshot={'entries': [], 'sha256': 'empty'})
+    for chunk in out['summary']['chunks']: chunk.pop('timing_seconds', None)     # wall-clock metadata only; never part of a decision
     key = lambda a: (a.leaf_id, a.stratum, a.order, a.canonical_rubric_id, a.assignment)
     return {'decisions': out['decisions'], 'summary': out['summary'], 'assignments': [key(a) for a in out['assignments']],
             'working': out['working'], 'reuse': [m['leaf_id'] for m in out['cumulative_reuse']], 'calls': calls}
