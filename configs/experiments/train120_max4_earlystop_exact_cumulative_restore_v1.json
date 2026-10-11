@@ -1,0 +1,47 @@
+{
+  "extends": "configs/experiments/train120_v8_fresh_source_case_exact.json",
+  "experiment": {
+    "output_root": "outputs/train120_max4_earlystop_exact_cumulative_restore_v1_20261012",
+    "run_label": "max4_earlystop_exact_cumulative_restore_v1"
+  },
+  "policy": {
+    "init_adapter": null
+  },
+  "supervision_handoff": null,
+  "rollout": {
+    "rounds": 4,
+    "halting": {
+      "enabled": true,
+      "min_agent_turns": 1,
+      "repeat_agent_reply_after_turns": 4,
+      "default_final_after_agent_turns": 2
+    }
+  },
+  "schedule": {
+    "cases": 120
+  },
+  "rubric": {
+    "assignment_protocol": "exact_generated_source_case_v1",
+    "cumulative_bank": {
+      "protocol": "cumulative_keep_bank_v1",
+      "retrieval_top_k": 8,
+      "scoring_scope": "all",
+      "matcher_prompt_file": "prompts/sherpa/cumulative_bank_match_public_mc_v1.txt",
+      "matcher_prompt_sha256": "dbd061dcfb40f1d62d4fcdb4b4129ff2ebfd95d0db590d9976a3bc6742807739"
+    }
+  },
+  "five_gpu": {
+    "checkpoint_evaluation_enabled": false,
+    "base_evaluation": {
+      "enabled": false
+    }
+  },
+  "notes": {
+    "pilot": "Run with --max-batches 1 and inspect exactly five committed cases before continuation.",
+    "rollout": "Maximum four Agent turns. A1 may halt only when settled; A2 defaults to FINAL unless all three extension flags remain true.",
+    "rubric_generation": "Generate independently per eligible trajectory. No semantic consolidation or semantic merge. Deduplicate only exact public criterion content within the source case and outcome stratum.",
+    "verification": "Every new criterion must pass its public M/C Gate and the existing three-rerun, two-target-hit KEEP rule.",
+    "cumulative_bank": "Start empty. Add only newly verified KEEP criteria. Score against the full frozen cumulative bank; NA remains unscored.",
+    "isolation": "Fresh base adapter, empty bank, empty run cache and new output root; no prior KEEP or checkpoint inheritance."
+  }
+}
