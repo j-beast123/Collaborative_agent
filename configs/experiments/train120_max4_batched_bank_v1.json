@@ -1,0 +1,27 @@
+{
+  "extends": "configs/experiments/train120_max4_direct_luna_v9_1.json",
+  "experiment": {
+    "output_root": "outputs/train120_max4_batched_bank_v1_20261011",
+    "run_label": "train120_max4_batched_bank_v1"
+  },
+  "rubric": {
+    "assignment_protocol": null
+  },
+  "feedback": {
+    "endpoint": "http://127.0.0.1:13935"
+  },
+  "five_gpu": {
+    "doctor_urls": [
+      "http://127.0.0.1:13935",
+      "http://127.0.0.1:13936",
+      "http://127.0.0.1:13937",
+      "http://127.0.0.1:13938",
+      "http://127.0.0.1:13939"
+    ]
+  },
+  "notes": {
+    "rubric_reuse": "At each five-case batch boundary, all eligible trajectories first match against the same committed KEEP bank. Matches reuse historical evidence and skip generation, Gate, and reruns. Only unmatched trajectories generate and Gate during the parallel prepare phase.",
+    "verification": "After every case finishes preparation, witness reruns execute in the parallel verify phase across all five GPUs. KEEP criteria are added together, then the resulting bank is frozen for full-bank scoring.",
+    "scoring": "Final scoring evaluates the entire frozen bank; retrieval top-k is used only to shortlist generation-reuse candidates."
+  }
+}
