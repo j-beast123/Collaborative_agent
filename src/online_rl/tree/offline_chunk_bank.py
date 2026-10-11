@@ -18,7 +18,8 @@ from src.online_rl.tree import cumulative_bank as CB
 from src.online_rl.tree import rubric_bank as RB
 from src.online_rl.tree.agent_state import visible_rubric
 from src.online_rl.tree.posthoc import TRANSCRIPT_FORMAT, generate_rubric, trajectory_message
-from src.online_rl.tree.records import RubricAssignment, to_dialogue
+from src.online_rl.tree.applicability import ApplicabilityUncertain
+from src.online_rl.tree.records import RubricAssignment, TrajectoryRubric, to_dialogue
 
 VERSION = 'offline_chunk8_single_call_bank_v1'
 CHUNK, CAP = 8, 48
@@ -189,6 +190,17 @@ def _preset(context, chunk_sha, row):
     return generate
 
 
+def _uncertain_source(prompt_sha256, tin, row, exc):
+    """The judge left Stage-1 applicability at the rubric's own source turn unresolved. Admission needs a confirmed Applicable,
+    so the candidate is not admitted (same record shape as generate_rubric; no Gate, no witness, never in the bank)."""
+    rid = f'{prompt_sha256[:12]}-{tin.sha256[:12]}'; rubric = row['normalized']
+    if rubric is not None: rubric = {**rubric, 'rubric_id': rid, 'scores': {str(a): b for a, b in (rubric.get('scores') or {}).items()}}
+    return TrajectoryRubric(rid, tin.leaf_id, prompt_sha256, json.dumps(row['generation'], ensure_ascii=False), rubric, False,
+                            ('source_inconsistent: Stage-1 applicability uncertain at the selected turn',), None,
+                            {'status': 'APPLICABILITY_UNCERTAIN', 'audit': getattr(exc, 'audit', None)},
+                            (row['generation'] or {}).get('intervention_instruction'))
+
+
 def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_text, snapshot):
     """Sequential chunk transactions of one case against the latest working bank; returns the pieces of the online-bank record."""
     from src.online_rl.tree import witness as W
@@ -229,8 +241,11 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                                   'bank_id': decision['bank_id'], 'rubric_id': None})
                 report.append({'trajectory_id': tid, 'layer': layer, 'decision': 'REUSE', 'bank_id': decision['bank_id']})
             elif row['action'] == 'CREATE':
-                rub = generate_rubric(create_text, state.prompt_sha256, tin, _preset(context, chunk_sha, row), cache, env.gate_fn,
-                                      source_stage1=stage1(leaf) if stage1 else None)
+                try:
+                    rub = generate_rubric(create_text, state.prompt_sha256, tin, _preset(context, chunk_sha, row), cache, env.gate_fn,
+                                          source_stage1=stage1(leaf) if stage1 else None)
+                except ApplicabilityUncertain as exc:
+                    rub = _uncertain_source(state.prompt_sha256, tin, row, exc)
                 kind = 'CREATED_NEW' if rub.valid else 'CREATE_REJECTED'
                 note = '' if rub.valid else 'generated rubric rejected: ' + ', '.join(rub.problems or RB._gate_reasons(rub.gate))
                 canon = {rub.rubric_id: rub}; members = [leaf]; accepted = {}; refused = {}
@@ -245,10 +260,16 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                                 'selected_agent_turn_id': peer['selected_agent_turn_id'], 'intervention_instruction': peer['intervention_instruction']}
                     try: spec = RB._member_spec(rub, tin_of[pid], 'REUSED_EXISTING', decision)
                     except ValueError as exc: refused[pid] = f'member instruction invalid: {exc}'; continue
+                    try:                                             # the witness needs a confirmed Applicable at the member's own turn
+                        W.stage1_decision(case, nodes[leaf_of[pid].path[spec['selected_agent_turn_id'] - 1]], rub.rubric, env.scorer.applicability, cache)
+                    except ApplicabilityUncertain: refused[pid] = 'Stage-1 applicability uncertain at the member turn'; continue
                     assignments.append(RubricAssignment(pid, cid, layer, orders[layer], rub.rubric_id, 'REUSED_EXISTING',
                         {**decision, 'peer_representative_id': tid, 'chunk_protocol': VERSION}, '', sha256_json(tin_of[pid].feedback), spec))
                     orders[layer] += 1; members.append(leaf_of[pid]); accepted[pid] = True
-                wit = trainer._verify_bounded(case, tree, feedback, members, canon, assignments)
+                witness_error = None
+                try: wit = trainer._verify_bounded(case, tree, feedback, members, canon, assignments)
+                except ApplicabilityUncertain:                       # unresolved judge verdict: no witness, so the rubric is not kept
+                    wit = {}; witness_error = 'Stage-1 applicability uncertain during witness verification'
                 chosen = trainer._witness_selection(canon, wit)
                 kept = any(d.retained for d in chosen)
                 if kept:
@@ -267,7 +288,8 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                                'gate_passed': (rub.gate or {}).get('passed') if rub.gate is not None else None, 'peers': sorted(accepted),
                                'witness_decision': getattr(w, 'decision', None), 'witness_stop_reason': getattr(w, 'stop_reason', None),
                                'witness_valid_supports': getattr(w, 'num_valid_supports', None), 'witness_reruns': getattr(w, 'num_reruns_executed', None),
-                               'validated_by': getattr(w, 'validated_by_trajectory_id', None), 'keep': kept, 'bank_id': bank_id})
+                               'validated_by': getattr(w, 'validated_by_trajectory_id', None), 'keep': kept, 'bank_id': bank_id, 'witness_error': witness_error,
+                               'source_check': (rub.source_check or {}).get('status'), 'refused_peers': refused})
             else:
                 rep = row['peer']['peer_representative_id']; group = groups[rep]; member = tid in group['accepted']
                 if not member: uncovered.append(tid)
