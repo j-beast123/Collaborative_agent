@@ -1,0 +1,7 @@
+{
+  "extends": "configs/experiments/train120_max4_direct_luna_v9_1.json",
+  "notes": {
+    "role_identity": "Training Agent is local Qwen3-8B plus LoRA. Rollout Doctor is local Ollama gemma3:12b-it-q8_0. Only rubric generation, Gate, behavior scoring, and intervention audit use OpenAI direct gpt-6-luna.",
+    "not_all_luna": "The all-Luna C3 scripts under audits/gate_v3_3_1_isolated are an isolated diagnostic rerun and are not imported by this training configuration."
+  }
+}

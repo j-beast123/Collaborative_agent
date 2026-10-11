@@ -1,0 +1,40 @@
+{
+  "extends": "configs/experiments/train120_v9_1_gate8192_first5.json",
+  "experiment": {
+    "output_root": "outputs/train120_max4_direct_luna_v9_1_20261011",
+    "run_label": "train120_max4_directluna_v9_1"
+  },
+  "policy": {
+    "init_adapter": null
+  },
+  "supervision_handoff": null,
+  "rollout": {
+    "rounds": 4,
+    "doctor_backend": {
+      "endpoint": "http://127.0.0.1:11935"
+    }
+  },
+  "schedule": {
+    "cases": 120
+  },
+  "five_gpu": {
+    "checkpoint_every_cases": 30,
+    "doctor_urls": [
+      "http://127.0.0.1:11935",
+      "http://127.0.0.1:11936",
+      "http://127.0.0.1:11937",
+      "http://127.0.0.1:11938",
+      "http://127.0.0.1:11939"
+    ],
+    "checkpoint_evaluation_enabled": true,
+    "base_evaluation": {
+      "enabled": false
+    }
+  },
+  "notes": {
+    "start": "Fresh Qwen3-8B base, fresh LoRA, empty rubric bank, and no inherited score cache or KEEP evidence.",
+    "training": "Pinned 120-case order, five cases per update, maximum four Agent turns.",
+    "evaluation": "Checkpoint every 30 committed cases. Each milestone evaluates all pinned 622 cases; training work has priority over evaluation dispatch.",
+    "quality_contract": "Direct OpenAI gpt-6-luna roles and inherited v7.5/v7.6 active compact applicability/behavior contracts."
+  }
+}
