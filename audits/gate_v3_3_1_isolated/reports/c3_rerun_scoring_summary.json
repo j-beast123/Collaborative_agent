@@ -1,0 +1,42 @@
+{
+  "schema": "c3_rerun_scoring_summary_public_v1",
+  "candidate": "C3/0.0",
+  "gate": {
+    "decision": "pass",
+    "independent_source_level": 0,
+    "failure_codes": []
+  },
+  "rerun": {
+    "protocol": "one fresh Agent reply followed by one Doctor FINAL",
+    "requested_level": 2,
+    "completed": 3,
+    "failure_to_success": 3,
+    "keep_threshold": "at least 2 of 3",
+    "keep": true
+  },
+  "independent_behavior_scoring": {
+    "source_level": 0,
+    "rerun_levels": [2, 2, 2],
+    "shared_applicability": true,
+    "behavior_adherence_role": "diagnostic_only"
+  },
+  "execution": {
+    "model_roles": {
+      "agent": "gpt-6-luna",
+      "doctor": "gpt-6-luna",
+      "scorer": "gpt-6-luna"
+    },
+    "technical_scoring_retries": 1,
+    "technical_retry_reason": "A model-produced evidence quotation changed one punctuation mark and failed literal validation.",
+    "semantic_revote": false,
+    "ground_truth_excluded_from_agent_doctor_and_scorer_requests": true
+  },
+  "excluded_from_repository": [
+    "medical dialogue",
+    "Agent replies",
+    "Doctor FINAL text",
+    "provider response bodies",
+    "API response identifiers"
+  ],
+  "active_training_or_bank_modified": false
+}
