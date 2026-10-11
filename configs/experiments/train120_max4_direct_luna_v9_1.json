@@ -26,7 +26,7 @@
       "http://127.0.0.1:11938",
       "http://127.0.0.1:11939"
     ],
-    "checkpoint_evaluation_enabled": true,
+    "checkpoint_evaluation_enabled": false,
     "base_evaluation": {
       "enabled": false
     }
@@ -34,7 +34,7 @@
   "notes": {
     "start": "Fresh Qwen3-8B base, fresh LoRA, empty rubric bank, and no inherited score cache or KEEP evidence.",
     "training": "Pinned 120-case order, five cases per update, maximum four Agent turns.",
-    "evaluation": "Checkpoint every 30 committed cases. Each milestone evaluates all pinned 622 cases; training work has priority over evaluation dispatch.",
+    "evaluation": "Checkpoint every 30 committed cases. The separate cooperative idle evaluator processes all pinned 622 cases without blocking the training loop.",
     "quality_contract": "Direct OpenAI gpt-6-luna roles and inherited v7.5/v7.6 active compact applicability/behavior contracts."
   }
 }
