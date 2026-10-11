@@ -6,9 +6,11 @@ one call with the CURRENT persistent KEEP bank; its rows are applied immediately
 
 Nothing downstream is redefined. A CREATE row carries the unchanged single-trajectory generation object and goes through the
 existing normalisation, source consistency, Gate and bounded witness (random-5, 2-of-3) code; a REUSE_BANK row is the unchanged
-cumulative-bank reuse decision; a PEER row is the unchanged member decision (own turn + instruction) for the rubric created in
-the same call. Compatibility adaptation: a peer is attached on the peer checks of that same call instead of a second matching
-call against the generated rubric (a second call would break the one-call-per-chunk contract). Layers never mix."""
+cumulative-bank reuse decision; a PEER row is, as in the existing batch contract, only a generation-saving proposal: once the
+representative's rubric exists and passed its Gate, the proposed peers are re-checked against that actual rubric with the
+unchanged batch matcher (rubric_bank / api_rubric_matcher.batch) and attached only on its REUSE_EXISTING decision. A trajectory
+whose representative is rejected or whose re-check is not a reuse gets no rubric in this protocol (no further primary call).
+Judge errors and unresolved verdicts are not handled here: they propagate exactly as in the per-trajectory path. Layers never mix."""
 from __future__ import annotations
 import copy, hashlib, json, random, re
 from dataclasses import replace
@@ -18,8 +20,7 @@ from src.online_rl.tree import cumulative_bank as CB
 from src.online_rl.tree import rubric_bank as RB
 from src.online_rl.tree.agent_state import visible_rubric
 from src.online_rl.tree.posthoc import TRANSCRIPT_FORMAT, generate_rubric, trajectory_message
-from src.online_rl.tree.applicability import ApplicabilityUncertain
-from src.online_rl.tree.records import RubricAssignment, TrajectoryRubric, to_dialogue
+from src.online_rl.tree.records import RubricAssignment, to_dialogue
 
 VERSION = 'offline_chunk8_single_call_bank_v1'
 CHUNK, CAP = 8, 48
@@ -27,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[3]
 PROMPT = ROOT / 'prompts/sherpa/offline_chunk8_bank_generation_v1.txt'
 ACTIONS = ('REUSE_BANK', 'CREATE', 'PEER')
 ROW_KEYS = {'trajectory_id', 'action', 'bank_reuse', 'generation', 'peer'}
-PEER_KEYS = {'peer_representative_id', 'checks', 'rationale', 'selected_agent_turn_id', 'intervention_instruction'}
+PEER_KEYS = {'peer_representative_id', 'checks', 'rationale'}
 
 
 def select(leaf_ids, run_seed, case_id):
@@ -66,9 +67,7 @@ def output_schema(generation_schema, bank_checks):
                             'doctor_quote': {'type': ['string', 'null']}, 'agent_quote': {'type': ['string', 'null']},
                             'rationale': {'type': 'string'}, 'checks': checks(bank_checks)}}
     peer = {'type': ['object', 'null'], 'additionalProperties': False, 'required': sorted(PEER_KEYS),
-            'properties': {'peer_representative_id': {'type': 'string'}, 'checks': checks(MATCH_CHECKS), 'rationale': {'type': 'string'},
-                           'selected_agent_turn_id': {'type': 'integer', 'minimum': 1},
-                           'intervention_instruction': {'type': 'string', 'minLength': 1, 'pattern': r'\S'}}}
+            'properties': {'peer_representative_id': {'type': 'string'}, 'checks': checks(MATCH_CHECKS), 'rationale': {'type': 'string'}}}
     row = {'type': 'object', 'additionalProperties': False, 'required': sorted(ROW_KEYS),
            'properties': {'trajectory_id': {'type': 'string'}, 'action': {'type': 'string', 'enum': list(ACTIONS)},
                           'bank_reuse': reuse, 'generation': {'anyOf': [generation_schema, {'type': 'null'}]}, 'peer': peer}}
@@ -80,13 +79,9 @@ def api_chunk_generator(context, matcher_prompt_text):
     """context = api_rubric_generator(...).chunk_context: the unchanged generator key / model / settings / schema / normalise."""
     from src.online_rl.tree import backends as B
     key, model, base = context['key'], context['model'], context['settings']
-    member = B.MEMBER_MATCH_INSTRUCTIONS
-    if base.get('public_criterion_protocol') is not None: member += '\n' + B.PUBLIC_MEMBER_ALIGNMENT_INSTRUCTIONS
-    elif base.get('instruction_alignment_protocol') is not None: member += '\n' + B.MEMBER_ALIGNMENT_INSTRUCTIONS
     contract = PROMPT.read_text()
     settings = {**base, 'response_format': None, 'max_tokens': int(base['max_tokens']) * CHUNK, 'chunk_protocol': VERSION,
-                'chunk_prompt_sha256': sha256_text(contract), 'matcher_prompt_sha256': sha256_text(matcher_prompt_text),
-                'member_prompt_sha256': sha256_text(member)}
+                'chunk_prompt_sha256': sha256_text(contract), 'matcher_prompt_sha256': sha256_text(matcher_prompt_text)}
     generator_v1 = base.get('selected_turn_policy') == 'generator_v1'
 
     def validate(raw, tins, snapshot, payloads, lenient):
@@ -123,13 +118,11 @@ def api_chunk_generator(context, matcher_prompt_text):
                     value.update(generation=generation, normalized=rubric, parse_error=err)
                     if err: soft.append(f'{tid}: {err}')
             else:
-                peer = row['peer']; agents = sum(turn[0] == 'agent' for turn in tin.dialogue)
+                peer = row['peer']
                 if (not isinstance(peer, dict) or set(peer) != PEER_KEYS or not isinstance(peer['checks'], dict) or
                         set(peer['checks']) != set(B.MATCH_CHECKS) or not all(v is True for v in peer['checks'].values()) or
-                        not isinstance(peer['rationale'], str) or isinstance(peer['selected_agent_turn_id'], bool) or
-                        not isinstance(peer['selected_agent_turn_id'], int) or not 1 <= peer['selected_agent_turn_id'] <= agents or
-                        not isinstance(peer['intervention_instruction'], str) or not peer['intervention_instruction'].strip()):
-                    hard.append(f'{tid}: malformed peer object (all six checks true, an actual Agent reply id and an instruction are required)')
+                        not isinstance(peer['rationale'], str)):
+                    hard.append(f'{tid}: malformed peer object (a representative, all six peer checks true and a rationale are required)')
                 value['peer'] = peer
             out[tid] = value
         for tid, value in out.items():
@@ -149,8 +142,6 @@ def api_chunk_generator(context, matcher_prompt_text):
         schema = output_schema(context['schema'], bank_checks)
         system = (context['system'](package) + '\n\n' + contract + '\n\nBANK REUSE CONTRACT (unchanged cumulative-bank matcher text; it '
                   'defines the content of bank_reuse; its candidates are the supplied current_bank):\n' + matcher_prompt_text +
-                  '\n\nPEER MEMBER CONTRACT (unchanged member text; it defines selected_agent_turn_id and intervention_instruction of a '
-                  'peer; the canonical rubric is the one generated for the peer representative in this call):\n' + member +
                   '\n\nOUTPUT JSON SCHEMA OF THIS CALL:\n' + json.dumps(schema, ensure_ascii=False))
         user = json.dumps({'current_bank': bank_view(snapshot), 'trajectories': [
             {'trajectory_id': t.leaf_id, 'layer': t.outcome,
@@ -188,17 +179,6 @@ def _preset(context, chunk_sha, row):
     generate.model = context['model']
     generate.settings = {**context['settings'], 'chunk_protocol': VERSION, 'chunk_generation_sha256': chunk_sha}
     return generate
-
-
-def _uncertain_source(prompt_sha256, tin, row, exc):
-    """The judge left Stage-1 applicability at the rubric's own source turn unresolved. Admission needs a confirmed Applicable,
-    so the candidate is not admitted (same record shape as generate_rubric; no Gate, no witness, never in the bank)."""
-    rid = f'{prompt_sha256[:12]}-{tin.sha256[:12]}'; rubric = row['normalized']
-    if rubric is not None: rubric = {**rubric, 'rubric_id': rid, 'scores': {str(a): b for a, b in (rubric.get('scores') or {}).items()}}
-    return TrajectoryRubric(rid, tin.leaf_id, prompt_sha256, json.dumps(row['generation'], ensure_ascii=False), rubric, False,
-                            ('source_inconsistent: Stage-1 applicability uncertain at the selected turn',), None,
-                            {'status': 'APPLICABILITY_UNCERTAIN', 'audit': getattr(exc, 'audit', None)},
-                            (row['generation'] or {}).get('intervention_instruction'))
 
 
 def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_text, snapshot):
@@ -241,35 +221,39 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                                   'bank_id': decision['bank_id'], 'rubric_id': None})
                 report.append({'trajectory_id': tid, 'layer': layer, 'decision': 'REUSE', 'bank_id': decision['bank_id']})
             elif row['action'] == 'CREATE':
-                try:
-                    rub = generate_rubric(create_text, state.prompt_sha256, tin, _preset(context, chunk_sha, row), cache, env.gate_fn,
-                                          source_stage1=stage1(leaf) if stage1 else None)
-                except ApplicabilityUncertain as exc:
-                    rub = _uncertain_source(state.prompt_sha256, tin, row, exc)
+                rub = generate_rubric(create_text, state.prompt_sha256, tin, _preset(context, chunk_sha, row), cache, env.gate_fn,
+                                      source_stage1=stage1(leaf) if stage1 else None)
                 kind = 'CREATED_NEW' if rub.valid else 'CREATE_REJECTED'
                 note = '' if rub.valid else 'generated rubric rejected: ' + ', '.join(rub.problems or RB._gate_reasons(rub.gate))
                 canon = {rub.rubric_id: rub}; members = [leaf]; accepted = {}; refused = {}
                 assignments = [RubricAssignment(tid, cid, layer, orders[layer], rub.rubric_id, kind, None, note, sha256_json(tin.feedback),
                                                 RB._member_spec(rub, tin, kind, None))]
                 orders[layer] += 1
-                for pid in ids:
-                    peer = rows[pid]['peer'] if rows[pid]['action'] == 'PEER' else None
-                    if peer is None or peer['peer_representative_id'] != tid: continue
+                proposed = [pid for pid in ids if rows[pid]['action'] == 'PEER' and rows[pid]['peer']['peer_representative_id'] == tid]
+                confirmed = {}; matching_calls = 0
+                if rub.valid and proposed:                       # as rubric_bank.batched_stratum: followers are checked against the ACTUAL rubric
+                    anchors = [rub]; peer_tins = [tin_of[pid] for pid in proposed]
+                    match_identity = {'version': RB.BATCH_VERSION, 'case': cid, 'stratum': layer, 'prompt': state.prompt_sha256,
+                                      'assignment_cache_version': RB.ASSIGNMENT_CACHE_VERSION, 'tins': [[t.leaf_id, t.sha256] for t in peer_tins],
+                                      'bank': sha256_json(RB.bank_view(anchors)), 'transcript': TRANSCRIPT_FORMAT,
+                                      'model': getattr(env.assign_fn, 'model', None), 'settings': getattr(env.assign_fn, 'settings', None),
+                                      'chunk_protocol': VERSION}
+                    def checked(value):
+                        if not isinstance(value, dict) or not isinstance(value.get('decisions'), dict) or set(value['decisions']) != set(proposed):
+                            raise RuntimeError('Batch match returned incomplete trajectory IDs')
+                        for pid in proposed: RB._validate_member_decision(value['decisions'][pid], anchors, tin_of[pid])
+                        return value
+                    confirmed = checked(cache.call('rubric_match_batch', match_identity,
+                                                   lambda: checked(env.assign_fn.batch(package, peer_tins, anchors))))['decisions']
+                    matching_calls = 1
+                for pid in proposed:
                     if not rub.valid: refused[pid] = 'representative rubric rejected'; continue
-                    decision = {'decision': 'REUSE_EXISTING', 'rubric_id': rub.rubric_id, 'checks': dict(peer['checks']), 'rationale': peer['rationale'],
-                                'selected_agent_turn_id': peer['selected_agent_turn_id'], 'intervention_instruction': peer['intervention_instruction']}
-                    try: spec = RB._member_spec(rub, tin_of[pid], 'REUSED_EXISTING', decision)
-                    except ValueError as exc: refused[pid] = f'member instruction invalid: {exc}'; continue
-                    try:                                             # the witness needs a confirmed Applicable at the member's own turn
-                        W.stage1_decision(case, nodes[leaf_of[pid].path[spec['selected_agent_turn_id'] - 1]], rub.rubric, env.scorer.applicability, cache)
-                    except ApplicabilityUncertain: refused[pid] = 'Stage-1 applicability uncertain at the member turn'; continue
-                    assignments.append(RubricAssignment(pid, cid, layer, orders[layer], rub.rubric_id, 'REUSED_EXISTING',
-                        {**decision, 'peer_representative_id': tid, 'chunk_protocol': VERSION}, '', sha256_json(tin_of[pid].feedback), spec))
+                    decision = confirmed[pid]; problem = RB.match_problem(decision, [rub])
+                    if problem: refused[pid] = problem; continue
+                    assignments.append(RubricAssignment(pid, cid, layer, orders[layer], rub.rubric_id, 'REUSED_EXISTING', decision, '',
+                        sha256_json(tin_of[pid].feedback), RB._member_spec(rub, tin_of[pid], 'REUSED_EXISTING', decision)))
                     orders[layer] += 1; members.append(leaf_of[pid]); accepted[pid] = True
-                witness_error = None
-                try: wit = trainer._verify_bounded(case, tree, feedback, members, canon, assignments)
-                except ApplicabilityUncertain:                       # unresolved judge verdict: no witness, so the rubric is not kept
-                    wit = {}; witness_error = 'Stage-1 applicability uncertain during witness verification'
+                wit = trainer._verify_bounded(case, tree, feedback, members, canon, assignments)
                 chosen = trainer._witness_selection(canon, wit)
                 kept = any(d.retained for d in chosen)
                 if kept:
@@ -288,8 +272,8 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                                'gate_passed': (rub.gate or {}).get('passed') if rub.gate is not None else None, 'peers': sorted(accepted),
                                'witness_decision': getattr(w, 'decision', None), 'witness_stop_reason': getattr(w, 'stop_reason', None),
                                'witness_valid_supports': getattr(w, 'num_valid_supports', None), 'witness_reruns': getattr(w, 'num_reruns_executed', None),
-                               'validated_by': getattr(w, 'validated_by_trajectory_id', None), 'keep': kept, 'bank_id': bank_id, 'witness_error': witness_error,
-                               'source_check': (rub.source_check or {}).get('status'), 'refused_peers': refused})
+                               'validated_by': getattr(w, 'validated_by_trajectory_id', None), 'keep': kept, 'bank_id': bank_id, 'source_check': (rub.source_check or {}).get('status'),
+                               'proposed_peers': proposed, 'peer_matching_calls': matching_calls, 'refused_peers': refused})
             else:
                 rep = row['peer']['peer_representative_id']; group = groups[rep]; member = tid in group['accepted']
                 if not member: uncovered.append(tid)
@@ -299,7 +283,8 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                 report.append({'trajectory_id': tid, 'layer': layer, 'decision': 'PEER', 'peer_of': rep, 'member': member,
                                'refused': group['refused'].get(tid), 'representative_keep': group['kept'], 'bank_id': group['bank_id'] if reused else None})
         chunk_reports.append({'chunk_index': index, 'trajectory_ids': ids, 'trajectories': len(ids), 'generator_calls': 1,
-                              'generator_api_requests': result['api_calls'], 'bank_before_sha256': before['sha256'],
+                              'generator_api_requests': result['api_calls'], 'generator_correction_requests': result['api_calls'] - 1,
+                              'peer_matching_calls': sum(r.get('peer_matching_calls', 0) for r in report), 'bank_before_sha256': before['sha256'],
                               'bank_before_size': len(before['entries']), 'bank_after_sha256': working['sha256'],
                               'bank_after_size': len(working['entries']), 'rows': report})
     for earlier, later in zip(chunk_reports, chunk_reports[1:]):
@@ -307,6 +292,8 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
     if len(chunk_reports) > CAP // CHUNK: raise RuntimeError('More than six generator calls for one case')
     summary = {'protocol': VERSION, **sampling, 'uncovered_ids': sorted(uncovered), 'chunks': chunk_reports,
                'generator_calls': len(chunk_reports), 'generator_api_requests': sum(c['generator_api_requests'] for c in chunk_reports),
+               'generator_correction_requests': sum(c['generator_correction_requests'] for c in chunk_reports),
+               'peer_matching_calls': sum(c['peer_matching_calls'] for c in chunk_reports),
                'input_bank_sha256': snapshot['sha256'], 'output_bank_sha256': working['sha256']}
     return {'working': working, 'canon': canon_all, 'assignments': assignments_all, 'witness': witness_all, 'witness_objects': witness_objects,
             'selection': selection_all, 'cumulative_reuse': reuse_rows, 'decisions': decisions, 'summary': summary}

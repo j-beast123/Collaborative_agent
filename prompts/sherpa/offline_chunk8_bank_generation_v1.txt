@@ -34,10 +34,11 @@ For EVERY supplied trajectory return exactly one row with one action:
    not write a second rubric. Put in "peer": peer_representative_id (that earlier
    trajectory_id), the six same-reason checks of the assign-or-create rules
    evaluated against the rubric you are generating for that representative (all
-   six must be true, otherwise this trajectory is its own "CREATE"), a concise
-   rationale quoting this trajectory's visible dialogue, and this trajectory's
-   OWN selected_agent_turn_id and intervention_instruction as defined in the PEER
-   MEMBER CONTRACT section below. "bank_reuse" and "generation" are null.
+   six must be true, otherwise this trajectory is its own "CREATE"), and a concise
+   rationale quoting this trajectory's visible dialogue. "bank_reuse" and
+   "generation" are null. Peer grouping is a generation-saving proposal, not
+   proof that the generated rubric passes its Gate: every peer is checked again
+   against the actual generated criterion in a separate matching call.
 
 Compare each trajectory with the bank first, then with the other trajectories of
 this call. Use separate "CREATE" rows whenever applicability, required behavior,
