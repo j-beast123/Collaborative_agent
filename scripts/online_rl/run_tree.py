@@ -170,7 +170,7 @@ def evidence_gate_identity(cfg: dict, root: Path = ROOT):
                                 system=(root / jm['gate_prompt_file']).read_text(),
                                 max_tokens=jm['gate_max_tokens'],
                                 provider=jm.get('api_provider', cfg.get('api_provider', 'openrouter')))
-    if jm.get('compact_runtime') in ('v7_1', 'v7_5_v7_6'):
+    if jm.get('compact_runtime') in ('v7_1', 'v7_5_v7_6', 'v7_7'):
         return make_gate(cfg, client, []).settings
     if jm.get('gate_protocol') in (PUBLIC_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL_V2, PUBLIC_GATE_PROTOCOL_V3):
         from src.online_rl.tree.quality_gate import public_mc_posthoc_gate
@@ -500,7 +500,7 @@ def make_scorer(cfg: dict, client):
     """Select evidence scoring only for configs that explicitly request it."""
     from src.online_rl.tree.backends import two_stage_scorer, two_stage_structured_scorer, two_stage_hard_scorer
     jm = cfg['judges']
-    if jm.get('compact_runtime') in ('v7_1', 'v7_5_v7_6'):
+    if jm.get('compact_runtime') in ('v7_1', 'v7_5_v7_6', 'v7_7'):
         from functools import wraps
         from src.common.config import IntegrationUnavailable
         from src.online_rl.tree.compact_runtime import compact_scorer
@@ -619,7 +619,7 @@ def make_scorer(cfg: dict, client):
 def make_gate(cfg: dict, client, cases):
     """Keep legacy gating for existing configs; bind evidence gating only by explicit version."""
     from src.online_rl.tree.backends import posthoc_gates
-    if cfg['judges'].get('compact_runtime') in ('v7_1', 'v7_5_v7_6'):
+    if cfg['judges'].get('compact_runtime') in ('v7_1', 'v7_5_v7_6', 'v7_7'):
         from functools import wraps
         from src.common.config import IntegrationUnavailable
         from src.online_rl.tree.quality_gate import public_mc_posthoc_gate

@@ -15,7 +15,12 @@ QUALITY_PROTOCOL = 'compact_runtime_v7_3'
 QUALITY_APP_CONTRACT = 'compact_condition_v7_3'
 REFERENT_PROTOCOL = 'compact_runtime_v7_5_v7_6'
 REFERENT_APP_CONTRACT = 'compact_condition_v7_5'
-REVISIONS = ('v7_1', 'v7_3', 'v7_5_v7_6')
+# v7_7 = v7_5_v7_6 plus one Stage-1-only system supplement: applicability conditions are read literally (no widening of a
+# written term to a related concept). Output schema, contract, behavior scoring and every other prompt are unchanged.
+LITERAL_REVISION = 'v7_7'
+LITERAL_SUPPLEMENT = 'compact_applicability_literal_v7_7.txt'
+REFERENT_REVISIONS = ('v7_5_v7_6', LITERAL_REVISION)
+REVISIONS = ('v7_1', 'v7_3', *REFERENT_REVISIONS)
 ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -25,7 +30,7 @@ def upgrade(payload, *, revision='v7_1'):
     source_packet = json.loads(payload['messages'][1]['content'])
     kind = 'behavior' if 'responses' in source_packet else 'applicability'
     q = prepare(payload, semantic=True, quality=revision != 'v7_1',
-                relation=revision == 'v7_5_v7_6' and kind == 'applicability')
+                relation=revision in REFERENT_REVISIONS and kind == 'applicability')
     packet = json.loads(q['messages'][1]['content'])
     old = (ROOT / f'prompts/sherpa/compact_{kind}_semantics_v1.txt').read_text()
     new = (ROOT / f'prompts/sherpa/compact_{kind}_semantics_v{2 if revision == "v7_1" else 3}.txt').read_text()
@@ -33,10 +38,12 @@ def upgrade(payload, *, revision='v7_1'):
     for item in packet['rubric_items' if kind == 'behavior' else 'items'].values():
         item['instructions'] = item['instructions'].replace(old, new)
     q['messages'][1]['content'] = json.dumps(packet, ensure_ascii=False)
-    if revision == 'v7_5_v7_6':
+    if revision in REFERENT_REVISIONS:
         names = (('compact_applicability_relation_v7_4.txt',
                   'compact_applicability_referent_v7_5.txt') if kind == 'applicability'
                  else ('compact_behavior_referent_v7_6.txt',))
+        if revision == LITERAL_REVISION and kind == 'applicability':
+            names += (LITERAL_SUPPLEMENT,)
         # Exactly the pilot's system-only supplements.  The public rubric,
         # user packet and behavior schema stay unchanged.
         for name in names:
@@ -48,9 +55,9 @@ def compact_scorer(client, app_client, response_batch_size=4, *, revision='v7_1'
     if revision not in REVISIONS:
         raise ValueError('Unknown compact scorer revision')
     app_contract = {'v7_1': APP_CONTRACT, 'v7_3': QUALITY_APP_CONTRACT,
-                    'v7_5_v7_6': REFERENT_APP_CONTRACT}[revision]
+                    'v7_5_v7_6': REFERENT_APP_CONTRACT, LITERAL_REVISION: REFERENT_APP_CONTRACT}[revision]
     protocol = {'v7_1': PROTOCOL, 'v7_3': QUALITY_PROTOCOL,
-                'v7_5_v7_6': REFERENT_PROTOCOL}[revision]
+                'v7_5_v7_6': REFERENT_PROTOCOL, LITERAL_REVISION: REFERENT_PROTOCOL}[revision]
     def invoke(judge, packet, role):
         payload = upgrade({'model': judge.model, 'max_tokens': judge.max_tokens,
             'messages': [{'role': 'system', 'content': judge.system},
@@ -154,10 +161,12 @@ def compact_scorer(client, app_client, response_batch_size=4, *, revision='v7_1'
         source_root/'src/online_rl/tree/compact_audit.py',
         *[ROOT/f'prompts/sherpa/compact_{kind}_{suffix}.txt' for kind in ('applicability','behavior')
           for suffix in ('contract_v1','semantics_v1',f'semantics_v{2 if revision == "v7_1" else 3}')]]
-    if revision == 'v7_5_v7_6':
+    if revision in REFERENT_REVISIONS:
         file_paths += [ROOT/'prompts/sherpa'/name for name in (
             'compact_applicability_relation_v7_4.txt', 'compact_applicability_referent_v7_5.txt',
             'compact_behavior_referent_v7_6.txt')]
+    if revision == LITERAL_REVISION:                              # part of the Stage-1 cache identity
+        file_paths.append(ROOT/'prompts/sherpa'/LITERAL_SUPPLEMENT)
     files = {str(p.relative_to(source_root if p.is_relative_to(source_root) else ROOT)): p.read_text()
              for p in file_paths}
     review.protocol = sha256_json({'contract': app_contract, 'client': public_client_identity(app_client), 'files': files})
