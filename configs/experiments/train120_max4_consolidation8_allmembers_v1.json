@@ -1,0 +1,28 @@
+{
+  "extends": "configs/experiments/train120_max4_direct_luna_v9_1.json",
+  "experiment": {
+    "output_root": "outputs/train120_max4_consolidation8_allmembers_v1_20261011",
+    "run_label": "train120_max4_consolidation8_allmembers_v1"
+  },
+  "rubric": {
+    "assignment_protocol": null,
+    "match_batch_size": 8
+  },
+  "verification": {
+    "mode": "all_members_witness_v1",
+    "max_valid_supports": null,
+    "reruns_per_support": 3,
+    "short_circuit": "Within each trajectory, decide after two agreeing outcomes (2 of K=3). Across trajectories, KEEP at the first trajectory reaching the target in at least 2/3 reruns.",
+    "support_order": "Source trajectory first, then every same-rubric trajectory in deterministic topology order; no trajectory-count cap.",
+    "target": "Each member's own feedback behavioral locus and member-specific intervention; Stage-1 Applicable required, No Match proceeds to the next assigned trajectory.",
+    "stage2_in_verification": false,
+    "keep": "KEEP when any assigned trajectory reaches the requested outcome change in at least 2/3 reruns; otherwise NOT_VALIDATED only after every applicable assigned trajectory is exhausted.",
+    "support_sampling": "topology"
+  },
+  "notes": {
+    "consolidation": "Success and failure strata are independent. The first trajectory in each non-empty stratum always generates. Later trajectories are matched against the current valid bank in batches of at most eight; only unmatched trajectories generate, and pending members are re-matched whenever a valid new rubric is added.",
+    "generation_savings": "A matched trajectory reuses the unchanged rubric and skips rubric generation and Gate. Matching is performed by the configured rubric-generator model; topic or label similarity alone is insufficient because all matcher checks must pass.",
+    "verification": "Every trajectory assigned to a newly generated rubric is eligible as a witness. The rubric is kept at the first trajectory with a 2-of-3 target outcome change; if none passes, all applicable assigned trajectories are exhausted before rejection.",
+    "unchanged": "Agent, Doctor, generator, Gate, scorer, prompts, rollout tree, reward, optimizer, schedule, cumulative scoring scope, and checkpoint behavior are inherited unchanged from train120_max4_direct_luna_v9_1.json."
+  }
+}
