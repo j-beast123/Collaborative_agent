@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 CONFIG="$ROOT/configs/experiments/train120_max4_consolidation8_random5_idle622_v1.json"
-SOURCE="$ROOT/outputs/train120_max4_consolidation8_random5_idle622_v1_20261011/r05_o05__p0fixed__gemma3doctor__seed0__max4_consolidation8_random5_idle622_v1"
-EVAL_ROOT="$ROOT/outputs/train120_max4_consolidation8_random5_idle622_evaluations_20261011"
+SOURCE="$ROOT/outputs/train120_max4_consolidation8_random5_idle622_v2_20261011/r05_o05__p0fixed__gemma3doctor__seed0__max4_consolidation8_random5_idle622_v2"
+EVAL_ROOT="$ROOT/outputs/train120_max4_consolidation8_random5_idle622_v2_evaluations_20261011"
 PRIORITY="$SOURCE/idle_eval_priority"
 PYTHON_BIN="${SHERPA_PYTHON:-/home/common/miniconda3/bin/python}"
 DOCTOR_BIN="${SHERPA_EVAL_OLLAMA:-/home/kai/.local/ollama-v0.12.5/bin/ollama}"

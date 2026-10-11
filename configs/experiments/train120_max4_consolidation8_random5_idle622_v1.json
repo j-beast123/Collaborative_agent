@@ -1,8 +1,8 @@
 {
   "extends": "configs/experiments/train120_max4_direct_luna_v9_1.json",
   "experiment": {
-    "output_root": "outputs/train120_max4_consolidation8_random5_idle622_v1_20261011",
-    "run_label": "max4_consolidation8_random5_idle622_v1"
+    "output_root": "outputs/train120_max4_consolidation8_random5_idle622_v2_20261011",
+    "run_label": "max4_consolidation8_random5_idle622_v2"
   },
   "api_provider": "openrouter",
   "rubric": {
@@ -14,7 +14,8 @@
     }
   },
   "judges": {
-    "api_provider": "openai_direct"
+    "api_provider": "openai_direct",
+    "gate_max_tokens": 16384
   },
   "verification": {
     "mode": "random5_witness_v1",
@@ -32,7 +33,8 @@
     "generation_savings": "A matched trajectory reuses the unchanged rubric and skips rubric generation and Gate. Matching is performed by the configured rubric-generator model; topic or label similarity alone is insufficient because all matcher checks must pass.",
     "verification": "Sample at most five same-rubric trajectories. Each gets up to three reruns with early 2-of-3 decision; KEEP at the first passing trajectory.",
     "unchanged": "Agent, Doctor, Gate, scorer, prompts, rollout tree, reward, optimizer, schedule, cumulative scoring scope, and checkpoint behavior are inherited unchanged from train120_max4_direct_luna_v9_1.json. Rubric generation and both bank/peer consolidation matching use Gemini through OpenRouter.",
-    "evaluation": "Independent training-priority idle evaluators process all 622 pinned cases for C30, C60, C90, and C120. Training inference and updates have priority."
+    "evaluation": "Independent training-priority idle evaluators process all 622 pinned cases for C30, C60, C90, and C120. Training inference and updates have priority.",
+    "gate_runtime": "Gate output limit is 16384 to prevent the observed direct-OpenAI length truncation; technical truncation remains an execution error, never a score."
   },
   "five_gpu": {
     "checkpoint_evaluation_enabled": false
