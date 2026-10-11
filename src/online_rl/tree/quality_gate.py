@@ -469,6 +469,8 @@ def public_mc_posthoc_gate(client, cases, observed_context=False, rubric_quote_p
         evidence_contract=PUBLIC_EVIDENCE_CONTRACT_V3 if v3 else PUBLIC_EVIDENCE_CONTRACT_V2 if v2 else PUBLIC_EVIDENCE_CONTRACT)
     instructions = instructions_override or instructions
     blind_scorer = blind_scorer_override or blind_scorer
+    import os
+    parallel_stages = os.environ.get('SHERPA_GATE_PARALLEL_STAGES', '').strip().lower() in ('1', 'true', 'yes')
     settings = {'protocol': protocol, 'input_version': 'separate_quality_and_blind_source_v1',
                 'model': client.model, 'prompt_sha256': sha256_text(client.system),
                 'client_protocol_sha256': getattr(client, 'protocol_sha256', None),
@@ -476,7 +478,8 @@ def public_mc_posthoc_gate(client, cases, observed_context=False, rubric_quote_p
                 'observed_context': bool(observed_context), 'rubric_quote_protocol': rubric_quote_protocol,
                 'contract_sha256': sha256_json({'fields': PUBLIC_GATE_FIELDS, 'instructions': instructions}),
                 'blind_source_protocol': blind_scorer.protocol, 'quality_calls': 1, 'blind_source_calls': 1,
-                'source_anchor_policy': 'success2_failure0_unchanged', 'evidence_corrections': 1}
+                'source_anchor_policy': 'success2_failure0_unchanged', 'evidence_corrections': 1,
+                'execution': 'quality_blind_parallel_v1' if parallel_stages else 'quality_then_blind_v1'}
     if v2:
         settings['input_version'] = 'separate_quality_and_blind_source_semantic_v3' if v3 else 'separate_quality_and_blind_source_semantic_v2'
         settings['reference_schema_sha256'] = sha256_json(public_gate_reference_fields({'visible_field': ''}))
@@ -509,38 +512,56 @@ def public_mc_posthoc_gate(client, cases, observed_context=False, rubric_quote_p
             catalog = list(dict.fromkeys(text for text in _text_values(state['candidate_rubric']) if text.strip()))
             for check in fields['checks']['properties'].values():
                 check['properties']['rubric_quotes']['items']['enum'] = catalog
-        for attempt in range(2):
-            messages = [{'role': 'system', 'content': client.system}, {'role': 'user', 'content': json.dumps(
-                {'stage': protocol, 'state': current, 'items': {'candidate': item}}, ensure_ascii=False)}]
-            requests.append({'messages': messages, 'messages_sha256': sha256_json(messages),
-                             'output_fields': copy.deepcopy(fields)})
-            values, record = with_role('rubric_gate', lambda: client.judge(
-                protocol, current, {'candidate': item}, fields, 'public_criterion_quality'))
-            decisions.append(copy.deepcopy(record))
-            answer = values.get('candidate') if isinstance(values, dict) else None
-            try:
-                if not isinstance(values, dict) or set(values) != {'candidate'}:
-                    raise ValueError('Public Gate response must contain exactly candidate')
-                if v2:
-                    answer, contradictions = materialize_public_quality(answer, state)
-                else:
-                    contradictions = validate_public_quality(answer, state, quote_catalog=rubric_quote_protocol is not None)
-                break
-            except (ValueError, TypeError) as exc:
-                errors.append(str(exc))
-                if attempt:
-                    error = IntegrationUnavailable('Invalid public Gate evidence after one correction: ' + str(exc))
-                    error.audit = {'requests': requests, 'decisions': decisions, 'validation_errors': errors}
-                    raise error from exc
-                current = {**copy.deepcopy(state), 'evidence_correction': {'previous_answer': answer, 'error': str(exc)}}
-                if v2:
-                    current['rubric_field_catalog'] = catalog
+        # Quality inspection and blind source scoring consume disjoint packets and
+        # neither result influences the other request.  The opt-in executor only
+        # overlaps their API wait time; validation and final assembly remain in
+        # the original deterministic order below.
+        source_future = source_pool = None
+        visible = {**state['candidate_rubric'], 'rubric_id': 'source_criterion'}
+        if parallel_stages:
+            from concurrent.futures import ThreadPoolExecutor
+            source_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='gate-blind-source')
+            source_future = source_pool.submit(
+                blind_scorer.score_behavior, state['case_context'], state['dialogue_before_target_turn'],
+                [visible], state['source_agent_reply']['text'])
+        try:
+            for attempt in range(2):
+                messages = [{'role': 'system', 'content': client.system}, {'role': 'user', 'content': json.dumps(
+                    {'stage': protocol, 'state': current, 'items': {'candidate': item}}, ensure_ascii=False)}]
+                requests.append({'messages': messages, 'messages_sha256': sha256_json(messages),
+                                 'output_fields': copy.deepcopy(fields)})
+                values, record = with_role('rubric_gate', lambda: client.judge(
+                    protocol, current, {'candidate': item}, fields, 'public_criterion_quality'))
+                decisions.append(copy.deepcopy(record))
+                answer = values.get('candidate') if isinstance(values, dict) else None
+                try:
+                    if not isinstance(values, dict) or set(values) != {'candidate'}:
+                        raise ValueError('Public Gate response must contain exactly candidate')
+                    if v2:
+                        answer, contradictions = materialize_public_quality(answer, state)
+                    else:
+                        contradictions = validate_public_quality(answer, state, quote_catalog=rubric_quote_protocol is not None)
+                    break
+                except (ValueError, TypeError) as exc:
+                    errors.append(str(exc))
+                    if attempt:
+                        error = IntegrationUnavailable('Invalid public Gate evidence after one correction: ' + str(exc))
+                        error.audit = {'requests': requests, 'decisions': decisions, 'validation_errors': errors}
+                        raise error from exc
+                    current = {**copy.deepcopy(state), 'evidence_correction': {'previous_answer': answer, 'error': str(exc)}}
+                    if v2:
+                        current['rubric_field_catalog'] = catalog
+        except BaseException:
+            if source_pool is not None:
+                source_pool.shutdown(wait=True, cancel_futures=True)
+            raise
         # No quality checks, probes, outcomes, expected levels, analysis or
         # reflection are included in this separate blind behavioral assessment.
-        visible = {**state['candidate_rubric'], 'rubric_id': 'source_criterion'}
         try:
-            source = blind_scorer.score_behavior(state['case_context'], state['dialogue_before_target_turn'],
-                                                 [visible], state['source_agent_reply']['text'])['source_criterion']
+            source_result = (source_future.result() if source_future is not None else
+                             blind_scorer.score_behavior(state['case_context'], state['dialogue_before_target_turn'],
+                                                         [visible], state['source_agent_reply']['text']))
+            source = source_result['source_criterion']
         except IntegrationUnavailable as exc:
             # A contradictory numeric answer from the blind source scorer is
             # not an execution outage and must never become a score. Treat
@@ -556,6 +577,9 @@ def public_mc_posthoc_gate(client, cases, observed_context=False, rubric_quote_p
             source = {'stage2': {'level': 'UNSCORABLE',
                                  'defect': 'Blind source scorer returned internally conflicting anchor matches; no numeric score assigned.'},
                       'evidence_validation': audit}
+        finally:
+            if source_pool is not None:
+                source_pool.shutdown(wait=True)
         observed = source['stage2']['level']
         expected = '2' if tin.outcome == 'success' else '0'
         reasons = [name for name, check in answer['checks'].items() if not check['passed']]

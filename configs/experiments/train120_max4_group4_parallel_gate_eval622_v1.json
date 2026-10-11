@@ -1,0 +1,20 @@
+{
+  "extends": "configs/experiments/train120_max4_group4_cumulative_pilot5_v1.json",
+  "experiment": {
+    "output_root": "outputs/train120_max4_group4_parallel_gate_eval622_v1_20261012",
+    "run_label": "max4_group4_parallel_gate_eval622_v1"
+  },
+  "schedule": {
+    "cases": 120
+  },
+  "five_gpu": {
+    "checkpoint_evaluation_enabled": false,
+    "base_evaluation": {
+      "enabled": false
+    }
+  },
+  "notes": {
+    "gate_execution": "Quality inspection and blind-source scoring run concurrently; validation, decisions, and bank commits remain deterministic.",
+    "evaluation": "Training-priority idle evaluation runs the fixed 622 cases at BASE/C0 and checkpoints C30, C60, C90, and C120."
+  }
+}

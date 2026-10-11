@@ -149,7 +149,7 @@ def verify_witness(case: dict, nodes: dict[str, AgentNode], leaves: dict[str, Le
     specs = {}
     for assignment in assignments:
         rubric = canon[assignment.canonical_rubric_id]
-        if not rubric.valid or assignment.assignment == 'CREATE_REJECTED': continue
+        if not rubric.valid or assignment.assignment in ('CREATE_REJECTED', 'NO_VALID_CANDIDATE'): continue
         key = (assignment.canonical_rubric_id, assignment.leaf_id)
         if key in specs: raise ValueError('duplicate rubric member assignment')
         spec = resolve_member_intervention(rubric, leaves[assignment.leaf_id], member_spec=assignment.intervention_spec)

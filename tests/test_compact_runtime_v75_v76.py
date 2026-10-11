@@ -11,7 +11,7 @@ import pytest
 from scripts.online_rl.run_tree import evidence_gate_identity, make_gate, make_scorer
 from src.online_rl.tree.applicability import ApplicabilityUncertain
 from src.online_rl.tree.cache import CallCache
-from src.online_rl.tree.compact_audit import _app, app_schema, prepare
+from src.online_rl.tree.compact_audit import _app, _validate_relation, app_schema, prepare
 from src.online_rl.tree.compact_runtime import upgrade
 from src.online_rl.tree.experiment import load_config
 from src.online_rl.tree.luna import LunaDecisionClient
@@ -37,6 +37,17 @@ def _relation(kind='none', *, status='not_required', lifecycle='open'):
             'relation_status': status, 'relation_evidence': [],
             'active_request_required': False, 'request_lifecycle': lifecycle,
             'explanation': 'The visible request and declared condition were compared.'}
+
+
+def test_no_required_relation_allows_an_evidenced_unrelated_visible_relation():
+    quote = 'What are your thoughts on the alternative?'
+    audit = _relation(lifecycle='not_required')
+    audit['visible_relation']['relation_type'] = 'other'
+    audit['relation_evidence'] = [{'turn_id': 'prefix:0', 'quote': quote}]
+    state = {'dialogue_before_target_reply': [
+        {'turn_id': 'prefix:0', 'speaker': 'doctor', 'text': quote}]}
+    answer = {'doctor_condition': [{'status': 'supported'}]}
+    _validate_relation(audit, state, {'applicable': True, 'request_state': 'not_required'}, answer)
 
 
 class Transport:

@@ -1,0 +1,38 @@
+{
+  "extends": "configs/experiments/train120_max4_natural_sample8_v1.json",
+  "experiment": {
+    "output_root": "outputs/train120_max4_group4_parallel_gate_guardian_v1_20261012",
+    "run_label": "max4_group4_parallel_gate_guardian_v1"
+  },
+  "rubric": {
+    "assignment_protocol": null,
+    "reuse": "assign_or_create_v1",
+    "match_batch_size": 4,
+    "prompt_id": "P0-source-anchor-abstain-group4-v1",
+    "source_sampling": {
+      "protocol": "seeded_case_leaf_v1",
+      "threshold": 16,
+      "max_trajectories": 8
+    },
+    "cumulative_bank": {
+      "guardian": {
+        "protocol": "semantic_keep_guardian_v1",
+        "model": "google/gemini-3.8-flash-20260902",
+        "max_tokens": 4096
+      }
+    }
+  },
+  "schedule": {"cases": 120},
+  "five_gpu": {
+    "checkpoint_evaluation_enabled": false,
+    "base_evaluation": {"enabled": false},
+    "doctor_urls": [
+      "http://127.0.0.1:16835", "http://127.0.0.1:16836",
+      "http://127.0.0.1:16837", "http://127.0.0.1:16838",
+      "http://127.0.0.1:16839"
+    ]
+  },
+  "notes": {
+    "guardian": "After rerun KEEP, exact duplicates are removed locally and remaining public criteria are checked once by Gemini 3.8 Flash before registration. Workers never consume guardian decisions."
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "extends": "configs/experiments/train120_max4_earlystop_exact_cumulative_restore_v1.json",
+  "experiment": {
+    "output_root": "outputs/train120_max4_natural_sample8_relationfix_v2_20261012",
+    "run_label": "max4_natural_sample8_relationfix_v2"
+  },
+  "rollout": {
+    "doctor_system_prompt_file": "prompts/user_simulator_v5_natural_early_conclusion.txt",
+    "doctor_system_prompt_sha256": "5ad77230b5645d17e33ad5fa2456524700a892a8346c1269596256a940f7f1ef",
+    "halting": {
+      "enabled": true,
+      "min_agent_turns": 1,
+      "repeat_agent_reply_after_turns": 4,
+      "default_final_after_agent_turns": 1
+    }
+  },
+  "rubric": {
+    "generator_prompt_file": "prompts/sherpa/trajectory_rubric_generator_v2_9_source_anchor_abstain.txt",
+    "prompt_sha256": "e4566feb38c1f45e70c59a3307a7ce6c1e97ad4340d650288f0523faf8bb4d25",
+    "prompt_id": "P0-source-anchor-abstain-v1",
+    "source_sampling": {
+      "protocol": "seeded_case_leaf_v1",
+      "threshold": 16,
+      "max_trajectories": 8
+    }
+  },
+  "five_gpu": {
+    "first_batch_frozen_records": {},
+    "reuse_frozen_rubric_candidates": false,
+    "opening_identity": {
+      "system_prompt_sha256": "5ad77230b5645d17e33ad5fa2456524700a892a8346c1269596256a940f7f1ef"
+    }
+  },
+  "notes": {
+    "doctor": "Natural clinical discussion up to five sentences with evidence-based early conclusion.",
+    "rubric_source_sampling": "Use every decided leaf through 16; above 16, deterministically sample eight source trajectories. Unselected leaves retain outcome training and may still receive kept-rubric response scores.",
+    "contract_fix": "Allow evidenced unrelated visible relations when a public applicability condition requires no relation; no scoring semantics changed."
+  },
+  "feedback": {
+    "prompt_file": "prompts/sherpa/doctor_post_final_reflection_v1.txt",
+    "prompt_sha256": "595b384270dc1bd8a80bc006ec1550bbe2a0207fc7dddce1cdc2f1e4ebdd426f"
+  }
+}

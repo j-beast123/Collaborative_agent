@@ -95,8 +95,9 @@ def protocol_sha256(cfg: dict, root: Path) -> str:
         out['prompt_candidate_seed'] = SEED_MODE
     if cfg.get('rubric', {}).get('match_batch_size',1)!=1:
         from src.online_rl.tree.rubric_bank import BATCH_VERSION
-        if cfg['rubric']['match_batch_size']!=8:raise ValueError('unsupported rubric match batch size')
-        out['rubric_batch_matching']={'version':BATCH_VERSION,'batch_size':8}
+        batch_size=cfg['rubric']['match_batch_size']
+        if batch_size not in (4,8):raise ValueError('unsupported rubric match batch size')
+        out['rubric_batch_matching']={'version':BATCH_VERSION,'batch_size':batch_size}
     repeat_after=(ro.get('halting') or {}).get('repeat_agent_reply_after_turns')
     if repeat_after is not None:
         if isinstance(repeat_after,bool) or not isinstance(repeat_after,int) or repeat_after<1:raise ValueError('repeat_agent_reply_after_turns must be a positive integer')

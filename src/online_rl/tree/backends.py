@@ -732,7 +732,7 @@ def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: s
     Rubric-Generator model. Joint generation also returns the reused member's own turn and instruction in this call;
     no rubric is rewritten. Malformed output is an operational error (RubricOutputIncomplete)."""
     import json, re
-    if match_batch_size not in (1,8):raise ValueError('match_batch_size must be 1 or 8')
+    if match_batch_size not in (1,4,8):raise ValueError('match_batch_size must be 1, 4, or 8')
     member_interventions = settings.get('output_contract') == 'trajectory_analysis_candidate_v2_with_intervention'
     schema = MEMBER_MATCH_JSON_SCHEMA if member_interventions else MATCH_JSON_SCHEMA
     member_instructions = MEMBER_MATCH_INSTRUCTIONS

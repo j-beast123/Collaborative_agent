@@ -170,11 +170,17 @@ def validate_handoff(cfg, out, theta0=None):
         digest = sha256_json(inherited)
         previous_receipt = _read(source / 'checkpoints' /
                                  f"handoff_{inherited['completed_cases']:06d}" / 'COMPLETE.json')
+        reachable={inherited.get('destination_protocol_sha256')}
+        for row in state.get('protocol_transitions', []):
+            if (isinstance(row, dict) and row.get('from') in reachable and
+                    row.get('completed_cases') == inherited.get('completed_cases')):
+                reachable.add(row.get('to'))
+        inherited_protocol_valid = state.get('protocol_sha256') in reachable
         if (manifest.get('supervision_handoff') != inherited or
                 state.get('supervision_handoff_sha256') != digest or
                 previous_receipt.get('supervision_handoff_sha256') != digest or
-                previous_receipt.get('protocol_sha256') != state.get('protocol_sha256') or
-                inherited.get('destination_protocol_sha256') != state.get('protocol_sha256') or
+                previous_receipt.get('protocol_sha256') != inherited.get('destination_protocol_sha256') or
+                not inherited_protocol_valid or
                 inherited.get('theta0_policy_sha256') != state.get('theta0_policy_sha256')):
             raise RuntimeError('Handoff source inherited theta0 provenance differs')
     if theta0 is not None and theta0 != state.get('theta0_policy_sha256'):

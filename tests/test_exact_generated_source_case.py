@@ -57,13 +57,20 @@ def generated_criterion(tin, *, changed=False):
                                   'source_outcome': tin.outcome}}
 
 
-def run(*, changed=(), rejected=()):
+def run(*, changed=(), rejected=(), abstained=()):
     leaves, nodes, tins = sources()
     calls = {'generator': [], 'gate': []}
 
     def generate(prompt, tin):
         calls['generator'].append(tin.leaf_id)
         rubric = generated_criterion(tin, changed=tin.leaf_id in changed)
+        if tin.leaf_id in abstained:
+            expected = 0 if tin.outcome == 'failure' else 2
+            rubric['source_provenance'].update(
+                source_anchor_contract_mismatch=True,
+                source_anchor_declaration={'expected_score_from_outcome': expected,
+                                           'generator_claimed_source_score': 1,
+                                           'matches_expected': False})
         return {'rubric': rubric, 'raw': json.dumps(rubric),
                 'intervention_instruction': f'Guide specifically written for {tin.leaf_id}.'}
 
@@ -112,6 +119,50 @@ def test_changed_anchor_is_not_merged_and_invalid_candidate_is_not_reused():
     assert assignments[2].intervention_spec is None
     assert rubric_bank.assignment_telemetry(canon, assignments, candidates=candidates)['gate_reject'] == 1
     assert len(calls['generator']) == len(calls['gate']) == 4
+
+
+def test_source_anchor_mismatch_is_normal_abstention_and_skips_gate_and_rerun():
+    leaves, nodes, _, (canon, assignments, candidates), calls, _ = run(abstained={'L0', 'L2'})
+    by_leaf = {a.leaf_id: a for a in assignments}
+    assert by_leaf['L0'].assignment == by_leaf['L2'].assignment == rubric_bank.NO_VALID_CANDIDATE
+    assert by_leaf['L0'].intervention_spec is by_leaf['L2'].intervention_spec is None
+    assert calls['generator'] == ['L0', 'L1', 'L2', 'L3']
+    assert calls['gate'] == ['L1', 'L3']
+    abstentions = [r for r in candidates if r.leaf_id in ('L0', 'L2')]
+    assert all(not r.valid and r.gate is None and r.intervention_instruction is None for r in abstentions)
+    assert all(r.source_check['status'] == rubric_bank.NO_VALID_CANDIDATE for r in abstentions)
+    telemetry = rubric_bank.assignment_telemetry(canon, assignments, candidates=candidates)
+    assert telemetry['no_valid_candidate'] == 2
+    assert telemetry['create_rejected'] == telemetry['gate_reject'] == 0
+    inactive = [by_leaf['L0'], by_leaf['L2']]
+    scores, effs = rubric_bank.verify_members(CASE, nodes, {l.leaf_id: l for l in leaves}, canon, inactive,
+        scorer=lambda *_: (_ for _ in ()).throw(AssertionError('scorer should not run for abstentions')),
+        writer=lambda *_: None, continuation=lambda *_: None, reruns=3, run_seed=0,
+        policy_sha256='policy', strategies=None, cache=CallCache(None))
+    assert effs['L0'] is effs['L2'] is None
+
+
+def test_no_valid_candidate_round_trip_is_accepted_by_resume_validator():
+    leaves, nodes, tins, (canon, assignments, candidates), _, _ = run(abstained={'L0'})
+    trainer = TreeTrainer.__new__(TreeTrainer)
+    trainer.member_intervention_version = 'trajectory_member_instruction_exact_source_case_v1'
+    trainer.reuse = trainer.exact_source_case = True
+    trainer.cumulative_bank = None
+    tree = Tree('case', 'policy', 2, 2, tuple(nodes.values()), tuple(leaves))
+    record = {'tree': to_dict(tree),
+              'feedback': [to_dict(DoctorFeedback(l.leaf_id, l.outcome, f'Feedback {l.leaf_id}',
+                                                  'feedback', target_reply_id=1)) for l in leaves],
+              'trajectory_rubrics': [to_dict(r) for r in canon.values()],
+              'trajectory_inputs': [to_dict(t) for t in tins.values()],
+              'rubric_bank': {'assignment_protocol': rubric_bank.EXACT_SOURCE_CASE_PROTOCOL,
+                              'member_intervention_version': trainer.member_intervention_version,
+                              'assignments': [to_dict(a) for a in assignments],
+                              'generated_candidates': [to_dict(r) for r in candidates]}}
+    trainer.validate_member_interventions(copy.deepcopy(record))
+    row = next(a for a in record['rubric_bank']['assignments'] if a['leaf_id'] == 'L0')
+    row['assignment'] = 'CREATE_REJECTED'
+    with pytest.raises(RuntimeError, match='rejected candidate'):
+        trainer.validate_member_interventions(record)
 
 
 def test_generated_rubric_id_collision_fails_before_canonical_overwrite(monkeypatch):

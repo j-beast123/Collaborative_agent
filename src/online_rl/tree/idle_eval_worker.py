@@ -108,7 +108,7 @@ def _checkpoint_protocol(cfg):
     return sha256_json(parts)
 
 
-def _inputs(config_path, snapshot_dir):
+def _inputs(config_path, snapshot_dir, existing_job=None):
     """Validate CPU-only inputs, including immutable snapshot payload hashes."""
     from src.online_rl.cases import normalize
     from src.online_rl.integrated.continuation import protocol_sha256
@@ -136,7 +136,15 @@ def _inputs(config_path, snapshot_dir):
     if fg.get('execution_mode') != 'shared_ready_tasks_v1':
         raise ValueError('Idle evaluation requires cooperative shared GPU actors')
     if _checkpoint_protocol(cfg) != manifest['protocol_sha256']:
-        raise RuntimeError('Evaluation prompt/protocol fingerprint differs from checkpoint receipt')
+        # A partially completed immutable evaluation may outlive supervision
+        # code changes. Resume only when its already-published job is pinned to
+        # this exact snapshot and receipt; never use this path to create a job.
+        if (not isinstance(existing_job, dict) or
+                existing_job.get('contract') != CONTRACT or
+                existing_job.get('snapshot_sha256') != sha256_json(proof) or
+                existing_job.get('protocol_sha256') != manifest['protocol_sha256'] or
+                existing_job.get('policy_sha256') != _read(snapshot_dir/'COMPLETE.json').get('policy_sha256')):
+            raise RuntimeError('Evaluation prompt/protocol fingerprint differs from checkpoint receipt')
     for key in ('eval_sha256', 'eval_cases', 'eval_seed', 'opening_identity'):
         if fg[key] != source_cfg['five_gpu'][key]:
             raise RuntimeError(f'Evaluation five_gpu.{key} differs from checkpoint config')
@@ -167,7 +175,9 @@ def ensure_job(config_path, snapshot_dir, eval_root):
     ``eval_root`` is a dedicated directory for this one immutable checkpoint.
     This function is also the supervisor's preparation entry point.
     """
-    cfg, proof, receipt, cases, original = _inputs(config_path, snapshot_dir)
+    existing_path = Path(eval_root)/'manifest.json'
+    existing_job = _read(existing_path) if existing_path.exists() else None
+    cfg, proof, receipt, cases, original = _inputs(config_path, snapshot_dir, existing_job)
     ro = copy.deepcopy(cfg['rollout'])
     ro['doctor_backend'].pop('endpoint', None)
     ro['doctor_backend'].pop('gpu', None)
@@ -660,7 +670,8 @@ def run_worker(config_path, snapshot_dir, eval_root, gpu, priority_dir, doctor_e
     os.environ['API_USAGE_LOG'] = str(worker_root / 'doctor_usage.jsonl')
     os.environ['API_USAGE_STAGE'] = 'idle_checkpoint_evaluation'
     manifest = ensure_job(config_path, snapshot_dir, root)
-    cfg, proof, receipt, cases, original = _inputs(config_path, snapshot_dir)
+    existing_job = _read(Path(eval_root)/'manifest.json')
+    cfg, proof, receipt, cases, original = _inputs(config_path, snapshot_dir, existing_job)
     if summarize(root, manifest)['status'] == 'complete':
         return {'status': 'complete', 'gpu': gpu, 'job_sha256': manifest['job_sha256']}
     from src.online_rl.tree.idle_eval_priority import EvaluationDeferred, PriorityCoordinator

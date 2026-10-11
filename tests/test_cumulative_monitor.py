@@ -160,6 +160,25 @@ def test_idle_eval_monitor_uses_explicit_priority_directory(tmp_path, monkeypatc
     assert watch.idle_evaluation_status(tmp_path)['active_gpus'] == ['0']
 
 
+def test_idle_eval_monitor_follows_continuation_link(tmp_path, monkeypatch):
+    monkeypatch.setattr(watch, 'pid_alive', lambda pid: pid in (123, 456))
+    run = tmp_path / 'training'
+    evaluation = tmp_path / 'base_c0'
+    write(run / 'idle_eval_link.json', {'output': str(evaluation), 'checkpoint_cases': 0})
+    write(evaluation / 'status.json', {
+        'pid': 123, 'stage': 'running', 'evaluated': 102,
+        'worker_pids': {'2': 456}})
+    write(evaluation / 'evaluation/summary.json', {
+        'dataset_cases': 622, 'evaluated': 101, 'correct': 74,
+        'accuracy': 74 / 101, 'status': 'pending'})
+    status = watch.idle_evaluation_status(run)
+    assert status['checkpoint_cases'] == 0
+    assert status['evaluated'] == 102
+    assert status['active_gpus'] == ['2']
+    assert status['controller_alive']
+    assert 'Idle eval C0 · 102/622' in watch.render_idle_evaluation(status)
+
+
 def test_fresh_training_monitor_keeps_historical_c20_progress_separate_and_shows_wait(tmp_path, monkeypatch):
     monkeypatch.setattr(watch, 'gpu_sample', lambda: ({}, None))
     monkeypatch.setattr(watch, 'pid_alive', lambda pid: pid == 123)

@@ -34,7 +34,8 @@ from src.online_rl.tree.records import CanonicalSupport, Leaf, RubricAssignment,
 ASSIGNMENT_VERSION = 'assign_or_create_v1'
 EXACT_SOURCE_CASE_PROTOCOL = 'exact_generated_source_case_v1'
 EXACT_DUPLICATE_ASSIGNMENT = 'GENERATED_EXACT_DUPLICATE'
-BATCH_VERSION = 'snapshot_match8_new_recheck_v1'
+NO_VALID_CANDIDATE = 'NO_VALID_CANDIDATE'
+BATCH_VERSION = 'snapshot_match_group_new_recheck_v2'
 ASSIGNMENT_CACHE_VERSION = 'member_intervention_specs_v1'
 MARKER = '[Assign or create]'
 CHECKS = ('same_construct', 'applicability_visible', 'same_required_behavior', 'same_direction', 'score_semantics_apply', 'no_new_premise')
@@ -80,7 +81,7 @@ def assign_message(tin: TrajectoryRubricInput, stratum: str, bank: list[Trajecto
 
 
 def _member_spec(rub: TrajectoryRubric, tin: TrajectoryRubricInput, assignment: str, decision: Optional[dict]):
-    if assignment == 'CREATE_REJECTED' or rub.intervention_instruction is None: return None
+    if assignment in ('CREATE_REJECTED', NO_VALID_CANDIDATE) or rub.intervention_instruction is None: return None
     from src.online_rl.tree.member_intervention import make_member_intervention
     if assignment == 'CREATED_NEW':
         turn = (((rub.rubric or {}).get('source_provenance') or {}).get('analysis') or {}).get('selected_agent_turn_id')
@@ -100,6 +101,11 @@ def _member_spec(rub: TrajectoryRubric, tin: TrajectoryRubricInput, assignment: 
         raise ValueError(f'Unknown rubric assignment {assignment!r}')
     return make_member_intervention(rub, tin, selected_agent_turn_id=turn,
                                     intervention_instruction=instruction, origin=origin)
+
+
+def _inactive_assignment(rub: TrajectoryRubric) -> str:
+    """Classify a non-active generated result without conflating abstention and Gate rejection."""
+    return NO_VALID_CANDIDATE if (rub.source_check or {}).get('status') == NO_VALID_CANDIDATE else 'CREATE_REJECTED'
 
 
 def build_exact_generated_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubricInput],
@@ -136,10 +142,12 @@ def build_exact_generated_banks(case: dict, leaves: list[Leaf], tins: dict[str, 
             fb_sha = sha256_json(tin.feedback)
             if not candidate.valid:
                 canonical[candidate.rubric_id] = candidate
+                kind = _inactive_assignment(candidate)
+                prefix = 'generator abstained' if kind == NO_VALID_CANDIDATE else 'generated rubric rejected'
                 assignments.append(RubricAssignment(leaf.leaf_id, case['case_id'], stratum, order,
-                    candidate.rubric_id, 'CREATE_REJECTED',
+                    candidate.rubric_id, kind,
                     {'protocol': EXACT_SOURCE_CASE_PROTOCOL, 'candidate_sha256': candidate_sha},
-                    'generated rubric rejected: ' + ', '.join(candidate.problems or _gate_reasons(candidate.gate)),
+                    prefix + ': ' + ', '.join(candidate.problems or _gate_reasons(candidate.gate)),
                     fb_sha, None))
                 continue
             source = candidate.source_check or {}
@@ -218,8 +226,8 @@ def build_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubric
     (execution only) builds them concurrently and merges them in the fixed stratum order, so the result is identical."""
     create_text, package = prompt_sections(prompt_text)
     if match_batch_size is None:match_batch_size=getattr(assign_fn,'batch_size',1)
-    if match_batch_size not in (1,8):raise ValueError('rubric match_batch_size must be 1 or 8')
-    if match_batch_size==8 and not callable(getattr(assign_fn,'batch',None)):raise ValueError('Batch matching requires assign_fn.batch')
+    if match_batch_size not in (1,4,8):raise ValueError('rubric match_batch_size must be 1, 4, or 8')
+    if match_batch_size in (4,8) and not callable(getattr(assign_fn,'batch',None)):raise ValueError('Batch matching requires assign_fn.batch')
 
     leaf_by_id={leaf.leaf_id:leaf for leaf in leaves}
     saved_by_leaf={}
@@ -245,7 +253,7 @@ def build_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubric
             canon[rub.rubric_id]=rub
             if rub.valid:bank.append(rub)
             else:note += ('; ' if note else '')+'generated rubric rejected: '+', '.join(rub.problems or _gate_reasons(rub.gate))
-            save(leaf,rub.rubric_id,'CREATED_NEW' if rub.valid else 'CREATE_REJECTED',decision,note)
+            save(leaf,rub.rubric_id,'CREATED_NEW' if rub.valid else _inactive_assignment(rub),decision,note)
             return rub.valid
         def adopt_saved(leaf,decision=None,note=''):
             rub=saved_by_leaf.get(leaf.leaf_id)
@@ -298,7 +306,7 @@ def build_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubric
         return {rid:r for rid,r in canon.items() if rid in used},assignments
 
     def stratum_bank(stratum, o):
-        if match_batch_size==8:return batched_stratum(stratum,o)
+        if match_batch_size in (4,8):return batched_stratum(stratum,o)
         canon: dict[str, TrajectoryRubric] = {}; out: list[RubricAssignment] = []
         bank: list[TrajectoryRubric] = []
         for k, leaf in enumerate(sorted((l for l in leaves if l.outcome == o), key=lambda l: l.leaf_id)):
@@ -319,8 +327,9 @@ def build_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubric
             canon[rub.rubric_id] = rub
             if rub.valid: bank.append(rub)
             else: note = (note + '; ' if note else '') + 'generated rubric rejected: ' + ', '.join(rub.problems or _gate_reasons(rub.gate))
-            out.append(RubricAssignment(leaf.leaf_id, case['case_id'], stratum, k, rub.rubric_id, 'CREATED_NEW' if rub.valid else 'CREATE_REJECTED',
-                                        decision, note, fb, _member_spec(rub,tin,'CREATED_NEW' if rub.valid else 'CREATE_REJECTED',decision)))
+            kind = 'CREATED_NEW' if rub.valid else _inactive_assignment(rub)
+            out.append(RubricAssignment(leaf.leaf_id, case['case_id'], stratum, k, rub.rubric_id, kind,
+                                        decision, note, fb, _member_spec(rub,tin,kind,decision)))
         return canon, out
     if parallel_strata:
         from concurrent.futures import ThreadPoolExecutor
@@ -344,7 +353,7 @@ def verify_members(case: dict, nodes: dict, leaves: dict[str, Leaf], canon: dict
     The bank is final here, so members are independent; member_workers > 1 (execution only) verifies them concurrently and
     collects the results in assignment order."""
     def one(a):
-        if a.assignment == 'CREATE_REJECTED': return [], None
+        if a.assignment in ('CREATE_REJECTED', NO_VALID_CANDIDATE): return [], None
         canonical = canon[a.canonical_rubric_id]
         if canonical.intervention_instruction is not None:
             from src.online_rl.tree.member_intervention import resolve_member_intervention
@@ -390,11 +399,13 @@ def assignment_telemetry(canon: dict, assignments: list[RubricAssignment], *, ca
             'created_new': sum(a.assignment == 'CREATED_NEW' for a in assignments), 'reused_existing': sum(a.assignment == 'REUSED_EXISTING' for a in assignments),
             'exact_generated_duplicates': sum(a.assignment == EXACT_DUPLICATE_ASSIGNMENT for a in assignments),
             'create_rejected': sum(a.assignment == 'CREATE_REJECTED' for a in assignments),
+            'no_valid_candidate': sum(a.assignment == NO_VALID_CANDIDATE for a in assignments),
             'generation_calls': len(candidates) if exact else sum(a.assignment != 'REUSED_EXISTING' for a in assignments),
             'match_decisions': 0 if exact else sum(a.decision is not None for a in assignments),
             'semantic_matcher_calls': 0 if exact else sum(a.decision is not None for a in assignments),
             'gate_pass': sum(1 for r in (candidates if exact else canon.values()) if r.valid),
-            'gate_reject': sum(1 for r in (candidates if exact else canon.values()) if not r.valid)}
+            'gate_reject': sum(1 for r in (candidates if exact else canon.values())
+                               if not r.valid and (r.source_check or {}).get('status') != NO_VALID_CANDIDATE)}
 
 
 def bank_telemetry(canon: dict, assignments: list[RubricAssignment], support: dict[str, CanonicalSupport]) -> dict:
@@ -403,11 +414,13 @@ def bank_telemetry(canon: dict, assignments: list[RubricAssignment], support: di
     return {'trajectories': len(assignments), **{f'{s}_trajectories': len(v) for s, v in by.items()},
             'created_new': sum(a.assignment == 'CREATED_NEW' for a in assignments), 'reused_existing': sum(a.assignment == 'REUSED_EXISTING' for a in assignments),
             'create_rejected': sum(a.assignment == 'CREATE_REJECTED' for a in assignments),
+            'no_valid_candidate': sum(a.assignment == NO_VALID_CANDIDATE for a in assignments),
             'generation_calls': sum(a.assignment != 'REUSED_EXISTING' for a in assignments), 'generation_calls_saved': sum(a.assignment == 'REUSED_EXISTING' for a in assignments),
             'match_decisions': sum(a.decision is not None for a in assignments),
             'reuse_attempts_not_accepted': sum(bool(a.decision) and a.decision.get('decision') == 'REUSE_EXISTING' and a.assignment != 'REUSED_EXISTING' for a in assignments),
             'active_canonical': len(support), 'kept_canonical': sum(v.retained for v in support.values()),
-            'gate_pass': sum(1 for r in canon.values() if r.valid), 'gate_reject': sum(1 for r in canon.values() if not r.valid),
+            'gate_pass': sum(1 for r in canon.values() if r.valid),
+            'gate_reject': sum(1 for r in canon.values() if not r.valid and (r.source_check or {}).get('status') != NO_VALID_CANDIDATE),
             'kept_success': sum(v.retained and v.stratum == 'success' for v in support.values()),
             'kept_failure': sum(v.retained and v.stratum == 'failure' for v in support.values()),
             'member_s': sorted(x for v in support.values() for x in v.member_s.values() if x is not None),

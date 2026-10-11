@@ -57,8 +57,13 @@ def blockers(cfg: dict) -> list[str]:
                              ('judges', 'scorer_model'), ('judges', 'intervention_audit_model')):
             if key in cfg.get(section, {}) and cfg[section][key] != 'gpt-6-luna':
                 out.append(f'{section}.{key} must be gpt-6-luna for the OpenAI direct run')
-    elif judge_provider == 'openai_direct' or generation_provider == 'openai_direct':
+    elif (judge_provider == 'openai_direct' or generation_provider == 'openai_direct'):
         out.append('Direct judge/generator provider requires top-level api_provider=openai_direct')
+    scorer_provider = cfg.get('judges', {}).get('scorer_api_provider', judge_provider)
+    if scorer_provider not in ('openrouter', 'openai_direct'):
+        out.append(f'Unknown scorer_api_provider {scorer_provider!r}')
+    if scorer_provider == 'openai_direct' and cfg.get('judges', {}).get('scorer_model') != 'gpt-6-luna':
+        out.append('OpenAI direct scorer model must be gpt-6-luna')
     raw_sampling = (cfg.get('optimizer') or {}).get('require_raw_on_policy_sampling', False)
     if not isinstance(raw_sampling, bool):
         out.append('optimizer.require_raw_on_policy_sampling must be boolean')
@@ -68,7 +73,7 @@ def blockers(cfg: dict) -> list[str]:
             validate_raw_sampling(cfg.get('rollout', {}), recorded=False, label='rollout config')
         except ValueError as exc:
             out.append(str(exc))
-    if cfg['rubric'].get('match_batch_size',1) not in (1,8):out.append('rubric.match_batch_size must be 1 or 8')
+    if cfg['rubric'].get('match_batch_size',1) not in (1,4,8):out.append('rubric.match_batch_size must be 1, 4, or 8')
     for sec, f, h in PROMPT_HASHES:
         if f not in cfg.get(sec, {}) or h not in cfg.get(sec, {}): continue
         try:
@@ -518,10 +523,11 @@ def make_scorer(cfg: dict, client):
                 raise AssertionError('unreachable compact applicability retry')
 
             scorer.review_state = scorer.applicability = retry_invalid_stage1
-        # A judge can omit one of the required public M/C checks while still
-        # returning valid JSON. Retry that incomplete execution; never turn it
-        # into a numeric score, NA, or UNSCORABLE. Keep the scorer protocol and
-        # cached successful decisions unchanged for an in-progress batch.
+        # A judge can omit one of the required public M/C checks or paraphrase
+        # a requested literal quote while still returning valid JSON. Retry
+        # those incomplete executions; never turn them into a numeric score,
+        # NA, or UNSCORABLE. Keep the scorer protocol and cached successful
+        # decisions unchanged for an in-progress batch.
         original_batch = scorer.score_behavior_batch
 
         def retry_incomplete_checks(*args, **kwargs):
@@ -530,11 +536,16 @@ def make_scorer(cfg: dict, client):
                     return original_batch(*args, **kwargs)
                 except IntegrationUnavailable as exc:
                     validation = getattr(exc, 'audit', {}).get('validation', {})
-                    if (validation.get('kind') != 'evidence_contract' or
-                            validation.get('error') != 'Each public definition needs one check' or
+                    retryable = validation.get('error') in (
+                        'Each public definition needs one check',
+                        'Each score anchor needs one check',
+                        'Exact response quote failed',
+                    )
+                    if (validation.get('kind') != 'evidence_contract' or not retryable or
                             attempt == 4):
                         raise
-                    print(f'Compact scorer omitted public checks; retry {attempt + 1}/4', flush=True)
+                    print(f"Compact scorer evidence contract invalid ({validation.get('error')}); "
+                          f'retry {attempt + 1}/4', flush=True)
 
         scorer.score_behavior_batch = retry_incomplete_checks
         return scorer
@@ -679,13 +690,16 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
     context_addendum = (text(cfg['rubric']['state_addendum_file'])
                         if observed_context and cfg['rubric'].get('state_addendum_enabled', True) else None)
     ro, pu, ar = cfg['rollout'], cfg['prompt_update'], cfg['agent_reward']
-    jm = cfg['judges']; key = load_key(cfg) if cfg.get('api_provider') == 'openai_direct' else load_key()
+    jm = cfg['judges']
     judge_provider = jm.get('api_provider', cfg.get('api_provider', 'openrouter'))
-    provider_kw = {'provider': judge_provider} if judge_provider != 'openrouter' else {}
-    gate_client = judge_client(jm['gate_model'], key, text(jm['gate_prompt_file']),
-        **({'max_tokens': jm['gate_max_tokens']} if 'gate_max_tokens' in jm else {}), **provider_kw)
-    scorer_client = judge_client(jm['scorer_model'], key, text(jm['scorer_prompt_file']),
-        **({'max_tokens': jm['scorer_max_tokens']} if 'scorer_max_tokens' in jm else {}), **provider_kw)
+    scorer_provider = jm.get('scorer_api_provider', judge_provider)
+    gate_key = load_key({'api_provider': judge_provider})
+    scorer_key = load_key({'api_provider': scorer_provider})
+    gate_client = judge_client(jm['gate_model'], gate_key, text(jm['gate_prompt_file']),
+        **({'max_tokens': jm['gate_max_tokens']} if 'gate_max_tokens' in jm else {}), provider=judge_provider)
+    scorer_client = judge_client(jm['scorer_model'], scorer_key, text(jm['scorer_prompt_file']),
+        **({'max_tokens': jm['scorer_max_tokens']} if 'scorer_max_tokens' in jm else {}), provider=scorer_provider)
+    key = gate_key
     policy = policy if policy is not None else make_policy(cfg, key)
     if (policy.args.rounds, policy.args.doctor_model) != (ro['rounds'], ro['doctor_model']):
         raise RuntimeError('policy/harness rounds or Doctor model differ from rollout config')

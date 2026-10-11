@@ -30,6 +30,34 @@ def test_33_same_reason_members_use_four_api_calls_and_resume_without_calls(tmp_
     assert len(calls)==4 and len(f.calls['generate'])==1
 
 
+def test_group4_same_reason_creates_once_then_reuses_in_four_trajectory_batches():
+    leaves,tins=many();leaves=leaves[:17];f=R.Fakes();calls=[]
+    def single(*args):pytest.fail('Used individual match API')
+    def match(package,items,bank):
+        calls.append((tuple(t.leaf_id for t in items),len(bank)))
+        assert 1 <= len(items) <= 4
+        return {'decisions':{t.leaf_id:{'decision':'REUSE_EXISTING','rubric_id':bank[0].rubric_id,
+            'checks':{k:True for k in B.CHECKS},'rationale':'same reason'} for t in items}}
+    single.batch=match;single.batch_size=4
+    canon,assign=B.build_banks(R.CASE,leaves,tins,R.PROMPT,'p',f.generate_fn,single,f.gate_fn,CallCache(None))
+    assert len(canon)==1 and len(f.calls['generate'])==1
+    assert [len(ids) for ids,_ in calls]==[4,4,4,4]
+    assert all(size==1 for _,size in calls)
+    assert assign[0].assignment=='CREATED_NEW'
+    assert all(a.assignment=='REUSED_EXISTING' for a in assign[1:])
+
+
+def test_group4_is_part_of_protocol_identity():
+    from src.online_rl.integrated.continuation import protocol_sha256
+    from src.online_rl.tree.experiment import load_config
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]
+    cfg=load_config(root/'configs/experiments/train120_max4_group4_cumulative_pilot5_v1.json')
+    group4=protocol_sha256(cfg,root)
+    cfg['rubric']['match_batch_size']=8
+    assert protocol_sha256(cfg,root) != group4
+
+
 def test_new_members_rechecked_against_real_new_rubric_not_blindly_clustered():
     leaves,tins=many();leaves=leaves[:9];calls=[];f=R.Fakes()
     def single(*args):pytest.fail('Used individual match API')

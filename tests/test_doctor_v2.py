@@ -119,6 +119,16 @@ def test_a2_defaults_to_final_unless_every_extension_signal_is_active():
     assert D.halt_reason(status=all_active, **base) is None
 
 
+def test_a1_can_use_the_same_default_final_rule_as_a2():
+    base = dict(agent_turns=1, prev_status=None, last_agent='I still favor option C.',
+                options='ABCD', min_agent_turns=1, default_final_after_agent_turns=1)
+    for flag in D.FLAGS:
+        status = {**ST(), **{key: True for key in D.FLAGS}, flag: False}
+        assert D.halt_reason(status=status, **base) == 'doctor_halt_default_after_a1'
+    all_active = {**ST(), **{key: True for key in D.FLAGS}}
+    assert D.halt_reason(status=all_active, **base) is None
+
+
 @pytest.mark.parametrize('kw', [dict(prev=ST(opt='C')), dict(prev=None), dict(status=None), dict(status=ST(opt='none'), prev=ST(opt='none'))])
 def test_unstable_or_missing_decision_continues(kw):
     assert halt(**kw) is None

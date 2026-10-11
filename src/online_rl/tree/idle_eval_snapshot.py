@@ -97,8 +97,8 @@ def snapshot(source_run, cursor, dest, *, expected_manifest_sha256=None):
     The receipt's policy hash is checked against committed state; the evaluator
     must additionally verify that hash after loading the adapter into its model.
     """
-    if type(cursor) is not int or cursor < 1:
-        raise ValueError('Snapshot cursor must be a positive integer')
+    if type(cursor) is not int or cursor < 0:
+        raise ValueError('Snapshot cursor must be a non-negative integer')
     source, dest = Path(source_run).resolve(), Path(dest).resolve()
     if source == dest or source in dest.parents or dest in source.parents:
         raise ValueError('Snapshot destination must be separate from the source run')

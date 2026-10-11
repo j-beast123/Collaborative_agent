@@ -24,7 +24,7 @@ from src.online_rl.tree.idle_eval_snapshot import _check_receipt, _check_source,
 TRAINING_CONTINUATION = 'idle_eval_training_continuation_v1'
 
 
-def resolve_training_control(source, manifest_sha, target_cases, pointer_path):
+def resolve_training_control(source, manifest_sha, target_cases, pointer_path, *, frozen_source=False):
     """Follow an explicit supervision handoff for terminal control only.
 
     The C20 evaluation source, model, job and cooperative priority directory are
@@ -60,7 +60,8 @@ def resolve_training_control(source, manifest_sha, target_cases, pointer_path):
     if destination == source or source in destination.parents or destination in source.parents:
         raise RuntimeError('Training continuation must use a separate run directory')
     old_manifest, old_state = read(source/'run_manifest.json'), read(source/'run_state.json')
-    _check_source(old_manifest, old_state, manifest_sha)
+    if not frozen_source:
+        _check_source(old_manifest, old_state, manifest_sha)
     manifest, state = read(destination/'run_manifest.json'), read(destination/'run_state.json')
     next_sha = pointer['training_manifest_sha256']
     _check_source(manifest, state, next_sha)
@@ -74,12 +75,19 @@ def resolve_training_control(source, manifest_sha, target_cases, pointer_path):
             proof.get('contract') != CONTRACT or spec.get('contract') != CONTRACT or
             any(proof.get(key) != value for key, value in spec.items())):
         raise RuntimeError('Training continuation has no matching supervision handoff')
+    reachable={proof.get('destination_protocol_sha256')}
+    for row in state.get('protocol_transitions', []):
+        if (isinstance(row, dict) and row.get('from') in reachable and
+                row.get('completed_cases') == proof.get('completed_cases')):
+            reachable.add(row.get('to'))
+    transitioned_from_handoff = state.get('protocol_sha256') in reachable
     if (Path(proof['source_run']).resolve() != source or proof['source_manifest_sha256'] != manifest_sha or
-            proof['source_state_sha256'] != sha256_json(old_state) or
-            proof.get('completed_cases') != old_state['case_cursor'] or
-            proof.get('source_policy_sha256') != old_state['policy_sha256'] or
-            proof.get('source_protocol_sha256') != old_state['protocol_sha256'] or
-            proof.get('destination_protocol_sha256') != state['protocol_sha256'] or
+            (not frozen_source and proof['source_state_sha256'] != sha256_json(old_state)) or
+            (not frozen_source and proof.get('completed_cases') != old_state['case_cursor']) or
+            (not frozen_source and proof.get('source_policy_sha256') != old_state['policy_sha256']) or
+            (not frozen_source and proof.get('source_protocol_sha256') != old_state['protocol_sha256']) or
+            (proof.get('destination_protocol_sha256') != state['protocol_sha256'] and
+             not transitioned_from_handoff) or
             proof.get('destination_config_sha256') != state['config_sha256']):
         raise RuntimeError('Training continuation handoff source/destination identity differs')
     cursor = proof['completed_cases']
@@ -89,18 +97,25 @@ def resolve_training_control(source, manifest_sha, target_cases, pointer_path):
     if (state.get('supervision_handoff_sha256') != proof_sha or
             read(destination/'supervision_handoff.json') != proof):
         raise RuntimeError('Training continuation handoff proof changed')
-    source_checkpoint = Path(old_state['checkpoint']).resolve()
+    source_checkpoint = Path(proof['source_checkpoint'] if frozen_source else old_state['checkpoint']).resolve()
     if (Path(proof['source_checkpoint']).resolve() != source_checkpoint or
             source_checkpoint.parent != source/'checkpoints'):
         raise RuntimeError('Training continuation source checkpoint differs')
-    source_receipt = read(source_checkpoint/'COMPLETE.json')
-    _check_receipt(source_receipt, old_state, cursor)
+    source_receipt = proof.get('source_receipt') if frozen_source else read(source_checkpoint/'COMPLETE.json')
+    if not frozen_source:
+        _check_receipt(source_receipt, old_state, cursor)
+    elif (not isinstance(source_receipt, dict) or
+          source_receipt.get('completed_cases') != cursor or
+          source_receipt.get('policy_sha256') != proof.get('source_policy_sha256') or
+          source_receipt.get('protocol_sha256') != proof.get('source_protocol_sha256')):
+        raise RuntimeError('Frozen source receipt identity differs')
     if proof.get('source_receipt') != source_receipt:
         raise RuntimeError('Training continuation source receipt differs')
     receipt = read(destination/'checkpoints'/f'handoff_{cursor:06d}'/'COMPLETE.json')
-    expected = {'completed_cases': cursor, 'policy_sha256': old_state['policy_sha256'],
-                'protocol_sha256': state['protocol_sha256'], 'supervision_handoff_sha256': proof_sha,
-                'source_policy_sha256': old_state['policy_sha256']}
+    expected = {'completed_cases': cursor, 'policy_sha256': proof['source_policy_sha256'],
+                'protocol_sha256': proof['destination_protocol_sha256'],
+                'supervision_handoff_sha256': proof_sha,
+                'source_policy_sha256': proof['source_policy_sha256']}
     if any(receipt.get(key) != value for key, value in expected.items()):
         raise RuntimeError('Training continuation imported checkpoint identity differs')
     return destination, next_sha, target_cases
@@ -191,9 +206,30 @@ def supervise(args):
             'doctor_base_port': args.doctor_base_port, 'doctor_binary': str(Path(args.doctor_binary).resolve()),
             'dataset_cases': 622, 'snapshot': str(out/'snapshot'), 'evaluation': str(out/'evaluation')}
     plan_path = out/'plan.json'
-    if plan_path.exists() and json.loads(plan_path.read_text()) != plan:
-        raise RuntimeError('Existing idle evaluation plan differs')
-    atomic_write_json(plan_path, plan)
+    frozen_source = False
+    if plan_path.exists():
+        existing_plan = json.loads(plan_path.read_text())
+        frozen_source = bool((out/'snapshot').is_dir() and (out/'evaluation/summary.json').is_file())
+        if frozen_source:
+            manifest_sha = existing_plan['source_manifest_sha256']
+            plan['source_manifest_sha256'] = manifest_sha
+        if existing_plan != plan:
+            # A checkpoint evaluation keeps its immutable source/model/job, but
+            # a proven supervision handoff moves the cooperative training
+            # leases to the destination run. Permit only that runtime path
+            # change; preserve the original plan and all completed cases.
+            old_cmp, new_cmp = dict(existing_plan), dict(plan)
+            old_cmp.pop('priority_dir', None); new_cmp.pop('priority_dir', None)
+            continuation = out/'training_continuation.json'
+            control = resolve_training_control(source, manifest_sha,
+                                               manifest['config']['schedule']['cases'], continuation,
+                                               frozen_source=frozen_source)
+            expected_priority = control[0]/'idle_eval_priority'
+            if (old_cmp != new_cmp or control[0] == source or
+                    Path(args.priority_dir).resolve() != expected_priority.resolve()):
+                raise RuntimeError('Existing idle evaluation plan differs')
+    else:
+        atomic_write_json(plan_path, plan)
     stopping = False
 
     def stop(*_):
@@ -252,7 +288,8 @@ def supervise(args):
                 status('complete', evaluated=evaluated)
                 break
             control = resolve_training_control(source, manifest_sha, manifest['config']['schedule']['cases'],
-                                               out/'training_continuation.json')
+                                               out/'training_continuation.json',
+                                               frozen_source=frozen_source)
             if continuation_control is not None and control != continuation_control:
                 raise RuntimeError('Pinned training continuation was removed or changed')
             if control[0] != source:

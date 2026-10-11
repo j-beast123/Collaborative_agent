@@ -197,6 +197,12 @@ def run(cfg, max_batches=None, eval_only=False):
     os.environ['SHERPA_API_WORKERS'] = str(fg.get('api_workers',3))
     record_runtime(out,cfg)
     key = load_key(cfg)
+    guardian_call = None
+    guardian_spec = ((cfg.get('rubric') or {}).get('cumulative_bank') or {}).get('guardian')
+    if guardian_spec is not None:
+        from src.online_rl.tree.bank_guardian import gemini_model_call
+        guardian_call = gemini_model_call(key, model=guardian_spec['model'],
+                                           max_tokens=guardian_spec['max_tokens'])
     local = copy.deepcopy(cfg)
     local['rollout']['doctor_backend']['endpoint'] = fg['doctor_urls'][4]
     torch.manual_seed(cfg['schedule']['seed'])
@@ -289,18 +295,39 @@ def run(cfg, max_batches=None, eval_only=False):
             checkpoint = Path(state.get('checkpoint', ''))
             receipt_path = checkpoint/'COMPLETE.json'
             receipt = json.loads(receipt_path.read_text()) if receipt_path.is_file() else {}
+            handoff_protocol_carried = (
+                receipt.get('protocol_sha256') == state.get('protocol_sha256') or
+                any(row.get('from') == receipt.get('protocol_sha256') and
+                    row.get('to') == state.get('protocol_sha256') and
+                    row.get('completed_cases') == cursor
+                    for row in state.get('protocol_transitions', []) if isinstance(row, dict))
+            )
+            verified_handoff = bool(
+                cfg.get('supervision_handoff') and
+                state.get('supervision_handoff_sha256') and
+                receipt.get('supervision_handoff_sha256') == state.get('supervision_handoff_sha256') and
+                handoff_protocol_carried
+            )
             approved = (
                 os.environ.get('SHERPA_ALLOW_P0P1_PHASE_RESUME') == '1' and
-                shared and evolving and state.get('protocol_sha256') == old_pipeline_protocol and
+                # The phase-barrier transition is independent of prompt
+                # optimization. Fixed-P0 runs need the same verified boundary
+                # resume when their supervision pipeline adopts this workflow.
+                shared and (state.get('protocol_sha256') == old_pipeline_protocol or verified_handoff) and
                 isinstance(cursor, int) and cursor > 0 and cursor % 5 == 0 and
                 batch_cursor == cursor//5 and
-                receipt.get('protocol_sha256') == old_pipeline_protocol and
+                (receipt.get('protocol_sha256') == old_pipeline_protocol or verified_handoff) and
                 receipt.get('completed_cases') == cursor and
                 receipt.get('policy_sha256') == state.get('policy_sha256')
             )
             if not approved:
                 raise RuntimeError('Run protocol changed. P0/P1 phase-resume is allowed only with '
-                                   'SHERPA_ALLOW_P0P1_PHASE_RESUME=1 at a verified 5-case checkpoint boundary.')
+                                   'SHERPA_ALLOW_P0P1_PHASE_RESUME=1 at a verified 5-case checkpoint boundary. '
+                                   f'diagnostics={{"env":{os.environ.get("SHERPA_ALLOW_P0P1_PHASE_RESUME") == "1"},'
+                                   f'"shared":{shared},"legacy":{state.get("protocol_sha256") == old_pipeline_protocol},'
+                                   f'"handoff":{verified_handoff},"cursor":{cursor},"batch":{batch_cursor},'
+                                   f'"receipt_cases":{receipt.get("completed_cases")},'
+                                   f'"receipt_policy_match":{receipt.get("policy_sha256") == state.get("policy_sha256")}}}')
             previous_protocol = state['protocol_sha256']
             state['protocol_sha256'] = protocol
             state.setdefault('protocol_transitions', []).append({
@@ -481,7 +508,8 @@ def run(cfg, max_batches=None, eval_only=False):
                     atomic_write_json(out/'prompt_events'/f'batch_{batch:06d}.json',event)
                     next_prompt=event['next_prompt']
                 elif bank_identity is not None:
-                    records,next_bank=cumulative_run.round_records(cfg,ROOT,out,state,batch,batchdir,collect)
+                    records,next_bank=cumulative_run.round_records(cfg,ROOT,out,state,batch,batchdir,collect,
+                                                                   guardian_call=guardian_call)
                 else:
                     records=collect()
                 if shared:

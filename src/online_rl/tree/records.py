@@ -106,7 +106,7 @@ class RubricAssignment:
     stratum: str                          # 'success' | 'failure' (separate banks)
     order: int                            # position in the deterministic processing order of its stratum
     canonical_rubric_id: str
-    assignment: str                       # CREATED_NEW | REUSED_EXISTING | CREATE_REJECTED (generated but invalid / gate-failed: no active rubric)
+    assignment: str                       # CREATED_NEW | REUSED_EXISTING | CREATE_REJECTED | NO_VALID_CANDIDATE (honest source-anchor abstention)
     decision: Optional[dict]              # the MATCH-vs-NEW answer (decision, rubric_id, checks, rationale); None when the bank was empty
     note: str                             # why a reuse was not accepted, why a generated rubric was rejected, or ''
     feedback_sha256: str                  # the trajectory's Doctor feedback (as in its rubric input)

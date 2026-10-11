@@ -1,0 +1,46 @@
+{
+  "extends": "configs/experiments/train120_max4_natural_sample8_v1.json",
+  "experiment": {
+    "output_root": "outputs/train120_max4_group4_cumulative_pilot5_20261012",
+    "run_label": "max4_group4_cumulative_pilot5_v1"
+  },
+  "schedule": {
+    "cases": 5
+  },
+  "rollout": {
+    "rounds": 4
+  },
+  "rubric": {
+    "assignment_protocol": null,
+    "reuse": "assign_or_create_v1",
+    "match_batch_size": 4,
+    "prompt_id": "P0-source-anchor-abstain-group4-v1",
+    "source_sampling": {
+      "protocol": "seeded_case_leaf_v1",
+      "threshold": 16,
+      "max_trajectories": 8
+    }
+  },
+  "five_gpu": {
+    "first_batch_frozen_records": {},
+    "reuse_frozen_rubric_candidates": false,
+    "checkpoint_evaluation_enabled": false,
+    "base_evaluation": {
+      "enabled": false
+    },
+    "doctor_urls": [
+      "http://127.0.0.1:16835",
+      "http://127.0.0.1:16836",
+      "http://127.0.0.1:16837",
+      "http://127.0.0.1:16838",
+      "http://127.0.0.1:16839"
+    ]
+  },
+  "notes": {
+    "pilot": "Five-case isolated pilot. Same-outcome trajectories are matched four at a time against the latest bank. If a new behavior is needed, one source creates it and the remaining pending trajectories are rematched against the expanded bank before another criterion can be generated.",
+    "keep": "Every linked member remains eligible for the existing rerun witness rule; behavior adherence remains diagnostic."
+  },
+  "feedback": {
+    "endpoint": "http://127.0.0.1:16835"
+  }
+}

@@ -18,7 +18,7 @@ def config_identity(cfg, root):
         return None
     from src.online_rl.tree.cumulative_bank import VERSION, validate_snapshot
     required = {'protocol', 'retrieval_top_k', 'matcher_prompt_file', 'matcher_prompt_sha256'}
-    optional = {'initial_snapshot_file', 'initial_snapshot_sha256', 'scoring_scope', 'working_bank_protocol'}
+    optional = {'initial_snapshot_file', 'initial_snapshot_sha256', 'scoring_scope', 'working_bank_protocol', 'guardian'}
     if not isinstance(spec, dict) or not required <= set(spec) or set(spec) - required - optional:
         raise ValueError('Invalid cumulative rubric bank configuration')
     if spec['protocol'] != VERSION or type(spec['retrieval_top_k']) is not int or not 1 <= spec['retrieval_top_k'] <= 32:
@@ -27,6 +27,13 @@ def config_identity(cfg, root):
         raise ValueError('Cumulative bank scoring_scope must be top_k or all')
     if spec.get('working_bank_protocol') not in (None, ONLINE_WORKING_BANK_PROTOCOL):
         raise ValueError('Unknown cumulative working-bank protocol')
+    guardian = spec.get('guardian')
+    if guardian is not None:
+        if (not isinstance(guardian, dict) or set(guardian) != {'protocol', 'model', 'max_tokens'} or
+                guardian.get('protocol') != 'semantic_keep_guardian_v1' or
+                guardian.get('model') != 'google/gemini-3.8-flash-20260902' or
+                type(guardian.get('max_tokens')) is not int or guardian['max_tokens'] < 512):
+            raise ValueError('Invalid semantic bank guardian configuration')
     exact = cfg['rubric'].get('assignment_protocol') == EXACT_ASSIGNMENT_PROTOCOL
     if exact and (spec.get('scoring_scope') != 'all' or spec.get('initial_snapshot_file') or spec.get('initial_snapshot_sha256')):
         raise ValueError('Exact generated assignment requires an empty initial bank and full frozen-bank scoring')
@@ -63,6 +70,8 @@ def config_identity(cfg, root):
                         semantic_matcher='disabled', reuse_effect_verification='new_source_witness_only',
                         retrieval='disabled_for_generation_full_bank_for_scoring_v1',
                         matcher_model=None, matcher_generation=None)
+    if guardian is not None:
+        identity['guardian'] = guardian
     if spec.get('working_bank_protocol') == ONLINE_WORKING_BANK_PROTOCOL:
         if exact or spec.get('scoring_scope') != 'all':
             raise ValueError('Online working bank requires semantic assignment and full-bank scoring')
@@ -144,7 +153,7 @@ def initialize_bank_state(cfg, root, out, state):
     return state
 
 
-def round_records(cfg, root, out, state, batch, batchdir, collect):
+def round_records(cfg, root, out, state, batch, batchdir, collect, guardian_call=None):
     """Publish a tentative scoring bank; only runner checkpoint/state commits it."""
     from src.online_rl.tree.cumulative_bank import extend_snapshot
     before = committed_snapshot(cfg, root, out, state)
@@ -220,7 +229,23 @@ def round_records(cfg, root, out, state, batch, batchdir, collect):
         if exact and any(r.get('cumulative_reuse') for r in records):
             raise RuntimeError('Exact-generated assignment cannot inherit a semantic bank match')
     if not online:
-        after = extend_snapshot(before, records)
+        registration_records = records
+        guardian_audit = None
+        guardian_spec = cfg['rubric']['cumulative_bank'].get('guardian')
+        if guardian_spec is not None:
+            if guardian_call is None:
+                raise RuntimeError('Configured bank guardian has no model call')
+            from src.online_rl.tree.bank_guardian import filter_registration_records
+            try:
+                registration_records, guardian_audit = filter_registration_records(before, records, guardian_call)
+            except Exception as exc:
+                # Fail open for availability: no semantic alias is applied. Exact
+                # content deduplication in extend_snapshot still remains active.
+                guardian_audit = {'contract': guardian_spec['protocol'], 'status': 'ERROR_FAIL_OPEN',
+                                  'error_type': type(exc).__name__, 'error': str(exc)}
+                registration_records = records
+            atomic_write_json(batchdir / 'bank_guardian.json', guardian_audit)
+        after = extend_snapshot(before, registration_records)
     publish_snapshot(out, after)
     frozen_path = batchdir / 'bank_frozen.json'
     if frozen_path.exists() and _read(frozen_path) != after:

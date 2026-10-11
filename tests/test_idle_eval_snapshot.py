@@ -50,6 +50,17 @@ def test_capture_preserves_source_and_adapter_only(source):
     assert not list(dest.parent.glob('*.pending-*'))
 
 
+def test_capture_accepts_verified_initial_base_checkpoint(source):
+    run, checkpoint, _ = source
+    dest = run.parent / 'base-evaluation/checkpoint_000000'
+    rewrite(run / 'run_state.json', case_cursor=0, batch_cursor=0,
+            policy_sha256='c0-policy')
+    rewrite(checkpoint / 'COMPLETE.json', completed_cases=0,
+            policy_sha256='c0-policy')
+    assert capture.snapshot(run, 0, dest) == dest
+    assert json.loads((dest / 'COMPLETE.json').read_text())['completed_cases'] == 0
+
+
 def test_waits_before_commit_without_creating_destination(source):
     run, _, dest = source
     rewrite(run / 'run_state.json', case_cursor=15)

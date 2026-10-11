@@ -7,6 +7,7 @@ from __future__ import annotations
 import dataclasses, shutil, time
 from dataclasses import dataclass, field
 from pathlib import Path
+import hashlib, random
 from typing import Callable, Optional
 from src.online_rl.guards import assert_not_protected
 from src.online_rl.integrated.episode import schedule
@@ -29,6 +30,29 @@ from src.online_rl.tree import witness as W
 from src.online_rl.tree.team import RUBRIC_ONLY_NA_POLICY
 
 VERSION = 'sherpa_tree_v1'
+
+RUBRIC_SOURCE_SAMPLING_PROTOCOL = 'seeded_case_leaf_v1'
+
+
+def sample_rubric_sources(leaves, cfg: Optional[dict], *, run_seed: int, case_id: str):
+    """Deterministically cap rubric-source trajectories without changing rollout/outcome training leaves."""
+    ordered = sorted(leaves, key=lambda leaf: leaf.leaf_id)
+    if not cfg:
+        return ordered, {'protocol': 'all', 'eligible': len(ordered), 'selected': len(ordered),
+                         'selected_leaf_ids': [leaf.leaf_id for leaf in ordered]}
+    protocol = cfg.get('protocol', RUBRIC_SOURCE_SAMPLING_PROTOCOL)
+    threshold, limit = int(cfg.get('threshold', 16)), int(cfg.get('max_trajectories', 8))
+    if protocol != RUBRIC_SOURCE_SAMPLING_PROTOCOL or threshold < 0 or limit < 1:
+        raise ValueError('invalid rubric.source_sampling contract')
+    if len(ordered) <= threshold:
+        selected = ordered
+    else:
+        material = f'{protocol}\0{run_seed}\0{case_id}\0' + '\0'.join(x.leaf_id for x in ordered)
+        seed = int.from_bytes(hashlib.sha256(material.encode()).digest()[:8], 'big')
+        selected = sorted(random.Random(seed).sample(ordered, min(limit, len(ordered))), key=lambda leaf: leaf.leaf_id)
+    return selected, {'protocol': protocol, 'threshold': threshold, 'max_trajectories': limit,
+                      'eligible': len(ordered), 'selected': len(selected),
+                      'selected_leaf_ids': [leaf.leaf_id for leaf in selected]}
 
 
 def model_roles(cfg: dict) -> dict:
@@ -306,7 +330,8 @@ class TreeTrainer:
                           outcome_fn=e.outcome_fn, cache=self.cache, behavior_logprobs=e.behavior_logprobs, workers=self.doctor_workers,
                           opening=getattr(e, 'opening', None), agent_workers=self.agent_workers,on_leaf=on_leaf,
                           repeat_agent_reply_after_turns=ro.get('halting',{}).get('repeat_agent_reply_after_turns'))
-            if self.rubric_on and (cfg.get('five_gpu') or {}).get('execution_mode') == 'shared_ready_tasks_v1':
+            if (self.rubric_on and not cfg['rubric'].get('source_sampling') and
+                    (cfg.get('five_gpu') or {}).get('execution_mode') == 'shared_ready_tasks_v1'):
                 from concurrent.futures import ThreadPoolExecutor
                 from threading import Lock
                 futures = {}; lock = Lock()
@@ -323,22 +348,25 @@ class TreeTrainer:
                 tree = rollout()
                 rollout_seconds = time.perf_counter() - rollout_started
         decided = [l for l in tree.leaves if l.outcome is not None]
+        rubric_sources, rubric_source_sampling = sample_rubric_sources(
+            decided, cfg['rubric'].get('source_sampling'), run_seed=s.run_seed, case_id=cid)
         feedback, tins, rubrics, source_scores, effs, selection, scores, weights, bank = [], [], [], [], [], [], [], {}, None
         seeded_rubric_candidates=[]; seeded_candidate_aliases={}
         if self.rubric_on:                                           # Outcome-only arm: no feedback, rubric, verification or scoring
             fb = lambda l: doctor_feedback(case, l, e.feedback_fn, self.fb_sha, self.cache, self.fb_model)
             if frozen_record is not None:
                 feedback = [from_dict(DoctorFeedback, f) for f in frozen_record['feedback']]
-                if [f.leaf_id for f in feedback] != [l.leaf_id for l in decided]:
-                    raise RuntimeError('Frozen feedback does not match the decided tree leaves')
+                frozen_sampling = frozen_record.get('rubric_source_sampling')
+                if frozen_sampling != rubric_source_sampling or [f.leaf_id for f in feedback] != [l.leaf_id for l in rubric_sources]:
+                    raise RuntimeError('Frozen feedback does not match the deterministic rubric-source sample')
             elif early_feedback is not None:feedback = early_feedback
             elif self.api_workers > 1:                                 # independent per trajectory; collected in leaf order
                 from concurrent.futures import ThreadPoolExecutor
-                with ThreadPoolExecutor(self.api_workers) as pool: feedback = list(pool.map(fb, decided))
-            else: feedback = [fb(l) for l in decided]
+                with ThreadPoolExecutor(self.api_workers) as pool: feedback = list(pool.map(fb, rubric_sources))
+            else: feedback = [fb(l) for l in rubric_sources]
             invalid_fb = [f.leaf_id for f in feedback if not getattr(f, 'valid', True)]    # v4 leakage guard failed after its repair
-            ruled = [l for l, f in zip(decided, feedback) if getattr(f, 'valid', True)]       # trajectories that get a rubric mapping
-            tins = [freeze_trajectory_input(case, l, f, include_locus=self.source_consistency) for l, f in zip(decided, feedback) if getattr(f, 'valid', True)]
+            ruled = [l for l, f in zip(rubric_sources, feedback) if getattr(f, 'valid', True)]       # trajectories that get a rubric mapping
+            tins = [freeze_trajectory_input(case, l, f, include_locus=self.source_consistency) for l, f in zip(rubric_sources, feedback) if getattr(f, 'valid', True)]
             prompt = self.store.get(s.prompt_sha256)
             nodes = {n.node_id: n for n in tree.nodes}
             if self.reuse and self.verification in W.PROTOCOLS:       # consolidation + bounded causal-witness verification (witness.py)
@@ -538,6 +566,7 @@ class TreeTrainer:
                      if online_working_bank else {}),
                   'group_diagnostics': sibling_group_diagnostics(tree, targets, update if isinstance(update, dict) else None),
                   'interaction_diagnostics': interaction_diagnostics(tree, targets if isinstance(targets, dict) else None),
+                  'rubric_source_sampling': rubric_source_sampling,
                   'seconds': time.time() - t_case,
                   'timings': {'rollout_wall_seconds': rollout_seconds}}
         if commit:
@@ -582,10 +611,20 @@ class TreeTrainer:
         nodes = {node.node_id: node for node in tree.nodes}
         canon = {raw['rubric_id']: from_dict(TrajectoryRubric, raw) for raw in record['trajectory_rubrics']}
         decided = {leaf.leaf_id for leaf in tree.leaves if leaf.outcome is not None}
+        sampling_cfg = (getattr(self, 'cfg', {}).get('rubric') or {}).get('source_sampling')
+        if sampling_cfg:
+            expected_sources, expected_sampling = sample_rubric_sources(
+                [leaf for leaf in tree.leaves if leaf.outcome is not None], sampling_cfg,
+                run_seed=self.state.run_seed, case_id=tree.case_id)
+            expected_source_ids = {leaf.leaf_id for leaf in expected_sources}
+            if record.get('rubric_source_sampling') != expected_sampling:
+                raise RuntimeError('saved rubric-source sampling record differs from the deterministic contract')
+        else:
+            expected_source_ids = decided
         feedback = record.get('feedback', [])
         feedback_ids = [f['leaf_id'] for f in feedback]
-        if len(feedback_ids) != len(set(feedback_ids)) or set(feedback_ids) != decided:
-            raise RuntimeError('saved joint bank feedback does not cover every decided trajectory exactly once')
+        if len(feedback_ids) != len(set(feedback_ids)) or set(feedback_ids) != expected_source_ids:
+            raise RuntimeError('saved joint bank feedback does not cover every sampled rubric source exactly once')
         eligible = {f['leaf_id'] for f in feedback if f.get('valid', True)}
         if getattr(self, 'cumulative_bank', None):
             from src.online_rl.tree import cumulative_bank as CB
@@ -644,7 +683,7 @@ class TreeTrainer:
                 decision = assignment.decision or {}
                 if decision.get('protocol') != RB.EXACT_SOURCE_CASE_PROTOCOL:
                     raise RuntimeError('saved assignment has another matching protocol')
-                if assignment.assignment in ('CREATED_NEW', 'CREATE_REJECTED'):
+                if assignment.assignment in ('CREATED_NEW', 'CREATE_REJECTED', RB.NO_VALID_CANDIDATE):
                     if (candidate.rubric_id != assignment.canonical_rubric_id or
                             to_dict(candidate) != to_dict(rubric) or
                             decision.get('candidate_sha256') != sha256_json(to_dict(candidate))):
@@ -652,8 +691,13 @@ class TreeTrainer:
                     if assignment.assignment == 'CREATED_NEW' and (not candidate.valid or
                             decision.get('content_sha256') != content_hash(candidate.rubric)):
                         raise RuntimeError('saved generated source candidate is not an exact valid criterion')
-                    if assignment.assignment == 'CREATE_REJECTED' and (candidate.valid or assignment.intervention_spec is not None):
+                    if assignment.assignment == 'CREATE_REJECTED' and (candidate.valid or assignment.intervention_spec is not None or
+                            (candidate.source_check or {}).get('status') == RB.NO_VALID_CANDIDATE):
                         raise RuntimeError('saved rejected candidate has a valid score or member guide')
+                    if assignment.assignment == RB.NO_VALID_CANDIDATE and (candidate.valid or
+                            assignment.intervention_spec is not None or
+                            (candidate.source_check or {}).get('status') != RB.NO_VALID_CANDIDATE):
+                        raise RuntimeError('saved no-candidate abstention has an active score, guide, or wrong status')
                 elif assignment.assignment == RB.EXACT_DUPLICATE_ASSIGNMENT:
                     proof = decision.get('generated_candidate_proof') or {}
                     source_turn = (((candidate.rubric or {}).get('source_provenance') or {}).get('analysis') or {}).get('selected_agent_turn_id')
@@ -669,7 +713,7 @@ class TreeTrainer:
                         raise RuntimeError('saved exact duplicate guide or criterion differs from its generated source')
                 else:
                     raise RuntimeError('saved exact source-case bank contains a semantic matching assignment')
-            if assignment.assignment == 'CREATE_REJECTED' or not rubric.valid: continue
+            if assignment.assignment in ('CREATE_REJECTED', RB.NO_VALID_CANDIDATE) or not rubric.valid: continue
             if not rubric.intervention_instruction:
                 raise RuntimeError('joint rubric record is missing its generated instruction')
             spec = resolve_member_intervention(rubric, leaf, member_spec=assignment.intervention_spec)

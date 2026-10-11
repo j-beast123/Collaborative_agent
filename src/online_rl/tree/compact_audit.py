@@ -132,7 +132,13 @@ def _validate_relation(audit, state, judgment, answer):
         if turn is None or not span['quote'].strip() or span['quote'] not in turn['text']:
             raise ValueError('Relation evidence is not an exact visible Doctor quote')
     if status=='not_required':
-        if required!='none' or evidence:raise ValueError('A required relation cannot be not_required')
+        if required!='none':raise ValueError('A required relation cannot be not_required')
+        # The visible Doctor turn may express some other relation even though
+        # this criterion imposes no relation requirement. Preserve and verify
+        # that observation instead of turning a valid not_required decision
+        # into an execution error.
+        if visible=='none' and evidence:raise ValueError('Absent visible relation cannot cite evidence')
+        if visible!='none' and not evidence:raise ValueError('Expressed visible relation needs Doctor evidence')
     elif status=='same':
         if required in ('none','uncertain') or required!=visible or not evidence:
             raise ValueError('Same relation needs matching expressed relation')
@@ -237,10 +243,17 @@ def _behavior(raw,packet):
         for rid,row in rows.items():
             rubric=packet['rubric_items'][rid];quotes=row['quotes']
             if any(not q.strip() or q not in replies[nid] for q in quotes):raise ValueError('Exact response quote failed')
+            # The three score anchors are the authoritative public scoring
+            # contract. M/C are explanatory public fields and may be cited as
+            # additional checks, but requiring duplicate M/C rows after all
+            # three anchors were checked caused otherwise complete executions
+            # to fail repeatedly.
             refs=['score_anchors.0','score_anchors.1','score_anchors.2']
-            refs += [k for k in ('minimum_performance','completion_condition') if k in rubric]
+            allowed=set(refs+[k for k in ('minimum_performance','completion_condition') if k in rubric])
             checks={c['ref']:c for c in row['checks']}
-            if len(checks)!=len(row['checks']) or set(checks)!=set(refs):raise ValueError('Each public definition needs one check')
+            if (len(checks)!=len(row['checks']) or not set(refs).issubset(checks) or
+                    not set(checks).issubset(allowed)):
+                raise ValueError('Each score anchor needs one check')
             for ref,c in checks.items():
                 if not c['why'].strip():raise ValueError('Missing anchor connection')
                 if len(set(c['cites']))!=len(c['cites']) or any(i>=len(quotes) for i in c['cites']):

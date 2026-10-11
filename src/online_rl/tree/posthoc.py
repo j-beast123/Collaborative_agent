@@ -124,6 +124,21 @@ def generate_rubric(prompt_text: str, prompt_sha256: str, tin: TrajectoryRubricI
     if rubric is not None: rubric = {**rubric, 'rubric_id': rid, 'scores': {str(a): b for a, b in (rubric.get('scores') or {}).items()}}
     instruction = g.get('intervention_instruction')
     source_check, raw = None, g.get('raw')
+    # A structurally valid generator response can honestly report that its selected
+    # behavior does not satisfy the source anchor (failure -> 0, success -> 2).
+    # This is a normal abstention, not a malformed response and not a Gate reject.
+    # Stop here so it cannot consume Gate/rerun calls or enter the active bank.
+    provenance = (rubric or {}).get('source_provenance') or {}
+    declaration = provenance.get('source_anchor_declaration') or {}
+    mismatch = provenance.get('source_anchor_contract_mismatch') is True or declaration.get('matches_expected') is False
+    if not problems and mismatch:
+        expected = declaration.get('expected_score_from_outcome')
+        claimed = declaration.get('generator_claimed_source_score')
+        source_check = {'status': 'NO_VALID_CANDIDATE', 'reason': 'SOURCE_ANCHOR_MISMATCH',
+                        'expected_source_level': expected, 'observed_source_level': claimed}
+        problem = f'no_valid_candidate: source_score={claimed} expected={expected}'
+        return TrajectoryRubric(rid, tin.leaf_id, prompt_sha256, raw, rubric, False,
+                                (problem,), None, source_check, None)
     if source_stage1 is not None and not problems:                 # v2.1: source-self-applicability before the quality gate
         source_check, rubric, raw, problems = _source_consistency(prompt_text, prompt_sha256, tin, generate_fn, cache, source_stage1, rubric, raw, rid)
         rid = rubric['rubric_id'] if rubric else rid

@@ -554,6 +554,17 @@ def pid_alive(pid):
 
 def idle_evaluation_status(root):
     reference=read_json(Path(root)/'idle_eval_runtime.json',{})
+    # A continued evaluator keeps its immutable job under the original output
+    # directory.  The new training run only owns this small read-only link, so
+    # monitoring can follow the preserved progress without rewriting the job.
+    linked=False
+    if not reference.get('output_dir'):
+        link=read_json(Path(root)/'idle_eval_link.json',{})
+        linked_output=link.get('output') or link.get('output_dir')
+        if linked_output:
+            reference={'output_dir':linked_output,
+                       'checkpoint_cases':link.get('checkpoint_cases',0)}
+            linked=True
     if not reference.get('output_dir'):return None
     out=Path(reference['output_dir'])
     if not out.is_absolute():out=Path(root)/out
@@ -565,6 +576,10 @@ def idle_evaluation_status(root):
     for gpu,state in priority.get('gpus',{}).items():
         if any(pid_alive(row.get('owner',{}).get('pid')) for row in state.get('calls',{}).values()):active.append(gpu)
         if any(pid_alive(row.get('owner',{}).get('pid')) for row in state.get('residents',{}).values()):resident.append(gpu)
+    if linked:
+        # During continuation the controller is external to this run's
+        # priority directory.  Its worker map is the authoritative live view.
+        active.extend(str(gpu) for gpu,pid in (controller.get('worker_pids') or {}).items() if pid_alive(pid))
     if (controller.get('contract') or reference.get('contract'))=='periodic_idle_checkpoint_eval_v1':
         job=controller.get('current_job') or {}
         evaluation=job.get('evaluation') or controller.get('evaluation')
@@ -587,9 +602,10 @@ def idle_evaluation_status(root):
                 'active_gpus':sorted(active),'resident_gpus':sorted(resident)}
     summary=read_json(out/'evaluation/summary.json',{})
     return {**summary,'checkpoint_cases':reference.get('checkpoint_cases',20),
+            'evaluated':controller.get('evaluated',summary.get('evaluated',0)),
             'controller_stage':controller.get('stage','starting'),
             'controller_alive':pid_alive(controller.get('pid')),
-            'active_gpus':sorted(active),'resident_gpus':sorted(resident)}
+            'active_gpus':sorted(set(active)),'resident_gpus':sorted(set(resident))}
 
 
 def render_idle_evaluation(idle):
@@ -637,12 +653,25 @@ def cumulative_bank_status(root,state,batchdir,pipeline,cfg=None):
     frozen=read_json(Path(batchdir)/'bank_frozen.json',{}) if batchdir else {}
     before=read_json(Path(batchdir)/'bank_input.json',{}) if batchdir else {}
     metrics=read_json(Path(batchdir)/'bank_metrics.json',{}) if batchdir else {}
+    guardian=read_json(Path(batchdir)/'bank_guardian.json',{}) if batchdir else {}
     before_digest=before.get('rubric_bank_sha256')
     before_bank=read_json(Path(root)/'rubric_bank/snapshots'/f'{before_digest}.json',{}) if before_digest else committed
     empty_start=bool(spec) and not state and batchdir is None and not spec.get('initial_snapshot_file')
     # An existing batch without a scope field used the legacy shortlist. A new
     # configuration must not relabel that saved batch as full-bank scoring.
     scope=before.get('scoring_scope','top_k') if before else spec.get('scoring_scope','top_k')
+    guardian_spec=spec.get('guardian')
+    complete=(pipeline.get('bank_phase_complete') or {})
+    verify_done=complete.get('verify',0)
+    cases_total=pipeline.get('cases_total',0)
+    if guardian_spec is None:
+        guardian_status=None
+    elif guardian:
+        guardian_status=('error_fail_open' if guardian.get('status')=='ERROR_FAIL_OPEN' else 'complete')
+    elif cases_total and verify_done >= cases_total:
+        guardian_status='checking_candidates'
+    else:
+        guardian_status='waiting_verification'
     return {'committed_version':state.get('rubric_bank_version'),
             'committed_size':len(committed['entries']) if 'entries' in committed else (0 if empty_start else None),
             'empty_start_pending':empty_start,
@@ -651,7 +680,13 @@ def cumulative_bank_status(root,state,batchdir,pipeline,cfg=None):
                 if 'entries' in frozen and 'entries' in before_bank else metrics.get('added_unique_rubrics'),
             'new_keep':(pipeline.get('keep') or {}).get('P0'),
             'reused_trajectories':metrics.get('reused_trajectories',pipeline.get('bank_reused_trajectories',0)),
-            'scoring_scope':scope,'scoring_top_k':None if scope=='all' else spec.get('retrieval_top_k',8)}
+            'scoring_scope':scope,'scoring_top_k':None if scope=='all' else spec.get('retrieval_top_k',8),
+            'guardian_enabled':guardian_spec is not None,'guardian_status':guardian_status,
+            'guardian_verify_done':verify_done,'guardian_cases_total':cases_total,
+            'guardian_exact':len(guardian.get('exact',[])) if guardian else None,
+            'guardian_semantic':len(guardian.get('semantic',[])) if guardian else None,
+            'guardian_aliases':len(guardian.get('aliases',{})) if guardian else None,
+            'guardian_accepted':len(guardian.get('accepted',[])) if guardian else None}
 
 
 def render_bank_progress(s):
@@ -670,9 +705,20 @@ def render_bank_status(s):
     frozen=str(b['frozen_size']) if b.get('frozen_size') is not None else 'pending'
     version=f', v{b["frozen_version"]}' if b.get('frozen_version') is not None else ''
     added=(f'+{b["added_unique_rubrics"]}' if b.get('added_unique_rubrics') is not None else 'pending')
+    guardian=''
+    if b.get('guardian_enabled'):
+        status=b.get('guardian_status')
+        if status=='waiting_verification':
+            detail=f'waiting verify {b.get("guardian_verify_done",0)}/{b.get("guardian_cases_total",0)}'
+        elif status=='checking_candidates':detail='checking candidates'
+        elif status=='complete':
+            detail=(f'complete exact {count(b.get("guardian_exact"))} semantic {count(b.get("guardian_semantic"))} '
+                    f'aliases {count(b.get("guardian_aliases"))} accepted {count(b.get("guardian_accepted"))}')
+        else:detail='ERROR fail-open'
+        guardian=f' | Guardian {detail}'
     return (f'Bank stored {committed} | scoring {frozen} ({scope}{version}) | new {added} unique | '
             f'reused {b.get("reused_trajectories",0)} trajectories · new KEEP {count(b.get("new_keep"))} · '
-            f'gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)} · NA stays unscored')
+            f'gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)} · NA stays unscored{guardian}')
 
 
 def number(v,suffix='',digits=0):return '-' if v is None else f'{v:.{digits}f}{suffix}'

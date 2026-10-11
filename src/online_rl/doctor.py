@@ -103,14 +103,14 @@ def halt_reason(*, agent_turns: int, status: Optional[dict], prev_status: Option
     cur = status['current_option']
     if cur == 'none' or cur not in {str(o).upper() for o in options}: return None
     said = option(last_agent or '')
-    if prev_status is None:
-        if agent_turns == 1 and not any(status[k] for k in FLAGS) and (not said or said.upper() == cur):
-            return 'doctor_halt_a1_settled'
-        return None
     if (default_final_after_agent_turns is not None and
             agent_turns >= default_final_after_agent_turns):
         if not all(status[k] for k in FLAGS):
-            return 'doctor_halt_default_after_a2'
+            return f'doctor_halt_default_after_a{default_final_after_agent_turns}'
+        return None
+    if prev_status is None:
+        if agent_turns == 1 and not any(status[k] for k in FLAGS) and (not said or said.upper() == cur):
+            return 'doctor_halt_a1_settled'
         return None
     if prev_status.get('current_option') != cur: return None                       # the decision must be stable
     if said and said.upper() != cur: return None                                   # the Agent argues for another option
@@ -156,8 +156,8 @@ class OllamaDoctor:
         if late is not None and (isinstance(late, bool) or not isinstance(late, int) or late < self.min_agent_turns):
             raise ValueError('stable_choice_no_objection_after_turns must be an integer >= min_agent_turns')
         default_final = self.default_final_after_agent_turns
-        if default_final is not None and (isinstance(default_final, bool) or not isinstance(default_final, int) or default_final < 2):
-            raise ValueError('default_final_after_agent_turns must be an integer >= 2')
+        if default_final is not None and (isinstance(default_final, bool) or not isinstance(default_final, int) or default_final < 1):
+            raise ValueError('default_final_after_agent_turns must be an integer >= 1')
         self.options = {**backend['options'], 'num_predict': max_tokens}
         self.final_response = backend.get('final_response')
         if self.final_response is not None:
