@@ -266,17 +266,20 @@ class TreeTrainer:
             self.step(); done += 1
 
     def step(self, *, frozen_record=None, prompt_text=None, prompt_id=None, score_responses=True, commit=True,
-             apply_update=True, defer_verification=False, cumulative_snapshot=None) -> dict:
+             apply_update=True, defer_verification=False, cumulative_snapshot=None, online_working_bank=False) -> dict:
         cumulative_reuse = []
         if getattr(self, 'cumulative_bank', None):
             from src.online_rl.tree import cumulative_bank as CB
-            if cumulative_snapshot is None or commit or apply_update or score_responses or not defer_verification:
-                raise ValueError('cumulative bank preparation requires its frozen input snapshot and deferred verification/scoring/update')
+            if (cumulative_snapshot is None or commit or apply_update or score_responses or
+                    (not defer_verification and not online_working_bank)):
+                raise ValueError('cumulative bank preparation requires its snapshot and an explicit verification mode')
             CB.validate_snapshot(cumulative_snapshot)
         elif cumulative_snapshot is not None:
             raise ValueError('cumulative snapshot supplied without cumulative bank configuration')
         if commit and (prompt_text is not None or frozen_record is not None or not score_responses or not apply_update):
             raise ValueError('Batch assessment requires commit=False; the batch coordinator owns inheritance')
+        if online_working_bank and (defer_verification or self.exact_source_case or not self.rubric_on):
+            raise ValueError('online working bank requires semantic assignment and immediate verification')
         if defer_verification and (not self.rubric_on or self.verification not in W.PROTOCOLS):
             raise ValueError('deferred verification requires a rubric-enabled witness protocol')
         t_case = time.time(); rollout_seconds = 0.0
@@ -336,7 +339,49 @@ class TreeTrainer:
             nodes = {n.node_id: n for n in tree.nodes}
             if self.reuse and self.verification in W.PROTOCOLS:       # consolidation + bounded causal-witness verification (witness.py)
                 tin_of = {t.leaf_id: t for t in tins}
-                if cumulative_snapshot is not None and not self.exact_source_case:
+                online_decisions = []
+                if online_working_bank:
+                    working = cumulative_snapshot; all_canon = {}; all_assignments = []; all_witness = []; all_wit_objs = {}
+                    all_selection = []
+                    for leaf in sorted(ruled, key=lambda x: x.leaf_id):
+                        tin = tin_of[leaf.leaf_id]; input_sha = working['sha256']
+                        match = CB.match_existing(tin, working, e.bank_matcher, self.cache,
+                                                  top_k=int(self.cumulative_bank.get('retrieval_top_k', 8)))
+                        if match is not None:
+                            cumulative_reuse.append({'leaf_id': tin.leaf_id, **match})
+                            online_decisions.append({'case_cursor': s.case_cursor, 'case_id': cid, 'leaf_id': tin.leaf_id,
+                                'action': 'REUSED_EXISTING', 'input_bank_sha256': input_sha,
+                                'output_bank_sha256': input_sha, 'bank_id': match['bank_id'], 'rubric_id': None})
+                            continue
+                        ssf_one = (lambda target: W.source_stage1_for(case, nodes, target,
+                            tin_of[target.leaf_id].target_reply_id, e.scorer.applicability, self.cache)) if self.source_consistency else None
+                        canon, assignments = RB.build_banks(case, [leaf], tin_of, prompt, s.prompt_sha256,
+                            e.generate_fn, e.assign_fn, e.gate_fn, self.cache, source_stage1_for=ssf_one)
+                        wit = self._verify_bounded(case, tree, feedback, [leaf], canon, assignments)
+                        chosen = self._witness_selection(canon, wit)
+                        all_canon.update(canon); all_assignments.extend(assignments)
+                        all_witness.extend(to_dict(w) for w in wit.values()); all_wit_objs.update(wit); all_selection.extend(chosen)
+                        kept = [d for d in chosen if d.retained]
+                        if kept:
+                            partial = {'case_id': cid, 'case_cursor': s.case_cursor, 'policy_sha256': s.policy_sha256,
+                                'prompt_sha256': s.prompt_sha256, 'trajectory_rubrics': [to_dict(r) for r in canon.values()],
+                                'selection': [to_dict(d) for d in chosen], 'rubric_bank': {'witness': [to_dict(w) for w in wit.values()]}}
+                            working = CB.extend_snapshot(working, [partial])
+                            action = 'GENERATED_KEEP'
+                        else:
+                            action = 'GENERATED_REMOVE'
+                        rid = next(iter(canon)) if canon else None
+                        online_decisions.append({'case_cursor': s.case_cursor, 'case_id': cid, 'leaf_id': tin.leaf_id,
+                            'action': action, 'input_bank_sha256': input_sha, 'output_bank_sha256': working['sha256'],
+                            'bank_id': ('bank_' + CB.content_hash(canon[rid].rubric)) if kept else None, 'rubric_id': rid})
+                    rubrics = list(all_canon.values()); assignments_raw = [to_dict(a) for a in all_assignments]
+                    selection = all_selection
+                    bank = {'assignments': assignments_raw, 'witness': all_witness,
+                            'telemetry': {**RB.assignment_telemetry(all_canon, all_assignments),
+                                **W.witness_telemetry(all_wit_objs)},
+                            'member_intervention_version': self.member_intervention_version, 'verification_pending': False}
+                    scores = []; weights = {d.rubric_id: 1.0 for d in selection if d.retained}
+                elif cumulative_snapshot is not None and not self.exact_source_case:
                     def match_existing(tin):
                         return CB.match_existing(tin, cumulative_snapshot, e.bank_matcher, self.cache,
                                                  top_k=int(self.cumulative_bank.get('retrieval_top_k', 8)))
@@ -351,9 +396,13 @@ class TreeTrainer:
                     cumulative_reuse = [{'leaf_id': tin.leaf_id, **match} for tin, match in zip(tins, matches) if match is not None]
                     reused_ids = {item['leaf_id'] for item in cumulative_reuse}
                     ruled = [leaf for leaf in ruled if leaf.leaf_id not in reused_ids]
+                if online_working_bank:
+                    canon = all_canon; assignments = all_assignments; generated_candidates = None
                 ssf = (lambda leaf: W.source_stage1_for(case, nodes, leaf, tin_of[leaf.leaf_id].target_reply_id, e.scorer.applicability, self.cache)
                        ) if self.source_consistency else None             # v2.1: source-self-applicability before the quality gate
-                if self.exact_source_case:
+                if online_working_bank:
+                    pass
+                elif self.exact_source_case:
                     canon, assignments, generated_candidates = RB.build_exact_generated_banks(
                         case, ruled, tin_of, prompt, s.prompt_sha256, e.generate_fn, e.gate_fn,
                         self.cache, source_stage1_for=ssf, parallel_strata=self.parallel_strata)
@@ -372,12 +421,15 @@ class TreeTrainer:
                              'feedback_leakage_first_try': sum(bool(((f.locus or {}).get('leakage') or {}).get('first')) for f in feedback),
                              'source_check': dict(__import__('collections').Counter((r.source_check or {}).get('status') for r in (generated_candidates if generated_candidates is not None else canon.values())
                                                                                      if r.source_check is not None))}
-                bank = {'assignments': assignments_raw, 'witness': [], 'telemetry': telemetry,
-                        'member_intervention_version': self.member_intervention_version,
-                        **({'assignment_protocol': RB.EXACT_SOURCE_CASE_PROTOCOL,
-                            'generated_candidates': [to_dict(r) for r in generated_candidates]} if generated_candidates is not None else {}),
-                        'verification_pending': bool(defer_verification)}
-                if not defer_verification:
+                if not online_working_bank:
+                    bank = {'assignments': assignments_raw, 'witness': [], 'telemetry': telemetry,
+                            'member_intervention_version': self.member_intervention_version,
+                            **({'assignment_protocol': RB.EXACT_SOURCE_CASE_PROTOCOL,
+                                'generated_candidates': [to_dict(r) for r in generated_candidates]} if generated_candidates is not None else {}),
+                            'verification_pending': bool(defer_verification)}
+                if online_working_bank:
+                    pass
+                elif not defer_verification:
                     wit = self._verify_bounded(case, tree, feedback, ruled, canon, assignments)
                     kept = {rid for rid, w in wit.items() if w.decision == 'KEEP'}
                     selection = self._witness_selection(canon, wit)
@@ -428,6 +480,8 @@ class TreeTrainer:
                   **({'rubric_bank': bank} if bank is not None else {}),
                   **({'cumulative_bank_input': cumulative_snapshot, 'cumulative_reuse': cumulative_reuse,
                       'cumulative_reused_trajectories': len(cumulative_reuse)} if cumulative_snapshot is not None else {}),
+                  **({'cumulative_bank_output': working, 'online_working_bank_decisions': online_decisions}
+                     if online_working_bank else {}),
                   'group_diagnostics': sibling_group_diagnostics(tree, targets, update if isinstance(update, dict) else None),
                   'interaction_diagnostics': interaction_diagnostics(tree, targets if isinstance(targets, dict) else None),
                   'seconds': time.time() - t_case,

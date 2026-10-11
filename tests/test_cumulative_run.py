@@ -109,3 +109,34 @@ def test_config_hash_checks_and_no_silent_bank_upgrade(transaction):
     advanced.pop('rubric_bank_version')
     with pytest.raises(RuntimeError, match='already advanced'):
         run.initialize_bank_state(cfg, root, out, advanced)
+
+
+def test_online_working_bank_serializes_cases_and_freezes_final_snapshot(transaction):
+    cfg, root, out, state = transaction
+    cfg['rubric']['cumulative_bank'].update(
+        working_bank_protocol=run.ONLINE_WORKING_BANK_PROTOCOL, scoring_scope='all')
+    seen = []; snapshots = {}
+    def collect(phase, payload, selected=None):
+        if phase == 'bank_online':
+            assert selected is not None and len(selected) == 1
+            cursor = selected[0]; before = payload['snapshot']; after = bank.extend_snapshot(before, [])
+            snapshots[cursor] = after; seen.append((phase, cursor, before['sha256']))
+            return [{'case_id': str(cursor), 'case_cursor': cursor, 'policy_sha256': 'policy',
+                     'cumulative_bank_input': before, 'cumulative_bank_output': after,
+                     'online_working_bank_decisions': [{'case_cursor': cursor, 'case_id': str(cursor),
+                         'leaf_id': 'leaf', 'action': 'GENERATED_KEEP',
+                         'input_bank_sha256': before['sha256'], 'output_bank_sha256': after['sha256'],
+                         'bank_id': 'bank-test', 'rubric_id': 'rubric-test'}],
+                     'selection': [], 'cumulative_reuse': []}]
+        assert phase == 'bank_score' and selected is None
+        seen.append((phase, None, payload['snapshot']['sha256']))
+        return [{'case_id': str(i), 'case_cursor': i, 'policy_sha256': 'policy',
+                 'cumulative_bank_input': state, 'selection': [], 'cumulative_reuse': [],
+                 'cumulative_bank_scoring': {'snapshot_sha256': payload['snapshot']['sha256'],
+                                             'scoring_scope': 'all'}} for i in range(5)]
+    records, frozen = run.round_records(cfg, root, out, state, 1, out/'online_batch', collect)
+    assert [row[:2] for row in seen] == [('bank_online', i) for i in range(5)] + [('bank_score', None)]
+    assert frozen == snapshots[4]
+    assert all(row['cumulative_bank_scoring']['snapshot_sha256'] == frozen['sha256'] for row in records)
+    journal = json.loads((out/'online_batch/online_working_bank_journal.json').read_text())
+    assert journal['protocol'] == run.ONLINE_WORKING_BANK_PROTOCOL

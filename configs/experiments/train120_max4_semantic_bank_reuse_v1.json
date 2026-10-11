@@ -1,14 +1,29 @@
 {
   "extends": "configs/experiments/train120_max4_direct_luna_v9_1.json",
   "experiment": {
-    "output_root": "outputs/train120_max4_semantic_bank_reuse_v1_20261011",
-    "run_label": "train120_max4_semantic_bank_reuse_v1"
+    "output_root": "outputs/train120_max4_online_working_bank_v1_20261011",
+    "run_label": "train120_max4_online_working_bank_v1"
   },
   "rubric": {
-    "assignment_protocol": null
+    "assignment_protocol": null,
+    "cumulative_bank": {
+      "working_bank_protocol": "trajectory_online_working_bank_v1"
+    }
+  },
+  "feedback": {
+    "endpoint": "http://127.0.0.1:12935"
+  },
+  "five_gpu": {
+    "doctor_urls": [
+      "http://127.0.0.1:12935",
+      "http://127.0.0.1:12936",
+      "http://127.0.0.1:12937",
+      "http://127.0.0.1:12938",
+      "http://127.0.0.1:12939"
+    ]
   },
   "notes": {
-    "rubric_reuse": "Before generation, retrieve up to eight related criteria from the committed cumulative KEEP bank and ask the semantic matcher whether applicability, Agent state, M/C, and all score boundaries are equivalent. Reuse an unchanged match without generator, Gate, or witness calls; generate and verify only when no equivalent criterion exists.",
-    "scoring": "After verification, freeze the updated bank for the five-case batch and score every bank criterion with shared-state applicability. Final scoring has no top-k cutoff."
+    "rubric_reuse": "Process trajectories in deterministic case_cursor/case_id/leaf_id order. Match each trajectory against the latest working KEEP bank. Reuse an equivalent criterion without generator, Gate, or rerun calls; otherwise generate, Gate, and witness-check it, adding only KEEP immediately before the next trajectory.",
+    "scoring": "After every trajectory transaction, freeze the final working bank for the five-case batch and score every bank criterion with shared-state applicability. Final scoring has no top-k cutoff."
   }
 }

@@ -104,7 +104,7 @@ def run_case(job, phase='fixed', prompt=None):
     cfg['schedule'].pop('positions', None)
     cfg['schedule']['calibration_only_cursors'] = []
     trainer = build(cfg, policy=_POLICY, cases=[job['case']], defer_update=True)
-    if phase in ('bank_prepare', 'bank_verify', 'bank_score'):
+    if phase in ('bank_prepare', 'bank_verify', 'bank_score', 'bank_online'):
         from src.online_rl.tree import cumulative_bank as CB
         from src.online_rl.integrated.records import sha256_text
         snapshot = CB.validate_snapshot(prompt['snapshot'])
@@ -127,14 +127,20 @@ def run_case(job, phase='fixed', prompt=None):
                 actual = CB.validate_snapshot(record.get('cumulative_bank_input'))
             if expected_snapshot is not None and actual['sha256'] != expected_snapshot['sha256']:
                 raise RuntimeError('Saved cumulative phase snapshot changed')
-            if name != 'bank_prepare' and record['rubric_bank'].get('verification_pending'):
+            if name not in ('bank_prepare',) and record['rubric_bank'].get('verification_pending'):
                 raise RuntimeError('Saved cumulative verification/scoring is incomplete')
             return record
 
         if path.exists():
             return validate_phase(json.loads(path.read_text()), phase, snapshot)
         phase_started = time.perf_counter()
-        if phase == 'bank_prepare':
+        if phase == 'bank_online':
+            with activity('bank_online.trajectory_match_generate_verify'):
+                record = trainer.step(prompt_text=prompt['text'], prompt_id=prompt['id'],
+                                      score_responses=False, commit=False, apply_update=False,
+                                      defer_verification=False, cumulative_snapshot=snapshot,
+                                      online_working_bank=True)
+        elif phase == 'bank_prepare':
             with activity('bank_prepare.tree_rubric_reuse'):
                 record = trainer.step(prompt_text=prompt['text'], prompt_id=prompt['id'],
                                       score_responses=False, commit=False, apply_update=False,
@@ -146,11 +152,14 @@ def run_case(job, phase='fixed', prompt=None):
         else:
             # The input snapshot predates new KEEP additions; its identity is
             # independently validated, while all five scores use this new set.
-            verified = validate_phase(json.loads((base / 'bank_verify.json').read_text()), 'bank_verify')
+            source = base / ('bank_online.json' if (base / 'bank_online.json').exists() else 'bank_verify.json')
+            verified = validate_phase(json.loads(source.read_text()), source.stem)
             with activity('bank_score.frozen_cumulative_scoring'):
                 record = trainer.score_cumulative(verified, snapshot)
         record.setdefault('timings', {})[phase + '_wall_seconds'] = time.perf_counter() - phase_started
         record.update(case_cursor=job['index'], rollout_gpu=job['worker'], dialogue_lane=job['lane'])
+        for decision in record.get('online_working_bank_decisions', []):
+            decision['case_cursor'] = job['index']
         validate_phase(record, phase, snapshot)
         atomic_write_json(path, record)
         note(phase='waiting_at_batch_barrier', finished_phase=phase)

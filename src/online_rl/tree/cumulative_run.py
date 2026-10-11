@@ -9,6 +9,7 @@ from pathlib import Path
 from src.online_rl.integrated.records import atomic_write_json, sha256_json
 
 EXACT_ASSIGNMENT_PROTOCOL = 'exact_generated_source_case_v1'
+ONLINE_WORKING_BANK_PROTOCOL = 'trajectory_online_working_bank_v1'
 
 
 def config_identity(cfg, root):
@@ -17,13 +18,15 @@ def config_identity(cfg, root):
         return None
     from src.online_rl.tree.cumulative_bank import VERSION, validate_snapshot
     required = {'protocol', 'retrieval_top_k', 'matcher_prompt_file', 'matcher_prompt_sha256'}
-    optional = {'initial_snapshot_file', 'initial_snapshot_sha256', 'scoring_scope'}
+    optional = {'initial_snapshot_file', 'initial_snapshot_sha256', 'scoring_scope', 'working_bank_protocol'}
     if not isinstance(spec, dict) or not required <= set(spec) or set(spec) - required - optional:
         raise ValueError('Invalid cumulative rubric bank configuration')
     if spec['protocol'] != VERSION or type(spec['retrieval_top_k']) is not int or not 1 <= spec['retrieval_top_k'] <= 32:
         raise ValueError('Cumulative bank requires its versioned protocol and retrieval_top_k 1..32')
     if spec.get('scoring_scope', 'top_k') not in ('top_k', 'all'):
         raise ValueError('Cumulative bank scoring_scope must be top_k or all')
+    if spec.get('working_bank_protocol') not in (None, ONLINE_WORKING_BANK_PROTOCOL):
+        raise ValueError('Unknown cumulative working-bank protocol')
     exact = cfg['rubric'].get('assignment_protocol') == EXACT_ASSIGNMENT_PROTOCOL
     if exact and (spec.get('scoring_scope') != 'all' or spec.get('initial_snapshot_file') or spec.get('initial_snapshot_sha256')):
         raise ValueError('Exact generated assignment requires an empty initial bank and full frozen-bank scoring')
@@ -60,6 +63,13 @@ def config_identity(cfg, root):
                         semantic_matcher='disabled', reuse_effect_verification='new_source_witness_only',
                         retrieval='disabled_for_generation_full_bank_for_scoring_v1',
                         matcher_model=None, matcher_generation=None)
+    if spec.get('working_bank_protocol') == ONLINE_WORKING_BANK_PROTOCOL:
+        if exact or spec.get('scoring_scope') != 'all':
+            raise ValueError('Online working bank requires semantic assignment and full-bank scoring')
+        identity.update(working_bank_protocol=ONLINE_WORKING_BANK_PROTOCOL,
+                        generation_assignment='trajectory_match_then_generate_gate_rerun_keep_v1',
+                        batch_scoring='freeze_full_bank_after_ordered_trajectory_transactions',
+                        reuse_effect_verification='historical_keep_no_reverification')
     return identity
 
 
@@ -158,7 +168,45 @@ def round_records(cfg, root, out, state, batch, batchdir, collect):
               'id': cfg['rubric']['prompt_id'], 'sha256': cfg['rubric']['prompt_sha256'],
               'snapshot': before}
     timings = {}
+    online = cfg['rubric']['cumulative_bank'].get('working_bank_protocol') == ONLINE_WORKING_BANK_PROTOCOL
+    if online:
+        from src.online_rl.tree.online_working_bank import VERSION as JOURNAL_VERSION
+        working = before; records = []; decisions = []
+        started = time.monotonic()
+        for case_cursor in range(state['case_cursor'], state['case_cursor'] + cfg['five_gpu']['batch_cases']):
+            rows = collect('bank_online', {**prompt, 'snapshot': working}, [case_cursor])
+            if len(rows) != 1 or rows[0].get('case_cursor') != case_cursor:
+                raise RuntimeError('Online working bank requires one deterministic case at a time')
+            record = rows[0]
+            if record['cumulative_bank_input']['sha256'] != working['sha256']:
+                raise RuntimeError('Online case did not consume the latest working bank')
+            next_snapshot = record.get('cumulative_bank_output')
+            from src.online_rl.tree.cumulative_bank import validate_snapshot
+            validate_snapshot(next_snapshot)
+            tail = working['sha256']
+            for row in record.get('online_working_bank_decisions', []):
+                if row['input_bank_sha256'] != tail:
+                    raise RuntimeError('Online trajectory did not consume the immediately prior working bank')
+                if row['action'] == 'GENERATED_KEEP':
+                    if row['output_bank_sha256'] == tail:
+                        raise RuntimeError('Online KEEP failed to advance the working bank')
+                elif row['output_bank_sha256'] != tail:
+                    raise RuntimeError('Only online KEEP may advance the working bank')
+                tail = row['output_bank_sha256']
+                decisions.append(row)
+            if tail != next_snapshot['sha256']:
+                raise RuntimeError('Online decision journal does not reach the case output bank')
+            working = next_snapshot; records.append(record)
+        timings['bank_online'] = time.monotonic() - started
+        after = working
+        atomic_write_json(batchdir / 'online_working_bank_journal.json', {
+            'protocol': JOURNAL_VERSION, 'batch': batch, 'source_policy_sha256': state['policy_sha256'],
+            'initial_bank_sha256': before['sha256'], 'working_bank_sha256': after['sha256'],
+            'decisions': decisions})
+    else:
+        records = None
     for phase in ('bank_prepare', 'bank_verify'):
+        if online: break
         print(json.dumps({'stage': phase, 'batch': batch, 'bank_version': before['version'],
                           'bank_rubrics': len(before['entries'])}), flush=True)
         started = time.monotonic()
@@ -171,7 +219,8 @@ def round_records(cfg, root, out, state, batch, batchdir, collect):
             raise RuntimeError('Case preparation used a different policy or bank snapshot')
         if exact and any(r.get('cumulative_reuse') for r in records):
             raise RuntimeError('Exact-generated assignment cannot inherit a semantic bank match')
-    after = extend_snapshot(before, records)
+    if not online:
+        after = extend_snapshot(before, records)
     publish_snapshot(out, after)
     frozen_path = batchdir / 'bank_frozen.json'
     if frozen_path.exists() and _read(frozen_path) != after:

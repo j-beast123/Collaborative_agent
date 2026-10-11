@@ -451,14 +451,15 @@ def run(cfg, max_batches=None, eval_only=False):
                 else:
                     atomic_write_json(manifest_path,manifest)
                 print(json.dumps({'stage':'rollout','batch':batch,'cases':len(jobs),'gpus':fg['rollout_gpus']}),flush=True)
-                def collect(phase=None,prompt=None):
+                def collect(phase=None,prompt=None,selected_case_cursors=None):
                     if shared:
                         assert_idle(pool_spec)
                         prepared=[executors[w].submit(worker.prepare,state['checkpoint'],state['policy_sha256']) for w in range(5)]
                         wait_with_evaluation(prepared,lambda:False)
                     futures=[]
+                    selected = set(selected_case_cursors) if selected_case_cursors is not None else None
                     for w in range(len(executors)):
-                        assigned=[j for j in jobs if j['worker']==w]
+                        assigned=[j for j in jobs if j['worker']==w and (selected is None or j['index'] in selected)]
                         if not assigned:continue
                         args=(assigned,state['checkpoint'],state['policy_sha256'])
                         if phase is not None:args+= (phase,prompt)
