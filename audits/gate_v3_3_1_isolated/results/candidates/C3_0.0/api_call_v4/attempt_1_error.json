@@ -1,0 +1,11 @@
+{
+  "schema": "c3_blind_source_v4_technical_attempt_v1",
+  "attempt": 1,
+  "status": "provider_schema_error",
+  "http_status": 400,
+  "model": "gpt-6-luna",
+  "request_payload_sha256": "ce4fadd65f63c53cc3c130b30bb2cf25912b8aacc2ccff22f51328286491c55e",
+  "error_message": "Invalid schema for response_format 'public_evidence_contract_v4_response': uniqueItems is not permitted.",
+  "semantic_completion_generated": false,
+  "retry_allowed_by_frozen_policy": true
+}

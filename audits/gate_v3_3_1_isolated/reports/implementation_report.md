@@ -164,3 +164,14 @@ Not yet verified:
 - active integration and cache behavior.
 
 The full 29-candidate run is **not ready** because C3 is incomplete and no unseen holdout has been run. Active promotion is also **not ready**. The next authorized step would be the single frozen C3 blind-source API call, followed by one-assembler replay of all six and then a separately frozen holdout plan.
+
+## C3 API execution addendum
+
+The approved C3 blind-source attempt did not produce a usable score.
+
+1. Attempt 1 was rejected before inference because OpenAI strict JSON Schema does not permit `uniqueItems`.
+2. The one pre-authorized technical retry removed only `uniqueItems`. It generated a completion, but local validation found that an `observed_operations[].evidence_quote` was missing from the redundant top-level `evidence_quotes[]` ledger.
+
+The final state remains `EXECUTION_ERROR`; it was not converted to REJECT, UNSCORABLE, N/A, or score 0. The technical retry allowance is exhausted. The isolated runner also exposed a defect: it validated before serializing the raw completion, so the second response text was lost when validation raised. The execution summary preserves both error classifications and request hashes.
+
+Before another call, the general contract should remove or locally derive the redundant evidence ledger, and the runner must persist the raw provider response before validation. A new request hash and explicit authorization are required for another external call.

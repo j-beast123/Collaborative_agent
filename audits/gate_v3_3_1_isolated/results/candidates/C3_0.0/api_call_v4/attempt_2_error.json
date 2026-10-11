@@ -1,0 +1,14 @@
+{
+  "schema": "c3_blind_source_v4_technical_attempt_v1",
+  "attempt": 2,
+  "status": "local_contract_error",
+  "model": "gpt-6-luna",
+  "request_payload_sha256": "6b5429f7d0b727f8fca1b2f3ebe29ad73365b5fb53f3ded186d831e0c4573cec",
+  "error_message": "Observed-operation quote is absent from the evidence ledger",
+  "semantic_completion_generated": true,
+  "semantic_result_usable": false,
+  "raw_response_preserved": false,
+  "raw_response_loss_reason": "The isolated runner validated before serializing the returned completion. This is an execution-runner defect.",
+  "retry_budget_exhausted": true,
+  "converted_to_reject_unscorable_na_or_zero": false
+}
