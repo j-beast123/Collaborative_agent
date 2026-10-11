@@ -38,7 +38,14 @@ def training_guard(gpu, kind, *, release_memory=False):
     coord = coordinator()
     if coord is None:
         return nullcontext()
-    return (coord.training_update(gpu=gpu) if release_memory else
+    # On verified 80-GiB hosts the training and evaluation pairs fit together.
+    # Keep evaluation weights resident across an optimizer update while still
+    # revoking/waiting for any active evaluation *call*.  This removes model
+    # unload/reload churn without allowing evaluation compute to overlap the
+    # higher-priority training operation.
+    keep_resident = os.environ.get('SHERPA_IDLE_EVAL_KEEP_RESIDENT_DURING_UPDATE') == '1'
+    return (coord.training_activity(gpu, kind) if release_memory and keep_resident else
+            coord.training_update(gpu=gpu) if release_memory else
             coord.training_activity(gpu, kind))
 
 

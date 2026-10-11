@@ -9,7 +9,9 @@ from src.online_rl.integrated.records import sha256_json
 from src.online_rl.tree import cumulative_bank as CB, cumulative_run
 from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.member_intervention import MEMBER_INTERVENTION_VERSION
+from src.online_rl.tree import scoring
 from src.online_rl.tree.scoring import ScoringContractError, score_cumulative_nodes
+from src.common.config import IntegrationUnavailable
 from src.online_rl.tree.team import team_strategies
 from tests.test_cumulative_run import transaction, collector
 from tests.test_cumulative_trainer import snapshot, match_any
@@ -96,7 +98,7 @@ def test_full_bank_reuses_existing_eight_singleton_judgements_and_behavior_cache
     assert old_metadata[0]['top_k'] == 8 and 'scoring_scope' not in old_metadata[0]
 
 
-def test_full_bank_preserves_unscorable_group_mask_and_propagates_scoring_errors():
+def test_full_bank_preserves_unscorable_group_mask_and_quarantines_llm_scoring_errors():
     bank = nine_rubrics(); rid = bank['entries'][0]['bank_id']
     nodes = [node(i) for i in range(4)]
     rows, _ = score_cumulative_nodes(CASE, nodes, bank, StateScorer([rid], unscorable=True),
@@ -104,9 +106,11 @@ def test_full_bank_preserves_unscorable_group_mask_and_propagates_scoring_errors
     assert all(row.scoring_status == 'group_unscorable' and row.score is None
                for row in rows if row.rubric_id == rid)
     assert sum(row.scoring_status == 'not_applicable' for row in rows) == 32
-    with pytest.raises(ScoringContractError, match='IDs differ'):
-        score_cumulative_nodes(CASE, nodes, bank, StateScorer([rid], error=True),
-            CallCache(None), scoring_scope='all')
+    failed, _ = score_cumulative_nodes(CASE, nodes, bank, StateScorer([rid], error=True),
+        CallCache(None), scoring_scope='all')
+    assert all(row.scoring_status == 'behavior_error' and row.score is None
+               for row in failed if row.rubric_id == rid)
+    assert sum(row.scoring_status == 'not_applicable' for row in failed) == 32
 
 
 def test_empty_full_bank_never_calls_judge_or_fabricates_zero():
@@ -115,6 +119,28 @@ def test_empty_full_bank_never_calls_judge_or_fabricates_zero():
         scorer, CallCache(None), scoring_scope='all')
     assert rows == [] and scorer.app_calls == scorer.behavior_calls == []
     assert metadata[0]['bank_size'] == 0 and metadata[0]['retrieval_ids'] == []
+
+
+def test_applicability_execution_error_quarantines_only_failed_rubric(monkeypatch):
+    bank = snapshot('broken', 'healthy')
+    broken, healthy = [entry['bank_id'] for entry in bank['entries']]
+    original = scoring.state_applicability
+
+    def review(case, node_, rubric, scorer, cache):
+        if rubric['rubric_id'] == broken:
+            raise IntegrationUnavailable('synthetic evidence-contract failure')
+        return original(case, node_, rubric, scorer, cache)
+
+    monkeypatch.setattr(scoring, 'state_applicability', review)
+    rows, _ = score_cumulative_nodes(CASE, [node(i) for i in range(4)], bank,
+        StateScorer([healthy]), CallCache(None), scoring_scope='all')
+    failed = [row for row in rows if row.rubric_id == broken]
+    assert len(failed) == 4
+    assert all(row.scoring_status == 'applicability_error' and row.score is None
+               and row.match is False for row in failed)
+    assert all(row.scoring_evidence['applicability']['error_type'] == 'IntegrationUnavailable'
+               for row in failed)
+    assert any(row.rubric_id == healthy and row.scoring_status == 'scored' for row in rows)
 
 
 @pytest.mark.parametrize('scope', [None, False, 'all_candidates', 0])

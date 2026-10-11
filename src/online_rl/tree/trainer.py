@@ -329,7 +329,8 @@ class TreeTrainer:
                           protocol_sha256=self.protocol_sha, agent=e.agent, doctor=e.doctor, stop_rule=e.stop_rule, final_option=e.final_option,
                           outcome_fn=e.outcome_fn, cache=self.cache, behavior_logprobs=e.behavior_logprobs, workers=self.doctor_workers,
                           opening=getattr(e, 'opening', None), agent_workers=self.agent_workers,on_leaf=on_leaf,
-                          repeat_agent_reply_after_turns=ro.get('halting',{}).get('repeat_agent_reply_after_turns'))
+                          repeat_agent_reply_after_turns=ro.get('halting',{}).get('repeat_agent_reply_after_turns'),
+                          sampling_unit=ro.get('sampling_unit', 'response_tree'))
             if (self.rubric_on and not cfg['rubric'].get('source_sampling') and
                     (cfg.get('five_gpu') or {}).get('execution_mode') == 'shared_ready_tasks_v1'):
                 from concurrent.futures import ThreadPoolExecutor

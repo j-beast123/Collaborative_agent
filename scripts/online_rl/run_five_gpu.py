@@ -308,18 +308,29 @@ def run(cfg, max_batches=None, eval_only=False):
                 receipt.get('supervision_handoff_sha256') == state.get('supervision_handoff_sha256') and
                 handoff_protocol_carried
             )
-            approved = (
+            boundary_ok = (
+                shared and isinstance(cursor, int) and cursor > 0 and cursor % 5 == 0 and
+                batch_cursor == cursor//5 and receipt.get('completed_cases') == cursor and
+                receipt.get('policy_sha256') == state.get('policy_sha256')
+            )
+            phase_transition = (
                 os.environ.get('SHERPA_ALLOW_P0P1_PHASE_RESUME') == '1' and
                 # The phase-barrier transition is independent of prompt
                 # optimization. Fixed-P0 runs need the same verified boundary
                 # resume when their supervision pipeline adopts this workflow.
-                shared and (state.get('protocol_sha256') == old_pipeline_protocol or verified_handoff) and
-                isinstance(cursor, int) and cursor > 0 and cursor % 5 == 0 and
-                batch_cursor == cursor//5 and
-                (receipt.get('protocol_sha256') == old_pipeline_protocol or verified_handoff) and
-                receipt.get('completed_cases') == cursor and
-                receipt.get('policy_sha256') == state.get('policy_sha256')
+                boundary_ok and (state.get('protocol_sha256') == old_pipeline_protocol or verified_handoff) and
+                (receipt.get('protocol_sha256') == old_pipeline_protocol or verified_handoff)
             )
+            # A validated execution-contract repair can change a scorer's
+            # protocol identity without changing policy, data, rewards already
+            # committed, or optimizer state.  Permit that transition only via
+            # an explicit environment flag at a verified checkpoint boundary,
+            # with the checkpoint receipt pinned to the exact previous protocol.
+            contract_repair_transition = (
+                os.environ.get('SHERPA_ALLOW_EXECUTION_CONTRACT_RESUME') == '1' and
+                boundary_ok and receipt.get('protocol_sha256') == state.get('protocol_sha256')
+            )
+            approved = phase_transition or contract_repair_transition
             if not approved:
                 raise RuntimeError('Run protocol changed. P0/P1 phase-resume is allowed only with '
                                    'SHERPA_ALLOW_P0P1_PHASE_RESUME=1 at a verified 5-case checkpoint boundary. '
@@ -333,7 +344,8 @@ def run(cfg, max_batches=None, eval_only=False):
             state.setdefault('protocol_transitions', []).append({
                 'from': previous_protocol, 'to': protocol,
                 'completed_cases': cursor,
-                'transition': 'old_prompt_pipeline_to_phase_barrier_reruns_then_union_score_v1'
+                'transition': ('old_prompt_pipeline_to_phase_barrier_reruns_then_union_score_v1'
+                               if phase_transition else 'compact_execution_contract_repair_v1')
             })
             atomic_write_json(path, state)
             manifest_path = out/'run_manifest.json'

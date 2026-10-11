@@ -124,11 +124,15 @@ def grpo_loss(model, records: list[dict], adv: list[float], beta: float, clip_ep
         raise ValueError('GRPO advantages must be finite')
     n = len(records); pol = kl = 0.0; ratios, dev_ref = [], 0.0
     for rec, a in zip(records, adv):
-        tr = rec['agent_traces'][0]; segs = segments(tr); total = sum(len(c) for _, c in segs)
-        old_all = torch.tensor(tr['behavior_logprobs'], dtype=torch.float32)
+        traces = rec['agent_traces']
+        action_segments=[(tr, segments(tr)) for tr in traces]
+        total = sum(len(c) for _, segs in action_segments for _, c in segs)
+        old_values=[x for tr,_ in action_segments for x in tr['behavior_logprobs']]
+        old_all = torch.tensor(old_values, dtype=torch.float32)
         if total == 0 or old_all.numel() != total: raise RuntimeError(f"logprob length mismatch at {rec['trajectory_id']}")
         offset = 0; pol_i = kl_i = 0.0
-        for p, c in segs:                                           # same per-token terms over both segments; mean over the whole action
+        for _, action in action_segments:
+          for p, c in action:                                       # one trajectory advantage over every Agent token in its path
             cur = sequence_logprobs(model, p, c, grad=True, token_chunk_size=token_chunk_size)
             old = old_all[offset:offset + len(c)].to(device=cur.device, dtype=cur.dtype); offset += len(c)
             ref = reference_logprobs(model, p, c, token_chunk_size=token_chunk_size)
@@ -182,10 +186,10 @@ class IntegratedGRPOUpdater(GRPOUpdater):
         if require_raw:
             for group in groups:
                 for record in group:
-                    trace = record['agent_traces'][0]
-                    for i, segment in enumerate(trace.get('segments') or [trace]):
-                        validate_raw_sampling(segment, recorded=True,
-                                              label=f"{record['trajectory_id']} segment {i}")
+                    for turn, trace in enumerate(record['agent_traces']):
+                        for i, segment in enumerate(trace.get('segments') or [trace]):
+                            validate_raw_sampling(segment, recorded=True,
+                                                  label=f"{record['trajectory_id']} turn {turn} segment {i}")
         usable, adv, skipped, group_details = [], [], [], []
         for g in groups:
             rewards = [r['reward'] for r in g]

@@ -19,16 +19,19 @@ def repeated_agent_reply(prefix, reply):
 def build_tree(case: dict, *, max_agent_turns: int, branching: int, run_seed: int, policy_sha256: str, protocol_sha256: str,
                agent, doctor, stop_rule: Callable, final_option: Callable, outcome_fn: Callable, cache: CallCache,
                behavior_logprobs: Optional[Callable] = None, workers: int = 1, opening: Optional[Callable] = None, agent_workers: int = 1,
-               on_leaf: Optional[Callable] = None, repeat_agent_reply_after_turns: Optional[int] = None) -> Tree:
+               on_leaf: Optional[Callable] = None, repeat_agent_reply_after_turns: Optional[int] = None,
+               sampling_unit: str = 'response_tree') -> Tree:
     """agent.sample(case, prefix, turn, seed) -> trace with 'completion_text'; doctor.turn(case, dialogue, round, rounds) and
     doctor.final(case, dialogue) -> text. Ancestor replies depend on the policy, so every key carries policy_sha256."""
     if max_agent_turns < 1 or branching < 1: raise ValueError('max_agent_turns and branching must be >= 1')
+    if sampling_unit not in ('response_tree', 'independent_trajectory'):
+        raise ValueError(f'unknown rollout sampling_unit {sampling_unit!r}')
     if opening is not None and not getattr(doctor, 'status_protocol', False): raise ValueError('frozen openings need Doctor protocol v2')
     if getattr(doctor, 'status_protocol', False):
         return _build_tree_v2(case, max_agent_turns=max_agent_turns, branching=branching, run_seed=run_seed, policy_sha256=policy_sha256, opening=opening,
                               protocol_sha256=protocol_sha256, agent=agent, doctor=doctor, stop_rule=stop_rule, final_option=final_option,
                               outcome_fn=outcome_fn, cache=cache, behavior_logprobs=behavior_logprobs, workers=workers, agent_workers=agent_workers,on_leaf=on_leaf,
-                              repeat_agent_reply_after_turns=repeat_agent_reply_after_turns)
+                              repeat_agent_reply_after_turns=repeat_agent_reply_after_turns, sampling_unit=sampling_unit)
     cid = case['case_id']; ident = {'case': cid, 'policy': policy_sha256, 'protocol': protocol_sha256}
     d1 = cache.call('doctor_turn', {**ident, 'path': '', 'round': 1}, lambda: doctor.turn(case, [], 1, max_agent_turns))
     frontier = [('', None, [{'speaker': 'doctor', 'stage': 'D1', 'round': 1, 'text': d1}])]
@@ -36,7 +39,7 @@ def build_tree(case: dict, *, max_agent_turns: int, branching: int, run_seed: in
     for depth in range(1, max_agent_turns + 1):
         nxt = []
         for path, parent, prefix in frontier:
-            for j in range(branching):
+            for j in range(branching if depth == 1 or sampling_unit == 'response_tree' else 1):
                 cpath = f'{path}.{j}' if path else str(j); nid = f'{cid}/{cpath}'; seed = derive_seed(run_seed, nid, 'agent', 0)
 
                 def sample(prefix=prefix, seed=seed, depth=depth):
@@ -70,7 +73,8 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
                    agent, doctor, stop_rule: Callable, final_option: Callable, outcome_fn: Callable, cache: CallCache,
                    behavior_logprobs: Optional[Callable] = None, workers: int = 1, opening: Optional[Callable] = None,
                    agent_workers: int = 1, on_leaf: Optional[Callable] = None,
-                   repeat_agent_reply_after_turns: Optional[int] = None) -> Tree:
+                   repeat_agent_reply_after_turns: Optional[int] = None,
+                   sampling_unit: str = 'response_tree') -> Tree:
     """build_tree under Doctor protocol v2 (src/online_rl/doctor.py): every Doctor call is seeded from its node identity
     (doctor_seed), its hidden status is cut from the visible reply and kept on the node, and after each Doctor turn the
     shared halting rule may end the branch ('doctor_halt'; that Doctor message stays in the dialogue and FINAL follows).
@@ -94,7 +98,7 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
     for depth in range(1, max_agent_turns + 1):
         entries, specs = [], []
         for path, parent, prefix, prev_status in frontier:
-            for j in range(branching):
+            for j in range(branching if depth == 1 or sampling_unit == 'response_tree' else 1):
                 cpath = f'{path}.{j}' if path else str(j); nid = f'{cid}/{cpath}'; seed = derive_seed(run_seed, nid, 'agent', 0)
                 specs.append((cpath, nid, parent, prefix, prev_status, seed))
 

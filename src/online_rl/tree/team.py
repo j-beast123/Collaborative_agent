@@ -29,7 +29,7 @@ def effectiveness_weighted_r_a(scores: list[ResponseRubricScore], weights: dict[
             if s.match is not False or any(value is not None for value in (s.score, s.hard, s.probabilities)):
                 raise RuntimeError(f'Invalid not_retrieved assessment: {s.response_node_id}/{s.rubric_id}')
             continue
-        if status in ('group_unscorable', 'rubric_unscorable'):
+        if status in ('group_unscorable', 'rubric_unscorable', 'applicability_error', 'behavior_error'):
             continue
         if status == 'not_applicable' and not s.match:
             continue
@@ -61,6 +61,22 @@ def node_credit(w_outcome: float, w_rubric: float):
     return credit
 
 
+def trajectory_credit(w_outcome: float, w_rubric: float):
+    """One terminal reward per independent trajectory; available turn-local R_A values are averaged along its path."""
+    def credit(tree: Tree, leaf_outcomes: dict[str, float], node_r_a: dict[str, Optional[float]]) -> dict:
+        trajectories={}
+        for leaf in tree.leaves:
+            ras=[node_r_a[nid] for nid in leaf.path if node_r_a.get(nid) is not None]
+            ra=sum(ras)/len(ras) if ras else None
+            outcome=leaf_outcomes.get(leaf.leaf_id)
+            trajectories[leaf.leaf_id]={'path':list(leaf.path),'outcome_component':outcome,'R_A':ra,
+                                        'reward':compose_reward(outcome,ra,w_outcome,w_rubric)}
+        return {'mode':'trajectory_level','trajectories':trajectories,
+                'groups':{'initial_state':list(trajectories)},
+                'reward_weights':{'w_outcome':w_outcome,'w_rubric':w_rubric}}
+    return credit
+
+
 def sibling_grpo_update(updater):
     """One optimizer step per case: every set of same-state siblings is one same-prompt GRPO group."""
     def update(tree: Tree, targets: dict) -> dict:
@@ -73,12 +89,30 @@ def sibling_grpo_update(updater):
     return update
 
 
+def trajectory_grpo_update(updater):
+    """One GRPO group: completed independent trajectories sampled from the same initial state."""
+    def update(tree: Tree, targets: dict) -> dict:
+        from src.online_rl.integrated.episode import assert_trajectory_group
+        by_id={n.node_id:n for n in tree.nodes}; records=[]
+        for leaf in tree.leaves:
+            target=targets['trajectories'][leaf.leaf_id]
+            records.append({'trajectory_id':leaf.leaf_id,'case_id':tree.case_id,'reward':target['reward'],
+                            'rollout_policy_sha256':tree.policy_sha256,
+                            'agent_traces':[by_id[nid].trace for nid in leaf.path]})
+        assert_trajectory_group(records)
+        return updater.update_groups([records])
+    return update
+
+
 def trajectory_score(unit_result: dict) -> float:
     """s(tau) of the trajectory's one rubric; 0 when the rubric is invalid or matches no reply."""
     e = unit_result['effectiveness']
     return e.R_O if e is not None and e.R_O is not None else 0.0
 
 
-def team_strategies(updater, w_outcome: float, w_rubric: float) -> Strategies:
-    return Strategies(multi_target=mean_target_R_O, r_a_aggregator=effectiveness_weighted_r_a, credit_assignment=node_credit(w_outcome, w_rubric),
-                      agent_update=sibling_grpo_update(updater), prompt_unit_value=trajectory_score)
+def team_strategies(updater, w_outcome: float, w_rubric: float, training_unit: str = 'response') -> Strategies:
+    if training_unit not in ('response','trajectory'): raise ValueError(f'unknown GRPO training_unit {training_unit!r}')
+    credit = trajectory_credit(w_outcome,w_rubric) if training_unit == 'trajectory' else node_credit(w_outcome,w_rubric)
+    update = trajectory_grpo_update(updater) if training_unit == 'trajectory' else sibling_grpo_update(updater)
+    return Strategies(multi_target=mean_target_R_O, r_a_aggregator=effectiveness_weighted_r_a, credit_assignment=credit,
+                      agent_update=update, prompt_unit_value=trajectory_score)

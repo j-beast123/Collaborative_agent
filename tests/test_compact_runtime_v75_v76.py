@@ -50,6 +50,70 @@ def test_no_required_relation_allows_an_evidenced_unrelated_visible_relation():
     _validate_relation(audit, state, {'applicable': True, 'request_state': 'not_required'}, answer)
 
 
+def test_absent_request_discards_redundant_exact_visible_different_request():
+    quote = 'Could you weigh in on whether another option has been implicated?'
+    packet = {'state': {'dialogue_before_target_reply': [
+                  {'turn_id': 'prefix:0', 'speaker': 'doctor', 'text': quote}]},
+              'items': {'criterion': {
+                  'doctor_condition': 'The Doctor asks about nerve supply.',
+                  'agent_condition': 'No additional recorded Agent state is required.'}}}
+    raw = {'answers': {'criterion': {
+        'doctor_condition': [{
+            'clause': 'The Doctor asks about nerve supply.', 'status': 'unmet',
+            'evidence': [], 'inspected': ['prefix:0'],
+            'note': 'The visible request concerns a different relation.'}],
+        'agent_condition': [{
+            'clause': 'No additional recorded Agent state is required.',
+            'status': 'not_required', 'evidence': [], 'inspected': [],
+            'note': 'No prior Agent state is required.'}],
+        'request_state': 'absent',
+        'request_evidence': [{'turn_id': 'prefix:0', 'quote': quote}],
+        'remaining_request': '',
+        'relation_audit': {
+            'condition_relation': {'relation_type': 'other', 'subject': 'structures',
+                                   'object': 'nerve supply', 'temporal_target': 'current'},
+            'visible_relation': {'relation_type': 'other', 'subject': 'another option',
+                                 'object': 'implication', 'temporal_target': 'historical'},
+            'relation_status': 'different',
+            'relation_evidence': [{'turn_id': 'prefix:0', 'quote': quote}],
+            'active_request_required': False, 'request_lifecycle': 'absent',
+            'explanation': 'The visible request is about a different relation.'}}}}
+    result = _app(raw, packet)
+    row = result['applicability']['criterion']
+    assert row['status'] == 'not_applicable'
+    assert row['request_state'] == 'absent'
+    assert row['request_evidence'] == []
+
+
+def test_absent_request_still_rejects_invented_quote_before_discarding():
+    raw_quote = 'This quote was never said.'
+    packet = {'state': {'dialogue_before_target_reply': [
+                  {'turn_id': 'prefix:0', 'speaker': 'doctor', 'text': 'Actual request.'}]},
+              'items': {'criterion': {
+                  'doctor_condition': 'The Doctor asks about nerve supply.',
+                  'agent_condition': 'No additional recorded Agent state is required.'}}}
+    raw = {'answers': {'criterion': {
+        'doctor_condition': [{
+            'clause': 'The Doctor asks about nerve supply.', 'status': 'unmet',
+            'evidence': [], 'inspected': ['prefix:0'], 'note': 'Not present.'}],
+        'agent_condition': [{
+            'clause': 'No additional recorded Agent state is required.',
+            'status': 'not_required', 'evidence': [], 'inspected': [],
+            'note': 'No state required.'}],
+        'request_state': 'absent',
+        'request_evidence': [{'turn_id': 'prefix:0', 'quote': raw_quote}],
+        'remaining_request': ''}}}
+    with pytest.raises(ValueError, match='Request-state quote is not exact prefix evidence'):
+        _app(raw, packet)
+
+
+def test_exact_quote_accepts_only_typographic_unicode_equivalents():
+    from src.online_rl.tree.compact_audit import _quote_in_text
+    source = "I'm leaning toward HBV - compare HBV versus HCV."
+    assert _quote_in_text("I’m leaning toward HBV – compare HBV versus HCV.", source)
+    assert not _quote_in_text("I'm leaning toward HAV - compare HBV versus HCV.", source)
+
+
 class Transport:
     def __init__(self, *, uncertain=False):
         self.calls = []
@@ -178,8 +242,9 @@ def test_selector_gate_and_sibling_scoring_preserve_real_zero():
 
 def test_uncertain_stage1_blocks_scoring_without_na_or_behavior_call():
     _, transport, _, scorer = _scorer(uncertain=True)
-    with pytest.raises(ApplicabilityUncertain):
-        score_nodes(CASE, [node(0), node(1)], [KEPT], scorer, CallCache(None))
+    rows = score_nodes(CASE, [node(0), node(1)], [KEPT], scorer, CallCache(None))
+    assert all(row.scoring_status == 'applicability_error' and row.score is None
+               and row.match is False for row in rows)
     assert len(transport.calls) == 1
     assert 'responses' not in json.loads(transport.calls[0]['messages'][1]['content'])
 

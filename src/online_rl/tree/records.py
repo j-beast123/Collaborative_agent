@@ -178,7 +178,7 @@ class ResponseRubricScore:
     score: Optional[float]                # expected level / 2 when matched
     hard: Optional[float]
     probabilities: Optional[dict]
-    scoring_status: Optional[str] = None  # scored | not_applicable | group_unscorable
+    scoring_status: Optional[str] = None  # scored | not_applicable | group_unscorable | applicability_error | behavior_error
     scoring_evidence: Optional[dict] = None
     individual_assessment: Optional[dict] = None  # original verdict before a same-state rubric mask
 

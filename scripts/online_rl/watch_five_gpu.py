@@ -616,8 +616,10 @@ def render_idle_evaluation(idle):
            idle.get('controller_stage','starting') if idle.get('controller_alive') else 'stopped')
     active=','.join(str(x) for x in idle.get('active_gpus',[])) or '-'
     if idle.get('contract')!='periodic_idle_checkpoint_eval_v1':
+        correct=idle.get('correct')
+        correct_text='' if correct is None else f' · correct {correct}/{idle.get("evaluated",0)}'
         return (f'Idle eval C{idle["checkpoint_cases"]} · {idle.get("evaluated",0)}/{idle.get("dataset_cases",622)} · '
-                f'accuracy {accuracy_text} · {stage} · active GPUs {active}')
+                f'accuracy {accuracy_text}{correct_text} · {stage} · active GPUs {active}')
     total=idle.get('dataset_cases',200)
     evaluated=idle.get('evaluated',0)
     checkpoint=idle.get('checkpoint_cases');update=idle.get('optimizer_steps')

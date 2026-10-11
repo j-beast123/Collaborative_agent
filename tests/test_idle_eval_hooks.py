@@ -76,3 +76,21 @@ def test_actual_actor_waits_for_eval_then_prevents_eval_overtaking(tmp_path, mon
         actor.close()
         shutil.rmtree(spec['directory'])
         hooks.close_registrations()
+
+
+def test_80gb_resident_mode_pauses_calls_without_revoking_weights(tmp_path, monkeypatch):
+    directory = tmp_path/'priority-resident'
+    monkeypatch.setenv('SHERPA_IDLE_EVAL_PRIORITY_DIR', str(directory))
+    monkeypatch.setenv('SHERPA_IDLE_EVAL_KEEP_RESIDENT_DURING_UPDATE', '1')
+    hooks.register_worker(4)
+    priority = PriorityCoordinator(directory, idle_grace_seconds=0)
+    resident = priority.evaluation_residency(4)
+    try:
+        with hooks.training_guard(4, 'agent_update', release_memory=True):
+            assert not resident.revoked()
+            with pytest.raises(EvaluationDeferred):
+                priority.evaluation_call(4, resident)
+        assert not resident.revoked()
+    finally:
+        resident.release()
+        hooks.close_registrations()

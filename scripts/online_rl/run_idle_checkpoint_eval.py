@@ -290,6 +290,19 @@ def supervise(args):
             control = resolve_training_control(source, manifest_sha, manifest['config']['schedule']['cases'],
                                                out/'training_continuation.json',
                                                frozen_source=frozen_source)
+            # The immutable evaluation source/model never changes, but an
+            # explicitly pinned current trainer may own terminal control after
+            # a sequence of recovery handoffs.  Once that trainer proves exact
+            # C(target) completion, evaluation can finish independently.
+            terminal_override = os.environ.get('SHERPA_IDLE_EVAL_TERMINAL_CONTROL_RUN')
+            if terminal_override:
+                terminal_run = Path(terminal_override).resolve()
+                terminal_manifest = json.loads((terminal_run/'run_manifest.json').read_text())
+                if (terminal_manifest['config']['schedule']['cases'] != manifest['config']['schedule']['cases'] or
+                        (terminal_run/'idle_eval_priority').resolve() != Path(args.priority_dir).resolve()):
+                    raise RuntimeError('Explicit terminal control run differs from evaluation target/priority')
+                control = (terminal_run, sha256_json(terminal_manifest),
+                           manifest['config']['schedule']['cases'])
             if continuation_control is not None and control != continuation_control:
                 raise RuntimeError('Pinned training continuation was removed or changed')
             if control[0] != source:

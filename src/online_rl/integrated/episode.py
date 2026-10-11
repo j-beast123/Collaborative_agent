@@ -40,3 +40,21 @@ def assert_single_prompt(records: list[dict]) -> str:
     if len(hashes) != 1: raise RuntimeError(f'GRPO group mixes {len(hashes)} states / prompt hashes; refusing to compute the loss')
     if len({r['case_id'] for r in records}) != 1: raise RuntimeError('GRPO group key differs inside one group')
     return hashes.pop()[1]
+
+
+def assert_trajectory_group(records: list[dict]) -> str:
+    """Independent trajectories share h0 and may diverge afterwards.
+
+    Every record contains all Agent actions along one completed trajectory.  Only
+    the first action prompt must be identical across the GRPO group.
+    """
+    if not records: raise ValueError('empty trajectory GRPO group')
+    if any(not r.get('agent_traces') for r in records):
+        raise RuntimeError('each trajectory must contain at least one Agent trace')
+    hashes={(r['agent_traces'][0].get('agent_protocol'),
+             r['agent_traces'][0].get('state_prompt_hash') or prompt_hash(r['agent_traces'][0])) for r in records}
+    if len(hashes) != 1:
+        raise RuntimeError(f'trajectory GRPO group mixes {len(hashes)} initial states / prompt hashes')
+    if len({r['case_id'] for r in records}) != 1:
+        raise RuntimeError('trajectory GRPO group mixes cases')
+    return hashes.pop()[1]

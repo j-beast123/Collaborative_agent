@@ -213,8 +213,10 @@ def contract_scorer(behavior, applicable=True):
 def test_incomplete_or_invalid_behavior_never_becomes_na_or_enters_cache(bad):
     cache = CallCache(None)
     scorer = contract_scorer(lambda *args: bad)
-    with pytest.raises(ScoringContractError):
-        score_nodes(CASE, [node(0)], [KEPT], scorer, cache)
+    failed = score_nodes(CASE, [node(0)], [KEPT], scorer, cache)
+    assert len(failed) == 1
+    assert failed[0].scoring_status == 'behavior_error'
+    assert failed[0].score is None and failed[0].match is True
     assert not any(r['kind'] == 'rubric_behavior_batch' for r in cache.store.values())
     # A retry after a transient malformed response must actually call the scorer.
     scorer.score_behavior_batch = lambda *args: {'c1/0': {'r1': {'hard': 0}}}
@@ -235,8 +237,9 @@ def test_parallel_state_error_does_not_emit_partial_scores_or_cache_bad_rows():
         return {rid: {'r1': {'hard': 2}} for rid in ids}
 
     scorer = contract_scorer(behavior)
-    with pytest.raises(ScoringContractError, match='IDs differ'):
-        score_nodes(CASE, nodes, [KEPT], scorer, cache, workers=2)
+    first = score_nodes(CASE, nodes, [KEPT], scorer, cache, workers=2)
+    assert sorted((s.response_node_id, s.scoring_status) for s in first) == [
+        ('c1/0', 'behavior_error'), ('c1/1', 'scored')]
     assert cache.calls == {'rubric_state_applicability': 2, 'rubric_behavior_batch': 1}
     malformed = False
     scores = score_nodes(CASE, nodes, [KEPT], scorer, cache, workers=2)

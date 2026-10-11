@@ -6,6 +6,7 @@ Contract-only and semantic-revision arms share a wire schema but different ident
 import copy
 import hashlib
 import json
+import unicodedata
 from pathlib import Path
 from jsonschema import validate
 
@@ -26,6 +27,24 @@ def reply_text(response):
     return response[keys[0]]
 TEXT={'type':'string'}
 SPAN=obj({'turn_id':TEXT,'quote':TEXT})
+
+_TYPOGRAPHIC_EQUIVALENTS = str.maketrans({
+    '\u2018': "'", '\u2019': "'", '\u02bc': "'", '\uff07': "'",
+    '\u201c': '"', '\u201d': '"', '\uff02': '"',
+    '\u00a0': ' ', '\u202f': ' ',
+    '\u2010': '-', '\u2011': '-', '\u2012': '-', '\u2013': '-', '\u2014': '-', '\u2212': '-',
+})
+
+def _quote_in_text(quote, text):
+    """Exact substring check modulo Unicode presentation punctuation only.
+
+    Judges sometimes reproduce a visible apostrophe/quote/dash using its smart
+    Unicode form.  Normalize those glyphs (and NFC composition) on both sides;
+    do not fold case, whitespace, spelling, or words.
+    """
+    def normalized(value):
+        return unicodedata.normalize('NFC', value).translate(_TYPOGRAPHIC_EQUIVALENTS)
+    return bool(quote.strip()) and normalized(quote) in normalized(text)
 
 # The v7.4 relation audit is part of the public Stage-1 output contract.  It
 # checks what the Doctor actually asked about before the Agent reply exists.
@@ -129,7 +148,7 @@ def _validate_relation(audit, state, judgment, answer):
         raise ValueError('Duplicate relation evidence')
     for span in evidence:
         turn=doctor_turns.get(span['turn_id'])
-        if turn is None or not span['quote'].strip() or span['quote'] not in turn['text']:
+        if turn is None or not _quote_in_text(span['quote'], turn['text']):
             raise ValueError('Relation evidence is not an exact visible Doctor quote')
     if status=='not_required':
         if required!='none':raise ValueError('A required relation cannot be not_required')
@@ -189,7 +208,7 @@ def _app(raw,packet):
                 evidence=[]
                 for quote in part['evidence']:
                     source=catalog.get(quote['turn_id'])
-                    if not source or not quote['quote'].strip() or quote['quote'] not in source['text']:
+                    if not source or not _quote_in_text(quote['quote'], source['text']):
                         raise ValueError('Exact prefix quote failed')
                     evidence.append({**quote,'speaker':source['speaker']})
                 if status=='supported' and not evidence:raise ValueError('Positive support requires a quote')
@@ -204,13 +223,20 @@ def _app(raw,packet):
             request_evidence = assessment['request_evidence']
             if request_state in ('unresolved','resolved','partial','uncertain') and not request_evidence:
                 raise ValueError('Request state needs exact prefix evidence')
-            if request_state in ('absent','not_required') and request_evidence:
-                raise ValueError('Absent/non-required request cannot cite invented evidence')
             for quote in request_evidence:
                 source = catalog.get(quote['turn_id'])
                 if (quote['turn_id'] not in prefix_ids or not source or
-                        not quote['quote'].strip() or quote['quote'] not in source['text']):
+                        not _quote_in_text(quote['quote'], source['text'])):
                     raise ValueError('Request-state quote is not exact prefix evidence')
+            # Some judges cite the visible *different* request while correctly
+            # classifying the criterion's required request as absent.  That
+            # quote is useful relation-audit evidence, but the compact contract
+            # stores no request-state evidence for absent/not_required.  Drop
+            # only this redundant, exact-prefix evidence rather than converting
+            # a sound NA decision into a run-wide execution failure.  Invalid
+            # or invented quotes are still rejected by the loop above.
+            if request_state in ('absent','not_required'):
+                request_evidence = []
             remaining = assessment['remaining_request'].strip()
             if (request_state in ('unresolved','partial','uncertain')) != bool(remaining):
                 raise ValueError('Request residual contradicts request state')

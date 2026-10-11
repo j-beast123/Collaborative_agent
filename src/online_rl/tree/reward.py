@@ -41,7 +41,22 @@ def sibling_group_diagnostics(tree: Tree, targets: dict, update: Optional[dict] 
     """Diagnostic only (never used for training): per same-state sibling group, the outcome component, R_A and final reward
     of each sibling and whether each varies within the group; summary counts overall and by depth. Zero-variance groups are
     reported, not hidden."""
-    if not isinstance(targets, dict) or 'groups' not in targets or 'nodes' not in targets: return None   # a credit rule without sibling groups
+    if not isinstance(targets, dict) or 'groups' not in targets: return None
+    if targets.get('mode') == 'trajectory_level':
+        ts=list(targets.get('trajectories',{}).values())
+        g={'group':'initial_state','depth':'trajectory','size':len(ts),
+           'outcome':[x['outcome_component'] for x in ts],'R_A':[x['R_A'] for x in ts],
+           'reward':[x['reward'] for x in ts]}
+        g.update(outcome_varies=_spread(g['outcome']),R_A_varies=_spread(g['R_A']),
+                 R_A_present=sum(x is not None for x in g['R_A']),
+                 R_A_nonzero=any(x for x in g['R_A'] if x is not None),reward_varies=_spread(g['reward']))
+        summary={'groups':1,'outcome_varies':int(g['outcome_varies']),'R_A_varies':int(g['R_A_varies']),
+                 'R_A_nonzero':int(g['R_A_nonzero']),'reward_varies':int(g['reward_varies']),
+                 'reward_varies_fraction':float(g['reward_varies']),
+                 'reward_varies_only_through_R_A':int(g['reward_varies'] and not g['outcome_varies']),
+                 'groups_updated':(update or {}).get('groups_used'),'optimizer_steps':(update or {}).get('optimizer_steps',0)}
+        return {'mode':'trajectory_level','summary':summary,'by_depth':{},'groups':[g]}
+    if 'nodes' not in targets: return None
     depth = {n.node_id: n.depth for n in tree.nodes}; groups = []
     for key, ids in sorted(targets['groups'].items()):
         t = [targets['nodes'][i] for i in ids]
@@ -82,7 +97,8 @@ def interaction_diagnostics(tree: Tree, targets: Optional[dict]) -> dict:
     diversity = [len({option(n.response) for n in g if option(n.response)}) for g in kids.values()]
     changes = sum(1 for n in nodes if getattr(n, 'next_doctor_status', None) and (n.next_doctor_status.get('status') or {}).get('current_option') not in (None, 'none')
                   and doctor_option(n) and n.next_doctor_status['status']['current_option'] != doctor_option(n))
-    rewards = [v['reward'] for v in (targets or {}).get('nodes', {}).values() if v.get('reward') is not None]
+    reward_records=((targets or {}).get('trajectories') or (targets or {}).get('nodes', {}))
+    rewards = [v['reward'] for v in reward_records.values() if v.get('reward') is not None]
     depth = [len(l.path) for l in tree.leaves]
     return {'agent_replies': len(nodes), 'agent_reply_flags': flags,
             'sibling_option_diversity': {'mean_distinct_options': (sum(diversity) / len(diversity)) if diversity else None,
@@ -93,4 +109,3 @@ def interaction_diagnostics(tree: Tree, targets: Optional[dict]) -> dict:
             'leaf_accuracy': (sum(l.outcome == 1.0 for l in tree.leaves) / len(tree.leaves)) if tree.leaves else None,
             'reward': {'n': len(rewards), 'mean': (sum(rewards) / len(rewards)) if rewards else None,
                        'min': min(rewards) if rewards else None, 'max': max(rewards) if rewards else None}}
-

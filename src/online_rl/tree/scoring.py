@@ -9,11 +9,35 @@ from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.posthoc import case_view
 from src.online_rl.tree.records import AgentNode, ResponseRubricScore, TrajectoryRubric, to_dialogue
 from src.online_rl.tree.agent_state import visible_rubric
-from src.online_rl.tree.applicability import ScoringContractError, state_applicability
+from src.online_rl.tree.applicability import ApplicabilityUncertain, ScoringContractError, state_applicability
+from src.common.config import IntegrationUnavailable
 from src.online_rl.integrated.records import sha256_json
 
 VISIBLE = ('rubric_id', 'name', 'applicability_condition', 'required_behavior', 'scores')
 SCORE_RECORD_CONTRACT = 'complete_state_scoring_with_shared_applicability_v2'
+
+
+def _review_applicability(case, node, rubrics, scorer, cache):
+    """Evaluate every criterion independently; quarantine judge/contract errors.
+
+    An applicability transport or evidence-contract failure is missing evidence,
+    never NA and never behavior score zero.  Preserve it as an explicit unscored
+    record so one bad criterion cannot terminate the training batch.
+    """
+    review = {}
+    for rubric in rubrics:
+        rid = rubric['rubric_id']
+        try:
+            review[rid] = state_applicability(case, node, rubric, scorer, cache)
+        except (IntegrationUnavailable, ScoringContractError, ApplicabilityUncertain) as exc:
+            review[rid] = {
+                'applicable': None,
+                'status': 'execution_error',
+                'scoring_status': 'applicability_error',
+                'error_type': type(exc).__name__,
+                'error': str(exc),
+            }
+    return review
 
 
 def _mapping(value, expected, label, metadata=()):
@@ -121,7 +145,7 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
             if callable(getattr(scorer, 'match_state', None)):
                 matched = validate_match(cache.call('rubric_state_match', identity,
                     lambda: validate_match(scorer.match_state(view, prefix, rubrics))))
-            review = {r['rubric_id']: state_applicability(case, n, r, scorer, cache) for r in rubrics}
+            review = _review_applicability(case, n, rubrics, scorer, cache)
             on = [r for r in rubrics if review[r['rubric_id']]['applicable'] and
                   (matched is None or str(matched[r['rubric_id']]['value']).upper() == 'Y')]
             mask = tuple(r['rubric_id'] for r in on)
@@ -162,25 +186,33 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
                             'batch_size': batch_size, 'score_record_contract': SCORE_RECORD_CONTRACT}
                 if content_aliases:
                     identity['behavior_cache_contract'] = scorer.behavior_cache_contract
-                if callable(batch_fn):
-                    def validate_batch(rows):
-                        _mapping(rows, [node.node_id for node in part], 'behavior response batch')
-                        for node in part:
-                            validate_behavior(node, restore_aliases(rows[node.node_id]))
-                        return rows
-                    rows = validate_batch(cache.call('rubric_behavior_batch', identity,
-                        lambda: validate_batch(batch_fn(view, prefix, request_rubrics, responses))))
-                    state_results.update({nid: restore_aliases(values) for nid, values in rows.items()})
-                else:
-                    for node in part:
-                        single_identity = {**identity, 'response_id': node.node_id}
-                        def validate_single(rows):
-                            validate_behavior(node, restore_aliases(rows))
+                try:
+                    if callable(batch_fn):
+                        def validate_batch(rows):
+                            _mapping(rows, [node.node_id for node in part], 'behavior response batch')
+                            for node in part:
+                                validate_behavior(node, restore_aliases(rows[node.node_id]))
                             return rows
-                        rows = cache.call('rubric_behavior', single_identity,
-                            lambda: validate_single(scorer.score_behavior(view, to_dialogue(node.prefix), request_rubrics,
-                                                                                 node.response, matched)))
-                        state_results[node.node_id] = validate_behavior(node, restore_aliases(rows))
+                        rows = validate_batch(cache.call('rubric_behavior_batch', identity,
+                            lambda: validate_batch(batch_fn(view, prefix, request_rubrics, responses))))
+                        state_results.update({nid: restore_aliases(values) for nid, values in rows.items()})
+                    else:
+                        for node in part:
+                            single_identity = {**identity, 'response_id': node.node_id}
+                            def validate_single(rows):
+                                validate_behavior(node, restore_aliases(rows))
+                                return rows
+                            rows = cache.call('rubric_behavior', single_identity,
+                                lambda: validate_single(scorer.score_behavior(view, to_dialogue(node.prefix), request_rubrics,
+                                                                                     node.response, matched)))
+                            state_results[node.node_id] = validate_behavior(node, restore_aliases(rows))
+                except (IntegrationUnavailable, ScoringContractError) as exc:
+                    # The entire request is technically incomplete. Quarantine
+                    # exactly its response/rubric cells; do not fabricate NA or 0.
+                    failure = {'_technical_error': True, 'error_type': type(exc).__name__,
+                               'error': str(exc)}
+                    for node in part:
+                        state_results[node.node_id] = {rid: dict(failure) for rid in mask}
             return group, matched, review, state_results
 
         items = list(state_groups.items())
@@ -204,9 +236,20 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
             matched, review = reviewed[n.node_id]
             behavior = result_by_node.get(n.node_id, {})
             for rid in sorted(src):
+                if review[rid].get('scoring_status') == 'applicability_error':
+                    result_by_node.setdefault(n.node_id, {})
+                    out.append(ResponseRubricScore(
+                        n.node_id, rid, src[rid], False, None, None, None,
+                        'applicability_error', {'applicability': review[rid]}))
+                    continue
                 applicable = bool(review[rid].get('applicable')) and (matched is None or
                     str(matched[rid].get('value', 'Y')).upper() == 'Y')
                 r = behavior.get(rid) if applicable else None
+                if applicable and isinstance(r, dict) and r.get('_technical_error'):
+                    out.append(ResponseRubricScore(
+                        n.node_id, rid, src[rid], True, None, None, None,
+                        'behavior_error', {'applicability': review[rid], 'behavior_error': r}))
+                    continue
                 record = _score_record(n, rid, src[rid], applicable, r)
                 out.append(replace(record, scoring_evidence={**(record.scoring_evidence or {}), 'applicability': review[rid]}))
         return _mask_unscorable(out, view, nodes)

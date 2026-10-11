@@ -87,6 +87,16 @@ def unit_values(results: dict[str, dict], strategies: Strategies) -> dict[str, f
     return {leaf_id: v for leaf_id, r in results.items() if (v := value(r)) is not None}
 
 
+def objective(values: dict[str, float], outcomes: dict[str, float]) -> dict:
+    """Compatibility helper for the batch prompt evaluator: the same stratified J used by directional_scores."""
+    sides={name:[values[k] for k in values if outcomes.get(k)==outcome]
+           for name,outcome in (('success',1.0),('failure',0.0))}
+    out={f'n_{name}':len(rows) for name,rows in sides.items()}
+    out.update({f'S_{name}':sum(rows)/len(rows) if rows else None for name,rows in sides.items()})
+    out['J']=None if None in (out['S_success'],out['S_failure']) else out['S_success']*out['S_failure']
+    return out
+
+
 def strata(units: list[EvidenceUnit]) -> dict[str, int]:
     return {'success': sum(u.leaf.outcome == 1.0 for u in units), 'failure': sum(u.leaf.outcome == 0.0 for u in units)}
 

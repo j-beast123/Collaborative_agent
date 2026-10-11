@@ -165,7 +165,15 @@ def _source_consistency(prompt_text, prompt_sha256, tin, generate_fn, cache, sou
     feedback; generate_fn.repair) of which ONLY the applicability condition is taken: name, required behavior, 0/1/2 levels
     and rubric id stay those of the generated rubric; a second Stage-1 check -> REPAIRED_PASS or SOURCE_INCONSISTENT.
     No locus -> NO_SOURCE_LOCUS. The locus is never changed."""
-    first = source_stage1(rubric)
+    # A judge contract failure is neither non-applicability nor score zero.  At
+    # generation admission it quarantines this candidate so one malformed or
+    # uncertain LLM result cannot terminate the whole training batch.
+    from src.online_rl.tree.applicability import ApplicabilityUncertain, ScoringContractError
+    try:
+        first = source_stage1(rubric)
+    except (ApplicabilityUncertain, ScoringContractError) as error:
+        return ({'status':'SOURCE_APPLICABILITY_ERROR','error_type':type(error).__name__}, rubric, raw,
+                [f'source_applicability_error: {type(error).__name__}'])
     if first is None: return {'status': 'NO_SOURCE_LOCUS', 'locus': None}, rubric, raw, ['source_inconsistent: no behavioral locus']
     check = {'locus': first.get('target_reply_id', tin.target_reply_id), 'node_id': first.get('node_id'), 'first': first}
     if first['applicable']: return {**check, 'status': 'PASS'}, rubric, raw, []
