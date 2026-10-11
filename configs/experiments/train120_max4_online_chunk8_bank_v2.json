@@ -204,7 +204,7 @@
     "mode": "ONLINE Ours (collaborator decision 2026-10-11): the collaborator max-4 Ours with the rubric bank built and updated DURING RL. Per five-case batch: rollout with the current policy -> Doctor post-final reflection -> chunk transactions against the CURRENT bank (case by case) -> full-bank scoring -> reward 0.5 Outcome + 0.5 R_A -> GRPO; the next batch starts from the accumulated bank. This is an ONLINE EVOLVING rubric bank; the OFFLINE run differs only in bank timing (bank precomputed at fresh theta0 and frozen).",
     "derived_from": "train120_max4_offline_chunk8_bank_stage_a_v2.json without rubric.cumulative_bank.offline_build (same code, same generator contract offline_chunk8_single_call_bank_v1: cap 48, chunks of 8, one primary generator call per chunk, bank updated after every call).",
     "evaluation": "No evaluation of any kind; no DEV or TEST data.",
-    "execution_robustness": "Execution settings only (no prompt / model / criterion / decision change): judges.scorer_max_tokens 4096 -> 16384 (the Stage-1 applicability and behavior judge output allowance; smoke applicability answers used up to the 4096 cap with 3200-4000 reasoning tokens and were truncated; 16384 equals the Gate allowance), and judges.execution_retry_attempts = 12 (bounded local repetition of the unchanged request when a judge / generator response is execution-invalid or truncated; such a response is never a verdict).",
+    "execution_robustness": "Execution settings only (no prompt / model / criterion / decision change): judges.scorer_max_tokens 4096 -> 16384 (the Stage-1 applicability and behavior judge output allowance; smoke applicability answers used up to the 4096 cap with 3200-4000 reasoning tokens and were truncated; 16384 equals the Gate allowance), and judges.execution_retry_attempts = 12 (bounded local repetition of the unchanged request when a judge / generator response is execution-invalid or truncated; such a response is never a verdict). judges.intervention_audit_max_tokens 2048 -> 8192: in the smokes 6 of 39 intervention-audit responses hit the 2048 cap and all 6 were truncated with EMPTY content (the whole allowance spent on reasoning), so the decision came only from the client repair request; complete responses used up to 1892 tokens. Output allowance only; model, prompt, input, parser, criteria unchanged.",
     "uncertain": "A Stage-1 applicability verdict of uncertain gets up to two fresh re-judgments by the same judge; if still uncertain only that rubric / state pair is unresolved (abstain): no score, no reward or penalty, never read as FALSE."
   },
   "acceptance": {
@@ -227,7 +227,7 @@
     "intervention_audit_model": "openai/gpt-6-luna",
     "intervention_audit_prompt_file": "prompts/sherpa/intervention_instruction_audit_v1.txt",
     "intervention_audit_structured": true,
-    "intervention_audit_max_tokens": 2048,
+    "intervention_audit_max_tokens": 8192,
     "intervention_audit_timeout_s": 180,
     "intervention_audit_prompt_sha256": "c399975bbb6d76ca2da77599e0258a615e9156bdd02379d2320bac51dcb436ac",
     "applicability_prompt_file": "prompts/sherpa/applicability_public_mc_v3.txt",
