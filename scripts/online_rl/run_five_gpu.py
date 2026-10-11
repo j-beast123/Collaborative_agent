@@ -434,6 +434,7 @@ def run(cfg, max_batches=None, eval_only=False):
         if not eval_only:
             if queue is not None:drain_checkpoint_evaluations()
             completed = 0
+            prefetch_futures=[]; prefetch_done=set()
             while state['case_cursor'] < cfg['schedule']['cases'] and (max_batches is None or completed < max_batches):
                 batch = state['batch_cursor']+1
                 batchdir = out/'batches'/f'batch_{batch:06d}'
@@ -451,8 +452,10 @@ def run(cfg, max_batches=None, eval_only=False):
                 else:
                     atomic_write_json(manifest_path,manifest)
                 print(json.dumps({'stage':'rollout','batch':batch,'cases':len(jobs),'gpus':fg['rollout_gpus']}),flush=True)
-                def collect(phase=None,prompt=None,selected_case_cursors=None):
-                    if shared:
+                def collect(phase=None,prompt=None,selected_case_cursors=None,barrier=True):
+                    # barrier=False (offline bank build only): the policy never changes there, and the next batch's
+                    # rollouts may be running in the background, so the idle / prepare barrier is not applicable.
+                    if shared and barrier:
                         assert_idle(pool_spec)
                         prepared=[executors[w].submit(worker.prepare,state['checkpoint'],state['policy_sha256']) for w in range(5)]
                         wait_with_evaluation(prepared,lambda:False)
@@ -465,8 +468,35 @@ def run(cfg, max_batches=None, eval_only=False):
                         if phase is not None:args+= (phase,prompt)
                         futures.append(executors[w].submit(worker.run_many,*args))
                     results=wait_with_evaluation(futures,lambda:False) if shared else wait_with_evaluation(futures,evaluate_one)
-                    if shared:assert_idle(pool_spec)
+                    if shared and barrier:assert_idle(pool_spec)
                     return sorted([r for result in results for r in result],key=lambda r:r['case_cursor'])
+                offline_build=bool((cfg['rubric'].get('cumulative_bank') or {}).get('offline_build'))
+                def prefetch_start(prompt,workers):
+                    # Execution only. Offline bank build: the policy is fixed (theta0) and a rollout + Doctor reflection does
+                    # not depend on the bank, so the NEXT batch's 'bank_rollout' jobs may run while this batch's rubric
+                    # transactions wait on external APIs. Their bank transactions still start only after this batch commits.
+                    if not (offline_build and shared) or os.environ.get('SHERPA_OFFLINE_PREFETCH','1')!='1':return
+                    nxt=state['case_cursor']+len(jobs)
+                    if nxt>=cfg['schedule']['cases'] or (max_batches is not None and completed+1>=max_batches):return
+                    ndir=out/'batches'/f'batch_{batch+1:06d}'
+                    nslots=batch_slots(nxt,cfg['schedule']['cases'],interval=fg['checkpoint_every_cases'],
+                                       workers=len(fg['rollout_gpus']),lanes=fg['lanes_per_gpu'])
+                    njobs=[{**s,'case':byid[order[s['index']]],'out':str(ndir/f'case_{s["index"]:06d}')} for s in nslots]
+                    nmanifest={'source_policy_sha256':state['policy_sha256'],'assignments':nslots,'case_ids':[j['case']['case_id'] for j in njobs]}
+                    if (ndir/'manifest.json').exists():
+                        if json.loads((ndir/'manifest.json').read_text())!=nmanifest:raise RuntimeError('Saved pending batch assignment/policy mismatch')
+                    else:atomic_write_json(ndir/'manifest.json',nmanifest)
+                    for w in workers:
+                        if w in prefetch_done:continue
+                        assigned=[j for j in njobs if j['worker']==w]
+                        prefetch_done.add(w)
+                        if assigned:
+                            prefetch_futures.append(executors[w].submit(worker.run_many,assigned,state['checkpoint'],state['policy_sha256'],'bank_rollout',prompt))
+                    print(json.dumps({'stage':'prefetch_next_rollout','batch':batch+1,'workers':sorted(prefetch_done)}),flush=True)
+                collect.prefetch_start=prefetch_start
+                if prefetch_futures:                                 # rollouts prefetched during the previous batch: finish them first
+                    wait_with_evaluation(prefetch_futures,lambda:False); prefetch_futures.clear()
+                prefetch_done.clear()
                 next_prompt=None
                 next_bank=None
                 if evolving:
@@ -484,7 +514,7 @@ def run(cfg, max_batches=None, eval_only=False):
                     records,next_bank=cumulative_run.round_records(cfg,ROOT,out,state,batch,batchdir,collect)
                 else:
                     records=collect()
-                if shared:
+                if shared and not prefetch_futures:
                     assert_idle(pool_spec)
                     with parent_actor.changing_policy():pass
                 reward_rows = experiment.check_batch(cfg,records)

@@ -132,7 +132,10 @@ def run_case(job, phase='fixed', prompt=None):
             return record
 
         if path.exists():
-            return validate_phase(json.loads(path.read_text()), phase, snapshot)
+            # An offline-build rollout (tree + reflection at the fixed initial policy) does not depend on the bank it was
+            # requested with, so a record prefetched during the previous batch is valid for the current bank.
+            prefetched = phase == 'bank_rollout' and bool((cfg['rubric'].get('cumulative_bank') or {}).get('offline_build'))
+            return validate_phase(json.loads(path.read_text()), phase, None if prefetched else snapshot)
         phase_started = time.perf_counter()
         if phase == 'bank_rollout':
             mode = 'no_feedback' if (cfg['rubric'].get('cumulative_bank') or {}).get('frozen') else 'with_feedback'

@@ -181,6 +181,16 @@ def _preset(context, chunk_sha, row):
     return generate
 
 
+def _ordered_map(fn, items, workers):
+    """Results in the order of `items`, whatever the completion order; workers <= 1 is the plain sequential loop."""
+    if workers <= 1 or len(items) <= 1: return [fn(item) for item in items]
+    from concurrent.futures import ThreadPoolExecutor
+    from contextvars import copy_context
+    with ThreadPoolExecutor(min(workers, len(items))) as pool:
+        futures = [pool.submit(copy_context().run, fn, item) for item in items]
+        return [future.result() for future in futures]
+
+
 def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_text, snapshot):
     """Sequential chunk transactions of one case against the latest working bank; returns the pieces of the online-bank record."""
     from src.online_rl.tree import witness as W
@@ -193,6 +203,8 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
     stage1 = (lambda leaf: W.source_stage1_for(case, nodes, leaf, tin_of[leaf.leaf_id].target_reply_id, env.scorer.applicability, cache)
               ) if trainer.source_consistency else None
     selected, sampling = select(list(leaf_of), state.run_seed, cid)
+    import os
+    workers = int(os.environ.get('SHERPA_CHUNK_WORKERS', '1'))            # execution only: concurrent independent CREATE groups
     working = CB.validate_snapshot(snapshot)
     canon_all, assignments_all, witness_all, witness_objects, selection_all = {}, [], [], {}, []
     reuse_rows, decisions, chunk_reports = [], [], []
@@ -216,7 +228,57 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
         result = cache.call('offline_chunk_generation', identity, primary_call)
         if result.get('bank_sha256') != before['sha256']: raise RuntimeError('Chunk result belongs to another bank')
         rows = result['decisions']; chunk_sha = sha256_json(identity); groups = {}; report = []
-        for tid in ids:
+        # Every CREATE group of this chunk was decided against the same frozen pre-chunk bank, so its validation calls are
+        # independent of the other groups: they run concurrently (bounded; execution only) and are then applied below in the
+        # original trajectory order, which alone determines assignment order, the bank transitions and the decision journal.
+        creators = [tid for tid in ids if rows[tid]['action'] == 'CREATE']
+
+        def admit(tid):                                          # generation -> source consistency -> Gate -> peer re-check
+            row, tin, leaf, layer = rows[tid], tin_of[tid], leaf_of[tid], tin_of[tid].outcome
+            rub = generate_rubric(create_text, state.prompt_sha256, tin, _preset(context, chunk_sha, row), cache, env.gate_fn,
+                                  source_stage1=stage1(leaf) if stage1 else None)
+            proposed = [pid for pid in ids if rows[pid]['action'] == 'PEER' and rows[pid]['peer']['peer_representative_id'] == tid]
+            confirmed = {}; matching_calls = 0
+            if rub.valid and proposed:                           # as rubric_bank.batched_stratum: followers are checked against the ACTUAL rubric
+                anchors = [rub]; peer_tins = [tin_of[pid] for pid in proposed]
+                match_identity = {'version': RB.BATCH_VERSION, 'case': cid, 'stratum': layer, 'prompt': state.prompt_sha256,
+                                  'assignment_cache_version': RB.ASSIGNMENT_CACHE_VERSION, 'tins': [[t.leaf_id, t.sha256] for t in peer_tins],
+                                  'bank': sha256_json(RB.bank_view(anchors)), 'transcript': TRANSCRIPT_FORMAT,
+                                  'model': getattr(env.assign_fn, 'model', None), 'settings': getattr(env.assign_fn, 'settings', None),
+                                  'chunk_protocol': VERSION}
+                def checked(value):
+                    if not isinstance(value, dict) or not isinstance(value.get('decisions'), dict) or set(value['decisions']) != set(proposed):
+                        raise RuntimeError('Batch match returned incomplete trajectory IDs')
+                    for pid in proposed: RB._validate_member_decision(value['decisions'][pid], anchors, tin_of[pid])
+                    return value
+                confirmed = checked(cache.call('rubric_match_batch', match_identity,
+                                               lambda: checked(env.assign_fn.batch(package, peer_tins, anchors))))['decisions']
+                matching_calls = 1
+            return rub, proposed, confirmed, matching_calls
+        admitted = dict(zip(creators, _ordered_map(admit, creators, workers)))
+
+        for tid in creators:                                     # assignments in the original order (deterministic `order` fields)
+            rub, proposed, confirmed, matching_calls = admitted[tid]; tin, layer = tin_of[tid], tin_of[tid].outcome
+            kind = 'CREATED_NEW' if rub.valid else 'CREATE_REJECTED'
+            note = '' if rub.valid else 'generated rubric rejected: ' + ', '.join(rub.problems or RB._gate_reasons(rub.gate))
+            canon = {rub.rubric_id: rub}; members = [leaf_of[tid]]; accepted = {}; refused = {}
+            assignments = [RubricAssignment(tid, cid, layer, orders[layer], rub.rubric_id, kind, None, note, sha256_json(tin.feedback),
+                                            RB._member_spec(rub, tin, kind, None))]
+            orders[layer] += 1
+            for pid in proposed:
+                if not rub.valid: refused[pid] = 'representative rubric rejected'; continue
+                decision = confirmed[pid]; problem = RB.match_problem(decision, [rub])
+                if problem: refused[pid] = problem; continue
+                assignments.append(RubricAssignment(pid, cid, layer, orders[layer], rub.rubric_id, 'REUSED_EXISTING', decision, '',
+                    sha256_json(tin_of[pid].feedback), RB._member_spec(rub, tin_of[pid], 'REUSED_EXISTING', decision)))
+                orders[layer] += 1; members.append(leaf_of[pid]); accepted[pid] = True
+            groups[tid] = {'rub': rub, 'canon': canon, 'members': members, 'assignments': assignments, 'accepted': accepted, 'refused': refused,
+                           'proposed': proposed, 'matching_calls': matching_calls}
+        witnessed = dict(zip(creators, _ordered_map(
+            lambda tid: trainer._verify_bounded(case, tree, feedback, groups[tid]['members'], groups[tid]['canon'], groups[tid]['assignments']),
+            creators, workers)))
+
+        for tid in ids:                                          # apply in the original trajectory order
             row, tin, leaf, layer, input_sha = rows[tid], tin_of[tid], leaf_of[tid], tin_of[tid].outcome, working['sha256']
             base = {'case_cursor': state.case_cursor, 'case_id': cid, 'leaf_id': tid}
             if row['action'] == 'REUSE_BANK':
@@ -232,39 +294,7 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                                   'bank_id': decision['bank_id'], 'rubric_id': None})
                 report.append({'trajectory_id': tid, 'layer': layer, 'decision': 'REUSE', 'bank_id': decision['bank_id']})
             elif row['action'] == 'CREATE':
-                rub = generate_rubric(create_text, state.prompt_sha256, tin, _preset(context, chunk_sha, row), cache, env.gate_fn,
-                                      source_stage1=stage1(leaf) if stage1 else None)
-                kind = 'CREATED_NEW' if rub.valid else 'CREATE_REJECTED'
-                note = '' if rub.valid else 'generated rubric rejected: ' + ', '.join(rub.problems or RB._gate_reasons(rub.gate))
-                canon = {rub.rubric_id: rub}; members = [leaf]; accepted = {}; refused = {}
-                assignments = [RubricAssignment(tid, cid, layer, orders[layer], rub.rubric_id, kind, None, note, sha256_json(tin.feedback),
-                                                RB._member_spec(rub, tin, kind, None))]
-                orders[layer] += 1
-                proposed = [pid for pid in ids if rows[pid]['action'] == 'PEER' and rows[pid]['peer']['peer_representative_id'] == tid]
-                confirmed = {}; matching_calls = 0
-                if rub.valid and proposed:                       # as rubric_bank.batched_stratum: followers are checked against the ACTUAL rubric
-                    anchors = [rub]; peer_tins = [tin_of[pid] for pid in proposed]
-                    match_identity = {'version': RB.BATCH_VERSION, 'case': cid, 'stratum': layer, 'prompt': state.prompt_sha256,
-                                      'assignment_cache_version': RB.ASSIGNMENT_CACHE_VERSION, 'tins': [[t.leaf_id, t.sha256] for t in peer_tins],
-                                      'bank': sha256_json(RB.bank_view(anchors)), 'transcript': TRANSCRIPT_FORMAT,
-                                      'model': getattr(env.assign_fn, 'model', None), 'settings': getattr(env.assign_fn, 'settings', None),
-                                      'chunk_protocol': VERSION}
-                    def checked(value):
-                        if not isinstance(value, dict) or not isinstance(value.get('decisions'), dict) or set(value['decisions']) != set(proposed):
-                            raise RuntimeError('Batch match returned incomplete trajectory IDs')
-                        for pid in proposed: RB._validate_member_decision(value['decisions'][pid], anchors, tin_of[pid])
-                        return value
-                    confirmed = checked(cache.call('rubric_match_batch', match_identity,
-                                                   lambda: checked(env.assign_fn.batch(package, peer_tins, anchors))))['decisions']
-                    matching_calls = 1
-                for pid in proposed:
-                    if not rub.valid: refused[pid] = 'representative rubric rejected'; continue
-                    decision = confirmed[pid]; problem = RB.match_problem(decision, [rub])
-                    if problem: refused[pid] = problem; continue
-                    assignments.append(RubricAssignment(pid, cid, layer, orders[layer], rub.rubric_id, 'REUSED_EXISTING', decision, '',
-                        sha256_json(tin_of[pid].feedback), RB._member_spec(rub, tin_of[pid], 'REUSED_EXISTING', decision)))
-                    orders[layer] += 1; members.append(leaf_of[pid]); accepted[pid] = True
-                wit = trainer._verify_bounded(case, tree, feedback, members, canon, assignments)
+                group = groups[tid]; rub, canon, wit = group['rub'], group['canon'], witnessed[tid]
                 chosen = trainer._witness_selection(canon, wit)
                 kept = any(d.retained for d in chosen)
                 if kept:
@@ -272,19 +302,20 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                         'prompt_sha256': state.prompt_sha256, 'trajectory_rubrics': [to_dict(r) for r in canon.values()],
                         'selection': [to_dict(d) for d in chosen], 'rubric_bank': {'witness': [to_dict(w) for w in wit.values()]}}])
                 bank_id = 'bank_' + CB.content_hash(rub.rubric) if kept else None
-                groups[tid] = {'rubric_id': rub.rubric_id, 'kept': kept, 'bank_id': bank_id, 'accepted': accepted, 'refused': refused}
-                canon_all.update(canon); assignments_all.extend(assignments); witness_all.extend(to_dict(w) for w in wit.values())
+                group.update(rubric_id=rub.rubric_id, kept=kept, bank_id=bank_id)
+                canon_all.update(canon); assignments_all.extend(group['assignments']); witness_all.extend(to_dict(w) for w in wit.values())
                 witness_objects.update(wit); selection_all.extend(chosen)
                 decisions.append({**base, 'action': 'GENERATED_KEEP' if kept else 'GENERATED_REMOVE', 'input_bank_sha256': input_sha,
                                   'output_bank_sha256': working['sha256'], 'bank_id': bank_id, 'rubric_id': rub.rubric_id})
                 w = wit.get(rub.rubric_id)
                 report.append({'trajectory_id': tid, 'layer': layer, 'decision': 'CREATE', 'rubric_id': rub.rubric_id, 'name': (rub.rubric or {}).get('name'),
                                'structure_valid': not rub.problems, 'problems': list(rub.problems or ()),
-                               'gate_passed': (rub.gate or {}).get('passed') if rub.gate is not None else None, 'peers': sorted(accepted),
+                               'gate_passed': (rub.gate or {}).get('passed') if rub.gate is not None else None, 'peers': sorted(group['accepted']),
                                'witness_decision': getattr(w, 'decision', None), 'witness_stop_reason': getattr(w, 'stop_reason', None),
                                'witness_valid_supports': getattr(w, 'num_valid_supports', None), 'witness_reruns': getattr(w, 'num_reruns_executed', None),
-                               'validated_by': getattr(w, 'validated_by_trajectory_id', None), 'keep': kept, 'bank_id': bank_id, 'source_check': (rub.source_check or {}).get('status'),
-                               'proposed_peers': proposed, 'peer_matching_calls': matching_calls, 'refused_peers': refused})
+                               'validated_by': getattr(w, 'validated_by_trajectory_id', None), 'keep': kept, 'bank_id': bank_id,
+                               'source_check': (rub.source_check or {}).get('status'), 'proposed_peers': group['proposed'],
+                               'peer_matching_calls': group['matching_calls'], 'refused_peers': group['refused']})
             else:
                 rep = row['peer']['peer_representative_id']; group = groups[rep]; member = tid in group['accepted']
                 if not member: uncovered.append(tid)

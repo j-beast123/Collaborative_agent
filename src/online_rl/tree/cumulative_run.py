@@ -198,14 +198,21 @@ def round_records(cfg, root, out, state, batch, batchdir, collect):
         rolled = collect('bank_rollout', prompt)
         timings['bank_rollout'] = time.monotonic() - started
         if (len(rolled) != cfg['five_gpu']['batch_cases'] or len({r['case_id'] for r in rolled}) != len(rolled) or
-                any(r['policy_sha256'] != state['policy_sha256'] or r['cumulative_bank_input']['sha256'] != before['sha256'] for r in rolled)):
+                any(r['policy_sha256'] != state['policy_sha256'] for r in rolled) or
+                (not offline and any(r['cumulative_bank_input']['sha256'] != before['sha256'] for r in rolled))):
             raise RuntimeError('Bank rollout needs five distinct cases of the committed policy and bank')
+        prefetch = getattr(collect, 'prefetch_start', None) if offline else None
+        workers = [r.get('rollout_gpu') for r in rolled]                 # case i -> its worker; bank turns run in this order
+        if prefetch is not None: prefetch(prompt, workers[2:])          # workers whose own bank turn is late enough start now
     if online:
         from src.online_rl.tree.online_working_bank import VERSION as JOURNAL_VERSION
         working = before; records = []; decisions = []
         started = time.monotonic()
         for case_cursor in range(state['case_cursor'], state['case_cursor'] + cfg['five_gpu']['batch_cases']):
-            rows = collect('bank_online', {**prompt, 'snapshot': working}, [case_cursor])
+            rows = (collect('bank_online', {**prompt, 'snapshot': working}, [case_cursor], barrier=False) if offline
+                    else collect('bank_online', {**prompt, 'snapshot': working}, [case_cursor]))
+            if offline and prefetch is not None:                         # this worker finished its bank turn: it may prefetch now
+                prefetch(prompt, [w for w, r in zip(workers, rolled) if r['case_cursor'] == case_cursor])
             if len(rows) != 1 or rows[0].get('case_cursor') != case_cursor:
                 raise RuntimeError('Online working bank requires one deterministic case at a time')
             record = rows[0]
