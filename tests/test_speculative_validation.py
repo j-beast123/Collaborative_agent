@@ -54,3 +54,40 @@ def test_a_failing_speculative_request_is_ignored():
     seen = []
     O.speculate([boom, None, lambda: seen.append(1)], 3)
     assert seen == [1]
+
+
+class Persistent:
+    """Minimal CallCache: persistent `store` records and a call log."""
+    path = None
+    def __init__(self): self.store = {}; self.computed = []
+    def call(self, kind, identity, fn):
+        key = sha256_json([kind, identity])
+        if key not in self.store: self.computed.append(kind); self.store[key] = {'kind': kind, 'identity': identity, 'value': fn()}
+        return self.store[key]['value']
+
+
+def test_unused_speculative_result_never_reaches_the_persistent_cache():
+    persistent = Persistent(); spec = O.Speculation(persistent); answers = iter(['speculative', 'fresh'])
+    identity = {'tin': 't', 'rubric': 'r'}
+    assert spec.speculative.call('posthoc_gate', identity, lambda: next(answers)) == 'speculative'
+    assert persistent.store == {} and spec.discarded == 1                # computed, but only candidate-local
+    del spec                                                             # the candidate finished without requesting its Gate
+    assert persistent.call('posthoc_gate', identity, lambda: next(answers)) == 'fresh'       # a later identical request is fresh
+    assert persistent.computed == ['posthoc_gate']
+
+
+def test_consumed_speculative_result_is_committed_exactly_once():
+    persistent = Persistent(); spec = O.Speculation(persistent); calls = []
+    identity = {'tin': 't', 'rubric': 'r'}
+    spec.speculative.call('posthoc_gate', identity, lambda: calls.append('api') or {'passed': True})
+    assert persistent.store == {}
+    assert spec.logical.call('posthoc_gate', identity, lambda: calls.append('second') or {'passed': False}) == {'passed': True}
+    assert calls == ['api'] and len(persistent.store) == 1 and spec.discarded == 0
+    assert spec.logical.call('posthoc_gate', identity, lambda: calls.append('third')) == {'passed': True} and calls == ['api']
+
+
+def test_speculative_requests_reuse_existing_persistent_results_without_calling():
+    persistent = Persistent(); identity = {'k': 1}
+    persistent.call('rubric_state_applicability', identity, lambda: 'stored')
+    spec = O.Speculation(persistent)
+    assert spec.speculative.call('rubric_state_applicability', identity, lambda: 1 / 0) == 'stored' and spec.pending == {}

@@ -191,11 +191,50 @@ def _ordered_map(fn, items, workers):
         return [future.result() for future in futures]
 
 
+class Speculation:
+    """Candidate-local, in-memory results of speculative requests (execution only).
+
+    `speculative` is the cache handed to speculative requests: it may read results that are already persistent, but a newly
+    computed result goes only into this object. `logical` is the cache handed to the unchanged sequential logic: when that
+    logic itself requests a judgment, a speculative result with exactly that identity is committed to the persistent cache
+    (as if computed at that moment) and returned; everything else falls through to the persistent cache. A speculative result
+    the logic never requests is dropped with this object: it is never written and can never become a later cache hit."""
+    def __init__(self, persistent):
+        import threading
+        self.persistent, self.pending, self.lock, self.used = persistent, {}, threading.Lock(), set()
+        outer = self
+
+        class Speculative:
+            path = None
+            def call(self, kind, identity, fn):
+                key = sha256_json([kind, identity])
+                stored = getattr(outer.persistent, 'store', {}).get(key)
+                if stored is not None: return stored['value']
+                with outer.lock:
+                    if key in outer.pending: return outer.pending[key]
+                value = fn(); json.dumps(value)
+                with outer.lock: return outer.pending.setdefault(key, value)
+
+        class Logical:
+            path = getattr(persistent, 'path', None)
+            def call(self, kind, identity, fn):
+                key = sha256_json([kind, identity])
+                with outer.lock: ready = key in outer.pending; value = outer.pending.get(key)
+                if ready:
+                    outer.used.add(key)
+                    return outer.persistent.call(kind, identity, lambda: value)
+                return outer.persistent.call(kind, identity, fn)
+        self.speculative, self.logical = Speculative(), Logical()
+
+    @property
+    def discarded(self): return len(set(self.pending) - self.used)
+
+
 def speculate(tasks, workers):
     """Start independent, side-effect-free judge requests of one fixed candidate together (execution only). Each task only
-    fills the exact-identity call cache; nothing is decided here. The unchanged logic afterwards reads the cache in its
-    original order and simply never reads a result it would not have requested. A failing task is ignored: the original
-    call repeats it and reports the error exactly as before."""
+    fills the candidate-local Speculation; nothing is decided or persisted here. The unchanged logic afterwards asks for its
+    judgments in its original order and never sees a result it would not have requested. A failing task is ignored: the
+    original call repeats it and reports the error exactly as before."""
     def quiet(task):
         try: task()
         except Exception: pass
@@ -253,7 +292,11 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
             proposed = [pid for pid in ids if rows[pid]['action'] == 'PEER' and rows[pid]['peer']['peer_representative_id'] == tid]
             peer_tins = [tin_of[pid] for pid in proposed]
 
-            def match_request(anchors):                          # the unchanged batch matcher against the ACTUAL generated rubric
+            spec = Speculation(cache); logical = spec.logical if speculative else cache
+            stage1_on = lambda store: (W.source_stage1_for(case, nodes, leaf, tin.target_reply_id, env.scorer.applicability, store)
+                                       if trainer.source_consistency else None)
+
+            def match_request(anchors, store):                   # the unchanged batch matcher against the ACTUAL generated rubric
                 match_identity = {'version': RB.BATCH_VERSION, 'case': cid, 'stratum': layer, 'prompt': state.prompt_sha256,
                                   'assignment_cache_version': RB.ASSIGNMENT_CACHE_VERSION, 'tins': [[t.leaf_id, t.sha256] for t in peer_tins],
                                   'bank': sha256_json(RB.bank_view(anchors)), 'transcript': TRANSCRIPT_FORMAT,
@@ -264,7 +307,7 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                         raise RuntimeError('Batch match returned incomplete trajectory IDs')
                     for pid in proposed: RB._validate_member_decision(value['decisions'][pid], anchors, tin_of[pid])
                     return value
-                return checked(cache.call('rubric_match_batch', match_identity,
+                return checked(store.call('rubric_match_batch', match_identity,
                                           lambda: checked(env.assign_fn.batch(package, peer_tins, anchors))))['decisions']
 
             speculated = 0
@@ -283,16 +326,18 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                     if getattr(env.gate_fn, 'settings', None) is not None: gate_identity['settings'] = env.gate_fn.settings
                     provisional = TrajectoryRubric(rid, tin.leaf_id, state.prompt_sha256, json.dumps(row['generation'], ensure_ascii=False), rubric,
                                                    True, (), None, None, _preset(context, chunk_sha, row)(None, tin)['intervention_instruction'])
-                    tasks = [(lambda: stage1(leaf)(rubric)) if stage1 else None,
-                             (lambda: cache.call('posthoc_gate', gate_identity, lambda: env.gate_fn(tin, rubric))) if env.gate_fn else None,
-                             (lambda: match_request([provisional])) if proposed else None]
+                    quiet = spec.speculative
+                    tasks = [(lambda: stage1_on(quiet)(rubric)) if stage1 else None,
+                             (lambda: quiet.call('posthoc_gate', gate_identity, lambda: env.gate_fn(tin, rubric))) if env.gate_fn else None,
+                             (lambda: match_request([provisional], quiet)) if proposed else None]
                     speculate(tasks, 3); speculated = sum(t is not None for t in tasks)
-            rub = generate_rubric(create_text, state.prompt_sha256, tin, _preset(context, chunk_sha, row), cache, env.gate_fn,
-                                  source_stage1=stage1(leaf) if stage1 else None)
+            rub = generate_rubric(create_text, state.prompt_sha256, tin, _preset(context, chunk_sha, row), logical, env.gate_fn,
+                                  source_stage1=stage1_on(logical))
             confirmed = {}; matching_calls = 0
             if rub.valid and proposed:                           # as rubric_bank.batched_stratum: followers are checked against the ACTUAL rubric
-                confirmed = match_request([rub]); matching_calls = 1
-            timing[tid] = {'admit_s': round(time.monotonic() - started, 1), 'speculative_requests': speculated}
+                confirmed = match_request([rub], logical); matching_calls = 1
+            timing[tid] = {'admit_s': round(time.monotonic() - started, 1), 'speculative_requests': speculated,
+                           'speculative_results_discarded': spec.discarded}
             return rub, proposed, confirmed, matching_calls
         admitted = dict(zip(creators, _ordered_map(admit, creators, workers)))
         admit_seconds = round(time.monotonic() - phase_started, 1); phase_started = time.monotonic()
