@@ -104,7 +104,7 @@ def run_case(job, phase='fixed', prompt=None):
     cfg['schedule'].pop('positions', None)
     cfg['schedule']['calibration_only_cursors'] = []
     trainer = build(cfg, policy=_POLICY, cases=[job['case']], defer_update=True)
-    if phase in ('bank_prepare', 'bank_verify', 'bank_score', 'bank_online'):
+    if phase in ('bank_prepare', 'bank_verify', 'bank_score', 'bank_online', 'bank_rollout'):
         from src.online_rl.tree import cumulative_bank as CB
         from src.online_rl.integrated.records import sha256_text
         snapshot = CB.validate_snapshot(prompt['snapshot'])
@@ -134,9 +134,16 @@ def run_case(job, phase='fixed', prompt=None):
         if path.exists():
             return validate_phase(json.loads(path.read_text()), phase, snapshot)
         phase_started = time.perf_counter()
-        if phase == 'bank_online':
+        if phase == 'bank_rollout':
+            mode = 'no_feedback' if (cfg['rubric'].get('cumulative_bank') or {}).get('frozen') else 'with_feedback'
+            with activity('bank_rollout.tree_only'):
+                record = trainer.step(prompt_text=prompt['text'], prompt_id=prompt['id'], score_responses=False, commit=False,
+                                      apply_update=False, cumulative_snapshot=snapshot, rollout_only=mode)
+        elif phase == 'bank_online':
+            rolled = base / 'bank_rollout.json'
+            frozen_rollout = json.loads(rolled.read_text()) if rolled.exists() else None
             with activity('bank_online.trajectory_match_generate_verify'):
-                record = trainer.step(prompt_text=prompt['text'], prompt_id=prompt['id'],
+                record = trainer.step(frozen_record=frozen_rollout, prompt_text=prompt['text'], prompt_id=prompt['id'],
                                       score_responses=False, commit=False, apply_update=False,
                                       defer_verification=False, cumulative_snapshot=snapshot,
                                       online_working_bank=True)
@@ -169,7 +176,7 @@ def run_case(job, phase='fixed', prompt=None):
         else:
             # The input snapshot predates new KEEP additions; its identity is
             # independently validated, while all five scores use this new set.
-            source = base / ('bank_online.json' if (base / 'bank_online.json').exists() else 'bank_verify.json')
+            source = next(base / name for name in ('bank_online.json', 'bank_verify.json', 'bank_rollout.json') if (base / name).exists())
             verified = validate_phase(json.loads(source.read_text()), source.stem)
             with activity('bank_score.frozen_cumulative_scoring'):
                 record = trainer.score_cumulative(verified, snapshot)

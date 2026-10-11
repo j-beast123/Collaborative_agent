@@ -266,12 +266,13 @@ class TreeTrainer:
             self.step(); done += 1
 
     def step(self, *, frozen_record=None, prompt_text=None, prompt_id=None, score_responses=True, commit=True,
-             apply_update=True, defer_verification=False, cumulative_snapshot=None, online_working_bank=False) -> dict:
-        cumulative_reuse = []
+             apply_update=True, defer_verification=False, cumulative_snapshot=None, online_working_bank=False, rollout_only=None) -> dict:
+        # rollout_only: 'with_feedback' (tree + Doctor reflection for the offline bank build) or 'no_feedback' (tree only, frozen bank)
+        cumulative_reuse = []; chunk_summary = None
         if getattr(self, 'cumulative_bank', None):
             from src.online_rl.tree import cumulative_bank as CB
             if (cumulative_snapshot is None or commit or apply_update or score_responses or
-                    (not defer_verification and not online_working_bank)):
+                    (not defer_verification and not online_working_bank and not rollout_only)):
                 raise ValueError('cumulative bank preparation requires its snapshot and an explicit verification mode')
             CB.validate_snapshot(cumulative_snapshot)
         elif cumulative_snapshot is not None:
@@ -303,7 +304,7 @@ class TreeTrainer:
                           outcome_fn=e.outcome_fn, cache=self.cache, behavior_logprobs=e.behavior_logprobs, workers=self.doctor_workers,
                           opening=getattr(e, 'opening', None), agent_workers=self.agent_workers,on_leaf=on_leaf,
                           repeat_agent_reply_after_turns=ro.get('halting',{}).get('repeat_agent_reply_after_turns'))
-            if self.rubric_on and (cfg.get('five_gpu') or {}).get('execution_mode') == 'shared_ready_tasks_v1':
+            if self.rubric_on and rollout_only != 'no_feedback' and (cfg.get('five_gpu') or {}).get('execution_mode') == 'shared_ready_tasks_v1':
                 from concurrent.futures import ThreadPoolExecutor
                 from threading import Lock
                 futures = {}; lock = Lock()
@@ -321,7 +322,10 @@ class TreeTrainer:
                 rollout_seconds = time.perf_counter() - rollout_started
         decided = [l for l in tree.leaves if l.outcome is not None]
         feedback, tins, rubrics, source_scores, effs, selection, scores, weights, bank = [], [], [], [], [], [], [], {}, None
-        if self.rubric_on:                                           # Outcome-only arm: no feedback, rubric, verification or scoring
+        if rollout_only == 'no_feedback':                            # frozen bank: the tree only; scoring uses the immutable bank
+            bank = {'assignments': [], 'witness': [], 'telemetry': {}, 'member_intervention_version': self.member_intervention_version,
+                    'verification_pending': False, 'rollout_only_record': rollout_only}
+        if self.rubric_on and rollout_only != 'no_feedback':         # Outcome-only arm: no feedback, rubric, verification or scoring
             fb = lambda l: doctor_feedback(case, l, e.feedback_fn, self.fb_sha, self.cache, self.fb_model)
             if frozen_record is not None:
                 feedback = [from_dict(DoctorFeedback, f) for f in frozen_record['feedback']]
@@ -337,13 +341,23 @@ class TreeTrainer:
             tins = [freeze_trajectory_input(case, l, f, include_locus=self.source_consistency) for l, f in zip(decided, feedback) if getattr(f, 'valid', True)]
             prompt = self.store.get(s.prompt_sha256)
             nodes = {n.node_id: n for n in tree.nodes}
-            if self.reuse and self.verification in W.PROTOCOLS:       # consolidation + bounded causal-witness verification (witness.py)
+            if rollout_only:                                         # offline bank build: rollout + reflection now, chunk transactions later
+                bank = {'assignments': [], 'witness': [], 'telemetry': {}, 'member_intervention_version': self.member_intervention_version,
+                        'verification_pending': False, 'rollout_only_record': rollout_only}
+            elif self.reuse and self.verification in W.PROTOCOLS:     # consolidation + bounded causal-witness verification (witness.py)
                 tin_of = {t.leaf_id: t for t in tins}
                 online_decisions = []
                 if online_working_bank:
                     working = cumulative_snapshot; all_canon = {}; all_assignments = []; all_witness = []; all_wit_objs = {}
                     all_selection = []
-                    for leaf in sorted(ruled, key=lambda x: x.leaf_id):
+                    from src.online_rl.tree import offline_chunk_bank as OCB
+                    if self.cumulative_bank.get('working_bank_protocol') == OCB.VERSION:   # one generator call per chunk of <= 8
+                        built = OCB.process_case(self, case=case, state=s, tree=tree, feedback=feedback, ruled=ruled, tin_of=tin_of,
+                                                 prompt_text=prompt, snapshot=cumulative_snapshot)
+                        working, all_canon, all_assignments = built['working'], built['canon'], built['assignments']
+                        all_witness, all_wit_objs, all_selection = built['witness'], built['witness_objects'], built['selection']
+                        cumulative_reuse, online_decisions, chunk_summary = built['cumulative_reuse'], built['decisions'], built['summary']
+                    for leaf in ([] if chunk_summary is not None else sorted(ruled, key=lambda x: x.leaf_id)):
                         tin = tin_of[leaf.leaf_id]; input_sha = working['sha256']
                         match = CB.match_existing(tin, working, e.bank_matcher, self.cache,
                                                   top_k=int(self.cumulative_bank.get('retrieval_top_k', 8)))
@@ -482,6 +496,7 @@ class TreeTrainer:
                       'cumulative_reused_trajectories': len(cumulative_reuse)} if cumulative_snapshot is not None else {}),
                   **({'cumulative_bank_output': working, 'online_working_bank_decisions': online_decisions}
                      if online_working_bank else {}),
+                  **({'offline_chunk_bank': chunk_summary} if chunk_summary is not None else {}),
                   'group_diagnostics': sibling_group_diagnostics(tree, targets, update if isinstance(update, dict) else None),
                   'interaction_diagnostics': interaction_diagnostics(tree, targets if isinstance(targets, dict) else None),
                   'seconds': time.time() - t_case,
@@ -521,6 +536,7 @@ class TreeTrainer:
         if not self.member_intervention_version or not self.reuse: return
         from src.online_rl.tree.member_intervention import resolve_member_intervention
         bank = record.get('rubric_bank') or {}
+        if bank.get('rollout_only_record'): return                    # tree (+ reflection) only: no assignment exists to validate
         if bank.get('member_intervention_version') != self.member_intervention_version:
             raise RuntimeError('saved rubric bank predates per-trajectory intervention instructions; regenerate the bank from the frozen tree')
         tree = from_dict(Tree, record['tree'])
@@ -547,10 +563,15 @@ class TreeTrainer:
             if len(ids) != len(set(ids)) or not set(ids) <= eligible:
                 raise RuntimeError('saved cumulative reuse has duplicate or ineligible trajectories')
             for row in reused:
+                if row.get('chunk_protocol') and row.get('snapshot_sha256') != snapshot['sha256']:   # a later chunk saw an updated bank
+                    if row['snapshot_sha256'] not in {c['bank_before_sha256'] for c in (record.get('offline_chunk_bank') or {}).get('chunks', [])}:
+                        raise RuntimeError('saved chunk reuse names a bank that no chunk of this case consumed')
+                    continue
                 CB.validate_reuse(inputs[row['leaf_id']], snapshot, row)
             if record.get('cumulative_reused_trajectories') != len(ids):
                 raise RuntimeError('saved cumulative reuse count differs from validated decisions')
             eligible -= set(ids)
+            eligible -= set((record.get('offline_chunk_bank') or {}).get('uncovered_ids', []))   # beyond the 48 cap / unattached peers
         elif record.get('cumulative_bank_input') is not None or record.get('cumulative_reuse'):
             raise RuntimeError('saved cumulative bank cannot be used without its configured protocol')
         member_ids = [a['leaf_id'] for a in bank['assignments']]

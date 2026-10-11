@@ -514,7 +514,13 @@ def run(cfg, max_batches=None, eval_only=False):
                             {'model':cfg['rollout']['doctor_backend']['model'],'keep_alive':0},60)
                         note(phase='agent_update',batch=batch)
                         with activity('agent_update'):
-                            update = update_batch(updater,records,state['policy_sha256'],lambda:adapter_sha256(policy.model))
+                            if (cfg['rubric'].get('cumulative_bank') or {}).get('offline_build'):
+                                # Offline bank construction: the policy is never updated (fixed initial policy).
+                                update = {'optimizer_step': False, 'optimizer_steps': 0, 'offline_bank_build': True}
+                                if adapter_sha256(policy.model) != state['policy_sha256']:
+                                    raise RuntimeError('Policy changed during the offline bank build')
+                            else:
+                                update = update_batch(updater,records,state['policy_sha256'],lambda:adapter_sha256(policy.model))
                         proof = {'records_sha256':digest,'source_policy_sha256':state['policy_sha256'],
                             'policy_sha256':adapter_sha256(policy.model),'completed_cases':cursor,
                             'protocol_sha256':protocol,'update':update,**experiment.receipt_fields(cfg)}

@@ -641,6 +641,8 @@ def api_rubric_generator(key: str, model: str, settings: dict | None = None, con
     if context_addendum:
         from src.online_rl.integrated.records import sha256_text
         generate.settings = {**settings, 'context_contract_sha256': sha256_text(context_addendum)}
+    # offline_chunk8_single_call_bank_v1 reuses this generator's exact schema / normalisation for a multi-trajectory call
+    generate.chunk_context = {'key': key, 'model': model, 'settings': generate.settings, 'schema': schema, 'normalize': normalize, 'system': system}
     return generate
 
 

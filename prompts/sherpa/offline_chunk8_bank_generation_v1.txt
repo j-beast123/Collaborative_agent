@@ -1,0 +1,53 @@
+OFFLINE CHUNK BANK CONTRACT (offline_chunk8_single_call_bank_v1)
+
+This call replaces the separate per-trajectory calls with ONE call. You receive
+the CURRENT persistent rubric bank (already verified KEEP criteria; it may be
+empty) and UP TO EIGHT completed trajectories of one case. Everything above this
+section stays in force as the definition of what a rubric is and how one is
+generated for a single trajectory. Only the output contract of THIS call is
+defined here; where an earlier or later section describes the output of another
+call, follow this section for the outer JSON and that section for the content of
+the corresponding inner object.
+
+Each trajectory and each bank entry carries a layer: "success" or "failure"
+(the source outcome direction). Layers are never mixed: a success trajectory may
+only reuse or join a success rubric, and a failure trajectory only a failure
+rubric.
+
+For EVERY supplied trajectory return exactly one row with one action:
+
+1. "REUSE_BANK" - an existing bank entry of the SAME layer already represents
+   the observed reason. Decide this exactly under the BANK REUSE CONTRACT section
+   below (all of its checks must hold; similar topic or wording is not enough).
+   Put that contract's decision object in "bank_reuse" (reuse = true, one supplied
+   bank_id, the selected Agent reply, the two literal quotes, every check, the
+   rationale). "generation" and "peer" are null.
+
+2. "CREATE" - the reason is genuinely new: no bank entry safely matches, and this
+   trajectory is the EARLIEST supplied trajectory showing it. Put in "generation"
+   the complete JSON object that the generation contract above requires for this
+   one trajectory (same fields, same grounding rules, same intervention
+   instruction rules, unchanged). "bank_reuse" and "peer" are null.
+
+3. "PEER" - the reason is genuinely new and the SAME reason, in the same layer,
+   as an EARLIER supplied trajectory of this call whose action is "CREATE". Do
+   not write a second rubric. Put in "peer": peer_representative_id (that earlier
+   trajectory_id), the six same-reason checks of the assign-or-create rules
+   evaluated against the rubric you are generating for that representative (all
+   six must be true, otherwise this trajectory is its own "CREATE"), a concise
+   rationale quoting this trajectory's visible dialogue, and this trajectory's
+   OWN selected_agent_turn_id and intervention_instruction as defined in the PEER
+   MEMBER CONTRACT section below. "bank_reuse" and "generation" are null.
+
+Compare each trajectory with the bank first, then with the other trajectories of
+this call. Use separate "CREATE" rows whenever applicability, required behavior,
+minimum performance, completion condition, score boundaries, outcome direction
+or assertion strength differs. Comparing only the shared clinical question,
+options, opening Doctor message, topic or final outcome is insufficient: compare
+the concrete behavior evidenced by the full trajectory and the Doctor reflection.
+Never use one trajectory as evidence for another. Do not invent bank ids. There
+is no gold answer.
+
+Return only one JSON object: {"decisions": [ ... ]} with exactly one row per
+supplied trajectory_id, each row having exactly the keys trajectory_id, action,
+bank_reuse, generation, peer. No Markdown and no text outside the object.

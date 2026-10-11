@@ -10,6 +10,7 @@ from src.online_rl.integrated.records import atomic_write_json, sha256_json
 
 EXACT_ASSIGNMENT_PROTOCOL = 'exact_generated_source_case_v1'
 ONLINE_WORKING_BANK_PROTOCOL = 'trajectory_online_working_bank_v1'
+OFFLINE_CHUNK_PROTOCOL = 'offline_chunk8_single_call_bank_v1'      # src/online_rl/tree/offline_chunk_bank.py
 
 
 def config_identity(cfg, root):
@@ -18,15 +19,22 @@ def config_identity(cfg, root):
         return None
     from src.online_rl.tree.cumulative_bank import VERSION, validate_snapshot
     required = {'protocol', 'retrieval_top_k', 'matcher_prompt_file', 'matcher_prompt_sha256'}
-    optional = {'initial_snapshot_file', 'initial_snapshot_sha256', 'scoring_scope', 'working_bank_protocol'}
+    optional = {'initial_snapshot_file', 'initial_snapshot_sha256', 'scoring_scope', 'working_bank_protocol', 'offline_build', 'frozen'}
     if not isinstance(spec, dict) or not required <= set(spec) or set(spec) - required - optional:
         raise ValueError('Invalid cumulative rubric bank configuration')
     if spec['protocol'] != VERSION or type(spec['retrieval_top_k']) is not int or not 1 <= spec['retrieval_top_k'] <= 32:
         raise ValueError('Cumulative bank requires its versioned protocol and retrieval_top_k 1..32')
     if spec.get('scoring_scope', 'top_k') not in ('top_k', 'all'):
         raise ValueError('Cumulative bank scoring_scope must be top_k or all')
-    if spec.get('working_bank_protocol') not in (None, ONLINE_WORKING_BANK_PROTOCOL):
+    if spec.get('working_bank_protocol') not in (None, ONLINE_WORKING_BANK_PROTOCOL, OFFLINE_CHUNK_PROTOCOL):
         raise ValueError('Unknown cumulative working-bank protocol')
+    offline, frozen = spec.get('offline_build', False), spec.get('frozen', False)
+    if type(offline) is not bool or type(frozen) is not bool or (offline and frozen):
+        raise ValueError('offline_build and frozen are exclusive booleans')
+    if offline and spec.get('working_bank_protocol') != OFFLINE_CHUNK_PROTOCOL:
+        raise ValueError('The offline bank build uses the chunk working-bank protocol')
+    if frozen and (not spec.get('initial_snapshot_file') or spec.get('working_bank_protocol') is not None):
+        raise ValueError('A frozen bank needs its pinned snapshot and no working-bank protocol')
     exact = cfg['rubric'].get('assignment_protocol') == EXACT_ASSIGNMENT_PROTOCOL
     if exact and (spec.get('scoring_scope') != 'all' or spec.get('initial_snapshot_file') or spec.get('initial_snapshot_sha256')):
         raise ValueError('Exact generated assignment requires an empty initial bank and full frozen-bank scoring')
@@ -70,6 +78,17 @@ def config_identity(cfg, root):
                         generation_assignment='trajectory_match_then_generate_gate_rerun_keep_v1',
                         batch_scoring='freeze_full_bank_after_ordered_trajectory_transactions',
                         reuse_effect_verification='historical_keep_no_reverification')
+    if spec.get('working_bank_protocol') == OFFLINE_CHUNK_PROTOCOL:
+        if exact or spec.get('scoring_scope') != 'all':
+            raise ValueError('Chunk working bank requires semantic assignment and full-bank scoring')
+        identity.update(working_bank_protocol=OFFLINE_CHUNK_PROTOCOL,
+                        generation_assignment='case_sequential_chunk8_single_generator_call_cap48_v1',
+                        batch_scoring='freeze_full_bank_after_ordered_chunk_transactions',
+                        reuse_effect_verification='historical_keep_no_reverification')
+    if spec.get('offline_build'):
+        identity.update(offline_build=True, policy_updates='disabled_fixed_initial_policy', response_scoring='disabled_during_bank_construction')
+    if spec.get('frozen'):
+        identity.update(frozen=True, bank_mutation='none', rubric_generation='disabled', batch_scoring='immutable_precomputed_bank')
     return identity
 
 
@@ -168,7 +187,19 @@ def round_records(cfg, root, out, state, batch, batchdir, collect):
               'id': cfg['rubric']['prompt_id'], 'sha256': cfg['rubric']['prompt_sha256'],
               'snapshot': before}
     timings = {}
-    online = cfg['rubric']['cumulative_bank'].get('working_bank_protocol') == ONLINE_WORKING_BANK_PROTOCOL
+    spec = cfg['rubric']['cumulative_bank']
+    online = spec.get('working_bank_protocol') in (ONLINE_WORKING_BANK_PROTOCOL, OFFLINE_CHUNK_PROTOCOL)
+    chunked = spec.get('working_bank_protocol') == OFFLINE_CHUNK_PROTOCOL
+    frozen, offline = bool(spec.get('frozen')), bool(spec.get('offline_build'))
+    if chunked or frozen:                                            # all five trees in parallel; bank transactions stay sequential
+        print(json.dumps({'stage': 'bank_rollout', 'batch': batch, 'bank_version': before['version'],
+                          'bank_rubrics': len(before['entries']), 'frozen_bank': frozen}), flush=True)
+        started = time.monotonic()
+        rolled = collect('bank_rollout', prompt)
+        timings['bank_rollout'] = time.monotonic() - started
+        if (len(rolled) != cfg['five_gpu']['batch_cases'] or len({r['case_id'] for r in rolled}) != len(rolled) or
+                any(r['policy_sha256'] != state['policy_sha256'] or r['cumulative_bank_input']['sha256'] != before['sha256'] for r in rolled)):
+            raise RuntimeError('Bank rollout needs five distinct cases of the committed policy and bank')
     if online:
         from src.online_rl.tree.online_working_bank import VERSION as JOURNAL_VERSION
         working = before; records = []; decisions = []
@@ -203,10 +234,12 @@ def round_records(cfg, root, out, state, batch, batchdir, collect):
             'protocol': JOURNAL_VERSION, 'batch': batch, 'source_policy_sha256': state['policy_sha256'],
             'initial_bank_sha256': before['sha256'], 'working_bank_sha256': after['sha256'],
             'decisions': decisions})
+    elif frozen:
+        records = rolled
     else:
         records = None
     for phase in ('bank_prepare', 'bank_verify'):
-        if online: break
+        if online or frozen: break
         print(json.dumps({'stage': phase, 'batch': batch, 'bank_version': before['version'],
                           'bank_rubrics': len(before['entries'])}), flush=True)
         started = time.monotonic()
@@ -219,14 +252,25 @@ def round_records(cfg, root, out, state, batch, batchdir, collect):
             raise RuntimeError('Case preparation used a different policy or bank snapshot')
         if exact and any(r.get('cumulative_reuse') for r in records):
             raise RuntimeError('Exact-generated assignment cannot inherit a semantic bank match')
-    if not online:
+    if frozen:
+        after = before                                               # immutable: nothing is generated, matched or added
+    elif not online:
         after = extend_snapshot(before, records)
+    if frozen and after['sha256'] != before['sha256']:
+        raise RuntimeError('Frozen bank changed')
     publish_snapshot(out, after)
     frozen_path = batchdir / 'bank_frozen.json'
     if frozen_path.exists() and _read(frozen_path) != after:
         raise RuntimeError('Frozen batch scoring bank changed')
     if not frozen_path.exists():
         atomic_write_json(frozen_path, after)
+    if offline:                                                      # bank construction only: no response scoring, no reward
+        atomic_write_json(batchdir / 'bank_metrics.json', {
+            **identity, 'offline_build': True, 'response_scoring': 'skipped', 'scoring_bank_sha256': after['sha256'],
+            'before_rubrics': len(before['entries']), 'after_rubrics': len(after['entries']),
+            'added_unique_rubrics': len(after['entries']) - len(before['entries']),
+            'reused_trajectories': sum(len(r.get('cumulative_reuse', [])) for r in records), 'timings_wall_seconds': timings})
+        return records, after
     print(json.dumps({'stage': 'bank_score', 'batch': batch, 'bank_version': after['version'],
                       'bank_rubrics': len(after['entries'])}), flush=True)
     started = time.monotonic()
