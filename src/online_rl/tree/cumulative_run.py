@@ -215,7 +215,9 @@ def round_records(cfg, root, out, state, batch, batchdir, collect):
                 prefetch(prompt, [w for w, r in zip(workers, rolled) if r['case_cursor'] == case_cursor])
             if len(rows) != 1 or rows[0].get('case_cursor') != case_cursor:
                 raise RuntimeError('Online working bank requires one deterministic case at a time')
-            record = rows[0]
+            # The saved (JSON) representation, exactly what a resume reads back: a KEEP built in this process holds tuples
+            # where the file holds lists, and the scoring guard compares bank entries with ==. Content and hashes are unchanged.
+            record = json.loads(json.dumps(rows[0], ensure_ascii=False, default=str))
             if record['cumulative_bank_input']['sha256'] != working['sha256']:
                 raise RuntimeError('Online case did not consume the latest working bank')
             next_snapshot = record.get('cumulative_bank_output')
