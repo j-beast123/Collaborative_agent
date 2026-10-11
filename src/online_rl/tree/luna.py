@@ -61,6 +61,11 @@ class LunaDecisionClient:
         payload = {'model': self.model, 'messages': messages,
                    'max_completion_tokens' if direct else 'max_tokens': max_tokens or self.max_tokens,
                    'response_format': {'type': 'json_schema', 'json_schema': {'name': 'decisions', 'strict': True, 'schema': schema}}}
+        # Reasoning models can occasionally consume the entire completion budget
+        # before emitting the schema-constrained JSON.  Treat that as a technical
+        # incomplete execution and retry once with a larger output allowance.
+        # The semantic input, model, and schema remain unchanged.
+        length_retry = 0
         retry = Retry(f'{"OpenAI" if direct else "OpenRouter"} {self.model} ({purpose})', sleep=self.sleep)
         started = time.monotonic(); request_seconds = 0.0; retry_wait_seconds = 0.0
         request_started = None
@@ -81,6 +86,12 @@ class LunaDecisionClient:
                         if finish != 'stop' or message.get('refusal') or not message.get('content'):
                             raise ValueError(f'finish_reason={finish!r}, refusal={bool(message.get("refusal"))}, content={bool(message.get("content"))}')
                     except (KeyError, IndexError, TypeError, ValueError) as exc:
+                        if (body.get('choices') and body['choices'][0].get('finish_reason') == 'length'
+                                and length_retry == 0):
+                            length_retry = 1
+                            payload['max_completion_tokens'] = min(
+                                16384, max(8192, int(payload['max_completion_tokens']) * 2))
+                            continue
                         error = IntegrationUnavailable(f'OpenAI {self.model} ({purpose}) returned an incomplete completion: {exc}')
                         error.audit = {'response': body, 'finish_reason': body.get('choices', [{}])[0].get('finish_reason') if isinstance(body.get('choices'), list) and body['choices'] else None,
                                        'usage': body.get('usage'), 'request_sha256': sha256_json(payload)}

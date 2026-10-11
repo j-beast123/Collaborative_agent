@@ -54,21 +54,36 @@ def test_direct_gate_stage1_and_stage2_use_openai_and_keep_contracts():
         assert rec['completions'][0]['usage']['completion_tokens'] == 8
 
 
-def test_direct_incomplete_completion_is_operational_error_and_keeps_evidence():
+def test_direct_length_completion_retries_once_with_larger_budget_then_keeps_error():
     sent = []
 
     def post(url, payload, key, timeout):
-        sent.append(url)
+        sent.append((url, payload['max_completion_tokens']))
         return completed('', finish='length')
 
     client = LunaDecisionClient(model='gpt-6-luna', key='fixture-secret', system='Judge.',
                                 provider='openai_direct', post=post)
     with pytest.raises(IntegrationUnavailable, match='incomplete completion') as exc:
         client.decide('{}', {'q': {'criteria': ['Y', 'N']}}, 'gate')
-    assert sent == [OPENAI_URL]
+    assert sent == [(OPENAI_URL, 2000), (OPENAI_URL, 8192)]
     assert exc.value.audit['finish_reason'] == 'length'
     assert exc.value.audit['usage']['prompt_tokens'] == 12
     assert 'fixture-secret' not in str(exc.value)
+
+
+def test_direct_length_completion_retries_once_and_accepts_complete_json():
+    sent = []
+    replies = iter([completed('', finish='length'), completed('{"answers":{"q":"Y"}}')])
+
+    def post(url, payload, key, timeout):
+        sent.append(payload['max_completion_tokens'])
+        return next(replies)
+
+    client = LunaDecisionClient(model='gpt-6-luna', key='fixture-secret', system='Judge.',
+                                provider='openai_direct', post=post, max_tokens=4096)
+    result, _ = client.decide('{}', {'q': {'criteria': ['Y', 'N']}}, 'gate')
+    assert result['q']['value'] == 'Y'
+    assert sent == [4096, 8192]
 
 
 def test_direct_repairs_schema_with_same_provider_and_model():
