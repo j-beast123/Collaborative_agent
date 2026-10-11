@@ -280,7 +280,30 @@ def make_intervention_audit(cfg: dict, key: str):
     if cfg.get('judges', {}).get('intervention_audit_protocol') != INSTRUCTION_AUDIT_PROTOCOL:
         return None
     from src.online_rl.tree.instruction_audit import make_instruction_auditor
-    return make_instruction_auditor(_intervention_audit_client(cfg, key, ROOT))
+    auditor = make_instruction_auditor(_intervention_audit_client(cfg, key, ROOT))
+    attempts = cfg.get('judges', {}).get('execution_retry_attempts')
+    if not attempts:
+        return auditor
+    # Bounded LOCAL repetition of the unchanged audit request when its response is execution-invalid (malformed / evidence
+    # contract / incomplete after the built-in correction). Such a response is never an audit verdict.
+    from functools import wraps
+    from src.common.config import IntegrationUnavailable
+
+    @wraps(auditor)
+    def retry_invalid_audit(*args, **kwargs):
+        import json as _json, time as _time
+        for attempt in range(attempts):
+            try:
+                return auditor(*args, **kwargs)
+            except IntegrationUnavailable as exc:
+                if attempt == attempts - 1:
+                    raise
+                print(_json.dumps({'event': 'judge_execution_retry', 'stage': 'intervention_audit', 'attempt': attempt + 1,
+                                   'of': attempts, 'error': str(exc)[:120]}), flush=True)
+                _time.sleep(min(2 * (attempt + 1), 20))
+    for name in ('settings', 'model', 'protocol'):
+        setattr(retry_invalid_audit, name, getattr(auditor, name))
+    return retry_invalid_audit
 
 
 def joint_protocol_problems(cfg: dict) -> list[str]:
