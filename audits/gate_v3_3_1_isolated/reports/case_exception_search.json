@@ -1,0 +1,24 @@
+{
+  "schema": "case_exception_search_v1",
+  "runtime_files": [
+    "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/compact_quality_gate_v3_3_1.py",
+    "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/legacy_v33_stage_adapter_v1.py",
+    "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/prompts/blind_source_v3_3_1.txt",
+    "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/prompts/applicability_v3_3_1.txt",
+    "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/contracts/public_evidence_contract_v4.schema.json",
+    "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/contracts/applicability_contract_v3_3_1.schema.json"
+  ],
+  "forbidden_patterns": [
+    "C3/0\\.0",
+    "C4/0\\.3",
+    "medmcqa_[0-9a-f-]+",
+    "diaphragmatic",
+    "cataract",
+    "pyloric",
+    "aciduria",
+    "timing compatibility with this case"
+  ],
+  "findings": [],
+  "passed": true,
+  "note": "Case IDs are permitted only in replay/test selection data and are excluded from this runtime search."
+}

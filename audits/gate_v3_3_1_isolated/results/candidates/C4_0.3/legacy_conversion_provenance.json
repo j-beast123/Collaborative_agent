@@ -1,0 +1,40 @@
+{
+  "adapter_version": "legacy_v33_stage_adapter_v1",
+  "adapter_sha256": "86f1c6393532e780c3763111906baa6d525c1a5e9df2e46903bf929064d9dc03",
+  "migration_review_sha256": "01aa9921a258833e594e9d4a5e46f30b06c91903e9d6db7e60c213cdd42a26f2",
+  "clauses": [
+    {
+      "clause_id": "doctor_condition:0",
+      "clause_sha256": "effde4e423f1b59c971d8f0f2631e2e93b2e3c5bb593efb611fb9d7e9966b08f",
+      "legacy_status": "supported",
+      "new_requirement_type": "presence",
+      "new_status": "supported",
+      "review": null,
+      "transformation": "explicit_status_mapping"
+    },
+    {
+      "clause_id": "agent_condition:0",
+      "clause_sha256": "c7ee8638b25453cfa9a5cf159caa22eb700bd9fc53b84d36271fa077f159c7e9",
+      "legacy_status": "supported",
+      "new_requirement_type": "presence",
+      "new_status": "supported",
+      "review": null,
+      "transformation": "explicit_status_mapping"
+    },
+    {
+      "clause_id": "agent_condition:1",
+      "clause_sha256": "89d443f76db7cccbc6424d49e68c33e3829b1e0ae44cc623837db93dbdc1509c",
+      "legacy_status": "absent",
+      "new_requirement_type": "absence",
+      "new_status": "absent",
+      "review": {
+        "clause_sha256": "89d443f76db7cccbc6424d49e68c33e3829b1e0ae44cc623837db93dbdc1509c",
+        "requirement_type": "absence",
+        "review_basis": "The frozen clause explicitly requires that a prior comparison has not yet occurred; this polarity was confirmed during the authorized v3.3.1 migration review.",
+        "review_scope": "frozen_regression_fixture_only",
+        "keep_inheritance": false
+      },
+      "transformation": "hash_bound_human_review"
+    }
+  ]
+}

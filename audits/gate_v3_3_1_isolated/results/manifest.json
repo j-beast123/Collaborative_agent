@@ -1,0 +1,73 @@
+{
+  "schema": "gate_v3_3_1_offline_replay_v1",
+  "protocol": "public_mc_gate_compact_v3_3_1",
+  "assembler_version": "gate_v3_3_1_isolated_assembler_v1",
+  "assembler_sha256": "31b9f64510fd31ab0ba86ba3b6c1ec4decc2e0c7203a427ed933275bc30e8972",
+  "records": [
+    {
+      "tag": "C5/0.0",
+      "decision": "pass",
+      "source_level": 2,
+      "failure_codes": [],
+      "result_path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C5_0.0/gate_result.json"
+    },
+    {
+      "tag": "C4/0.0",
+      "decision": "pass",
+      "source_level": 2,
+      "failure_codes": [],
+      "result_path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C4_0.0/gate_result.json"
+    },
+    {
+      "tag": "C1/1.0",
+      "decision": "reject",
+      "source_level": 1,
+      "failure_codes": [
+        "INSTRUCTION_ALIGNMENT",
+        "SOURCE_ANCHOR_MISMATCH"
+      ],
+      "result_path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C1_1.0/gate_result.json"
+    },
+    {
+      "tag": "C5/1.2",
+      "decision": "reject",
+      "source_level": 2,
+      "failure_codes": [
+        "MC_ANCHOR_ALIGNMENT",
+        "BOUNDARY_COVERAGE",
+        "CONCLUSION_NEUTRALITY"
+      ],
+      "result_path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C5_1.2/gate_result.json"
+    },
+    {
+      "tag": "C3/0.0",
+      "decision": "execution_error",
+      "source_level": null,
+      "failure_codes": [],
+      "result_path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C3_0.0/execution_error.json"
+    },
+    {
+      "tag": "C4/0.3",
+      "decision": "pass",
+      "source_level": 2,
+      "failure_codes": [],
+      "result_path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C4_0.3/gate_result.json"
+    }
+  ],
+  "single_assembler_for_all_six": true,
+  "original_hashes_before": {
+    "v32_manifest": "87399d78d34b6453b7ee845c6505bd629dbf1f7a3311e1818a947a5b2be2cde9",
+    "v33_runner": "d9b24ef02624ee16b948aefdd4d88a78bc8d65a66f8902972ef8823daab5acd5",
+    "v33_results_manifest": "4aa5f461b2fc3ffbfc985a119b22dd3324f2cedd7dcc1d2f4483085b97b3327d",
+    "v33_offline_regression": "2a73d51074cfb7d04960846054b7efef167c00a689424abb8f1e0a7f8b341d7c"
+  },
+  "original_hashes_after": {
+    "v32_manifest": "87399d78d34b6453b7ee845c6505bd629dbf1f7a3311e1818a947a5b2be2cde9",
+    "v33_runner": "d9b24ef02624ee16b948aefdd4d88a78bc8d65a66f8902972ef8823daab5acd5",
+    "v33_results_manifest": "4aa5f461b2fc3ffbfc985a119b22dd3324f2cedd7dcc1d2f4483085b97b3327d",
+    "v33_offline_regression": "2a73d51074cfb7d04960846054b7efef167c00a689424abb8f1e0a7f8b341d7c"
+  },
+  "originals_unchanged": true,
+  "full29_authorized": false,
+  "active_promotion_authorized": false
+}

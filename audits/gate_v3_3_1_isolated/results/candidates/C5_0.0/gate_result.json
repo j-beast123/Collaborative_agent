@@ -1,0 +1,242 @@
+{
+  "protocol": "public_mc_gate_compact_v3_3_1",
+  "assembler_version": "gate_v3_3_1_isolated_assembler_v1",
+  "decision": "pass",
+  "passed": true,
+  "source_level": 2,
+  "failure_codes": [],
+  "stage_summary": {
+    "quality": {
+      "mc_anchor_alignment": true,
+      "meaningful_partial": true,
+      "boundary_coverage": true,
+      "source_grounding": true,
+      "unsupported_premise": true,
+      "source_claim_strength": true,
+      "concise_sufficiency": true,
+      "conclusion_neutrality": true,
+      "observability": true
+    },
+    "applicability": {
+      "clauses": [
+        {
+          "clause_id": "doctor_condition:0",
+          "clause": "The user presents a preferred metabolic finding",
+          "requirement_type": "presence",
+          "status": "supported",
+          "evidence_scope": "complete_visible_prefix",
+          "evidence_quote": {
+            "turn_id": "prefix:0",
+            "quote": "I'm leaning towards option C, metabolic alkalosis with paradoxical aciduria."
+          },
+          "inspected_turn_ids": [
+            "prefix:0"
+          ],
+          "satisfied": true
+        },
+        {
+          "clause_id": "doctor_condition:1",
+          "clause": "inquires about its distinguishing mechanism or how competing alternative options compare.",
+          "requirement_type": "presence",
+          "status": "supported",
+          "evidence_scope": "complete_visible_prefix",
+          "evidence_quote": {
+            "turn_id": "prefix:0",
+            "quote": "Could you weigh in on whether other options are plausibly associated with this condition, and why the paradoxical aciduria is the most distinguishing feature?"
+          },
+          "inspected_turn_ids": [
+            "prefix:0"
+          ],
+          "satisfied": true
+        },
+        {
+          "clause_id": "agent_condition:0",
+          "clause": "No additional recorded Agent state is required.",
+          "requirement_type": "not_required",
+          "status": "not_required",
+          "evidence_scope": "complete_visible_prefix",
+          "evidence_quote": null,
+          "inspected_turn_ids": [
+            "prefix:0"
+          ],
+          "satisfied": true
+        }
+      ],
+      "applicable": true
+    },
+    "source_behavior": {
+      "independent_level": "2",
+      "score_unique": true,
+      "anchor_matches": [
+        "2"
+      ],
+      "evidence": [
+        {
+          "turn_id": "source",
+          "quote": "The loss of gastric acid through vomiting leads to hypochloremic metabolic alkalosis, and the kidneys compensate by retaining bicarbonate while excreting ammonium, resulting in aciduria despite the alkalosis."
+        },
+        {
+          "turn_id": "source",
+          "quote": "This distinction helps differentiate it from other causes of metabolic alkalosis."
+        },
+        {
+          "turn_id": "source",
+          "quote": "Option D is less specific, as alkaline urine alone doesn’t account for the paradoxical nature of the aciduria."
+        }
+      ],
+      "legacy_task_frame": {
+        "requested_operator": "comparison",
+        "requested_targets": [
+          "Option D: metabolic alkalosis with alkaline urine"
+        ],
+        "reference_targets": [
+          "Option C: metabolic alkalosis with paradoxical aciduria"
+        ],
+        "request_quotes": [
+          {
+            "turn_id": "prefix:0",
+            "speaker": "doctor",
+            "quote": "whether other options are plausibly associated with this condition"
+          },
+          {
+            "turn_id": "prefix:0",
+            "speaker": "doctor",
+            "quote": "why the paradoxical aciduria is the most distinguishing feature?"
+          }
+        ],
+        "target_assessments": [
+          {
+            "target": "Option D: metabolic alkalosis with alkaline urine",
+            "coverage": "addressed",
+            "response_operators": [
+              "comparison",
+              "relation"
+            ],
+            "response_quotes": [
+              "Option D is less specific, as alkaline urine alone doesn’t account for the paradoxical nature of the aciduria."
+            ]
+          }
+        ],
+        "scope_met": true,
+        "reason": "The criterion requires a mechanism and a contrast with an alternative; Option D is the explicit alternative evaluated."
+      },
+      "behavior_v4": null,
+      "legacy_source_record_sha256": "aaa94ccbab1378c74c47adfdfb982da6997124a2fe0c2de982ae97aaf254e4ad"
+    },
+    "intervention_quality": {
+      "instruction_aligned": true,
+      "no_unsupported_context_premise": true,
+      "no_conclusion_prescribed": true
+    }
+  },
+  "provenance": {
+    "stage_prompt_sha256": {
+      "quality": "dffa8db3cf3afac6d48078723fbcfbe2890aeaab9a5efe2bfeb25b945940b7e1",
+      "applicability": "c5ff8aa2a1a76063865f022557b73d221536163be7ac81520f1d619104d54a40",
+      "blind_source": "b84430981107811d3d9b4bcbab6e831f3058bdd7daca1d762fc971735b45a051",
+      "instruction": "0155b9b2ced8ebcd0a5552c0bf7c9ed5ad804f9f77b0b23d535eedad0b92739c"
+    },
+    "stage_record_sha256": {
+      "quality": "c0e46a8bc3faabc9ad92e5e53b2ab9a114cd8143331a09d9731806c34a1a8f3a",
+      "applicability": "53a60c3e9a20d44445a37750ed1ad4153e444ec22d47f6c2bfc480092401c909",
+      "blind_source": "24ec3baaab7737a83d5d360f193a1285c07ca9adb6f00b3cf6e9cb5c00a0fd0f",
+      "instruction": "a8ec85b51e19f647960d11b3ec5dd077ee875216e3baea14e83dee9c311cfd59"
+    },
+    "json_schema_sha256": {
+      "behavior": "05b1f937334f6332f32b58a6582c0a083aaddcc4ced1113cf527c547424f2550",
+      "applicability": "7db716f9597bcf25080cd8ef054720e9c04a39c008eed057c2ee8bb14eba7dc3"
+    },
+    "behavior_contract": {
+      "version": "public_evidence_contract_v4",
+      "hash": "05b1f937334f6332f32b58a6582c0a083aaddcc4ced1113cf527c547424f2550"
+    },
+    "applicability_contract": {
+      "version": "applicability_contract_v3_3_1",
+      "hash": "7db716f9597bcf25080cd8ef054720e9c04a39c008eed057c2ee8bb14eba7dc3"
+    },
+    "legacy_adapter": {
+      "version": "legacy_v33_stage_adapter_v1",
+      "hash": "86f1c6393532e780c3763111906baa6d525c1a5e9df2e46903bf929064d9dc03",
+      "migration": {
+        "adapter_version": "legacy_v33_stage_adapter_v1",
+        "adapter_sha256": "86f1c6393532e780c3763111906baa6d525c1a5e9df2e46903bf929064d9dc03",
+        "migration_review_sha256": "01aa9921a258833e594e9d4a5e46f30b06c91903e9d6db7e60c213cdd42a26f2",
+        "clauses": [
+          {
+            "clause_id": "doctor_condition:0",
+            "clause_sha256": "fcbcdeb7e8aabed347e70a673acdfba9be8f00795d49a5f0389d86b0517bb366",
+            "legacy_status": "supported",
+            "new_requirement_type": "presence",
+            "new_status": "supported",
+            "review": null,
+            "transformation": "explicit_status_mapping"
+          },
+          {
+            "clause_id": "doctor_condition:1",
+            "clause_sha256": "60d1fd412289a2aeb68fd098e701904efc8ce002ea7e02d8874aa755ef93608f",
+            "legacy_status": "supported",
+            "new_requirement_type": "presence",
+            "new_status": "supported",
+            "review": null,
+            "transformation": "explicit_status_mapping"
+          },
+          {
+            "clause_id": "agent_condition:0",
+            "clause_sha256": "a90e78331f7f23c714aea55432e09cc76bba041cebd71a231d68f2a25c0fbdaf",
+            "legacy_status": "not_required",
+            "new_requirement_type": "not_required",
+            "new_status": "not_required",
+            "review": null,
+            "transformation": "explicit_status_mapping"
+          }
+        ]
+      }
+    },
+    "final_assembler": {
+      "version": "gate_v3_3_1_isolated_assembler_v1",
+      "hash": "31b9f64510fd31ab0ba86ba3b6c1ec4decc2e0c7203a427ed933275bc30e8972"
+    },
+    "rubric_content_sha256": "679ceb51f81437689fe23c09b2e9ee7971c112f6b171b6bb3489b8a75132d5f3",
+    "strict_prefix_sha256": "75909f94ed315c19a43a31a6b0d4c7dc40726c8103753eef2525565b860aa4a1",
+    "target_reply_sha256": "b85bdd8d09e4de064b15381043e846e3cdc254eca5e844c7b1823b592f3945dc",
+    "model_settings": {
+      "quality": {
+        "model": "gpt-6-luna",
+        "provider": "openai_direct",
+        "max_tokens": 8192,
+        "protocol_sha256": "5de15741ba323952e2abf0cde5ce25ca29704bc7eef2a517524e3de9696938f2",
+        "temperature": "provider_default_structured_decision"
+      },
+      "applicability": {
+        "model": "gpt-6-luna",
+        "provider": "openai_direct",
+        "max_tokens": 8192,
+        "protocol_sha256": "1aa88dd74fdf725963606a89d6aeeb9b77786abb3d8ba0175e98b8eece46e6e3",
+        "temperature": "provider_default_structured_decision"
+      },
+      "blind_source": {
+        "model": "gpt-6-luna",
+        "provider": "openai_direct",
+        "max_tokens": 4096,
+        "protocol_sha256": "24f1254a4dbc64abdbe7da8cff7ba89c206a0d81a3080ae3e892f93a69e461a0",
+        "temperature": "provider_default_structured_decision"
+      },
+      "instruction": {
+        "model": "gpt-6-luna",
+        "provider": "openai_direct",
+        "max_tokens": 4096,
+        "protocol_sha256": "940a010f77d6d5a815dc3749121ab4326a7d94b50765ec5c5a5d91f618536ada",
+        "temperature": "provider_default_structured_decision"
+      }
+    },
+    "source_record_tag": "C5/0.0",
+    "source_outcome_used_only_by_local_assembly": "success",
+    "existing_v3_3_records_read_only": true,
+    "behavior_schema_sha256": "05b1f937334f6332f32b58a6582c0a083aaddcc4ced1113cf527c547424f2550",
+    "applicability_schema_sha256": "7db716f9597bcf25080cd8ef054720e9c04a39c008eed057c2ee8bb14eba7dc3",
+    "assembler_sha256": "31b9f64510fd31ab0ba86ba3b6c1ec4decc2e0c7203a427ed933275bc30e8972",
+    "behavior_contract_version": "public_evidence_contract_v4",
+    "applicability_contract_version": "applicability_contract_v3_3_1"
+  },
+  "cache_identity_sha256": "f49872f63d8c172e381f565fa5b63e2b5a4be5a327b65501cee7483fc7b300c0"
+}

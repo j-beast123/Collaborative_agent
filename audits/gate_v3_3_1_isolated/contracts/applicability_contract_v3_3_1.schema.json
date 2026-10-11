@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sherpa:applicability-contract:v3.3.1",
+  "title": "Polarity-aware prefix-only applicability contract v3.3.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["clauses", "applicable"],
+  "properties": {
+    "clauses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "clause_id",
+          "clause",
+          "requirement_type",
+          "status",
+          "evidence_scope",
+          "evidence_quote",
+          "inspected_turn_ids",
+          "satisfied"
+        ],
+        "properties": {
+          "clause_id": {"type": "string", "minLength": 1},
+          "clause": {"type": "string", "minLength": 1},
+          "requirement_type": {"enum": ["presence", "absence", "not_required"]},
+          "status": {"enum": ["supported", "absent", "contradicted", "unknown", "not_required"]},
+          "evidence_scope": {"enum": ["latest_turn", "active_history", "complete_visible_prefix"]},
+          "evidence_quote": {
+            "oneOf": [
+              {"type": "null"},
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["turn_id", "quote"],
+                "properties": {
+                  "turn_id": {"type": "string", "minLength": 1},
+                  "quote": {"type": "string", "minLength": 1}
+                }
+              }
+            ]
+          },
+          "inspected_turn_ids": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "uniqueItems": true
+          },
+          "satisfied": {"type": "boolean"}
+        }
+      }
+    },
+    "applicable": {"type": "boolean"}
+  }
+}

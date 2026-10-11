@@ -1,0 +1,227 @@
+{
+  "protocol": "public_mc_gate_compact_v3_3_1",
+  "assembler_version": "gate_v3_3_1_isolated_assembler_v1",
+  "decision": "pass",
+  "passed": true,
+  "source_level": 2,
+  "failure_codes": [],
+  "stage_summary": {
+    "quality": {
+      "mc_anchor_alignment": true,
+      "meaningful_partial": true,
+      "boundary_coverage": true,
+      "source_grounding": true,
+      "unsupported_premise": true,
+      "source_claim_strength": true,
+      "concise_sufficiency": true,
+      "conclusion_neutrality": true,
+      "observability": true
+    },
+    "applicability": {
+      "clauses": [
+        {
+          "clause_id": "doctor_condition:0",
+          "clause": "The user discusses whether a high-risk or disfavored clinical intervention constitutes an exception among standard therapeutic options.",
+          "requirement_type": "presence",
+          "status": "supported",
+          "evidence_scope": "complete_visible_prefix",
+          "evidence_quote": {
+            "turn_id": "prefix:0",
+            "quote": "Phaco, the Comeo technique, and IOL implantation are all standard approaches in pediatric cataract surgery today. Intra capsular extraction is an older technique with higher risks of complications in this population."
+          },
+          "inspected_turn_ids": [
+            "prefix:0",
+            "prefix:1",
+            "prefix:2"
+          ],
+          "satisfied": true
+        },
+        {
+          "clause_id": "agent_condition:0",
+          "clause": "No additional recorded Agent state is required.",
+          "requirement_type": "not_required",
+          "status": "not_required",
+          "evidence_scope": "complete_visible_prefix",
+          "evidence_quote": null,
+          "inspected_turn_ids": [
+            "prefix:0",
+            "prefix:1",
+            "prefix:2"
+          ],
+          "satisfied": true
+        }
+      ],
+      "applicable": true
+    },
+    "source_behavior": {
+      "independent_level": "2",
+      "score_unique": true,
+      "anchor_matches": [
+        "2"
+      ],
+      "evidence": [
+        {
+          "turn_id": "source",
+          "quote": "higher complication risk compared to modern techniques like phaco-aspiration and intraocular lens implantation."
+        },
+        {
+          "turn_id": "source",
+          "quote": "The question correctly identifies it as the exception due to its limited use and higher complication risk compared to modern techniques like phaco-aspiration and intraocular lens implantation."
+        }
+      ],
+      "legacy_task_frame": {
+        "requested_operator": "comparison",
+        "requested_targets": [
+          "intra capsular cataract extraction (ICCE)"
+        ],
+        "reference_targets": [
+          "Phaco-aspiration",
+          "Comeo technique",
+          "intra ocular lens implantation"
+        ],
+        "request_quotes": [
+          {
+            "turn_id": "case:question",
+            "speaker": "case",
+            "quote": "Treatment of Pediatric cataract are all EXCEPT"
+          },
+          {
+            "turn_id": "prefix:0",
+            "speaker": "doctor",
+            "quote": "I'm curious if you see any reason why intra capsular extraction might still be considered in specific pediatric cases, or if it's universally avoided?"
+          },
+          {
+            "turn_id": "prefix:2",
+            "speaker": "doctor",
+            "quote": "the question asks for the *exception* to pediatric cataract treatment."
+          }
+        ],
+        "target_assessments": [
+          {
+            "target": "intra capsular cataract extraction (ICCE)",
+            "coverage": "addressed",
+            "response_operators": [
+              "comparison",
+              "frequency_typicality",
+              "relation"
+            ],
+            "response_quotes": [
+              "While it may be considered in rare cases where other techniques are not viable, it is not a standard or preferred option.",
+              "The question correctly identifies it as the exception due to its limited use and higher complication risk compared to modern techniques like phaco-aspiration and intraocular lens implantation."
+            ]
+          }
+        ],
+        "scope_met": true,
+        "reason": "The response substantively contrasts ICCE’s risk and use with standard alternatives and links the contrast to its exception classification."
+      },
+      "behavior_v4": null,
+      "legacy_source_record_sha256": "c7f50ca375be6ce9be528b03f3c9748c2712d1f5f2e2ed51d503f80cf4cc7b6e"
+    },
+    "intervention_quality": {
+      "instruction_aligned": true,
+      "no_unsupported_context_premise": true,
+      "no_conclusion_prescribed": true
+    }
+  },
+  "provenance": {
+    "stage_prompt_sha256": {
+      "quality": "dffa8db3cf3afac6d48078723fbcfbe2890aeaab9a5efe2bfeb25b945940b7e1",
+      "applicability": "c5ff8aa2a1a76063865f022557b73d221536163be7ac81520f1d619104d54a40",
+      "blind_source": "b84430981107811d3d9b4bcbab6e831f3058bdd7daca1d762fc971735b45a051",
+      "instruction": "0155b9b2ced8ebcd0a5552c0bf7c9ed5ad804f9f77b0b23d535eedad0b92739c"
+    },
+    "stage_record_sha256": {
+      "quality": "2a6372888bebd8f8246d6b6e2261c187eab4178af5cd54e4d2076e79049ce7a5",
+      "applicability": "3205b784d722759d005ba8a8f40289c26e8b623b839a750a643107bd32677c6f",
+      "blind_source": "46569ecf7568211f19343788a2f2209f1d6acd37b1e01bb07af9c504fc94a5f0",
+      "instruction": "aefefcaaff1ce9155ede511c83c2768e57a1a777bc44807e15bc0f0cb8f398ee"
+    },
+    "json_schema_sha256": {
+      "behavior": "05b1f937334f6332f32b58a6582c0a083aaddcc4ced1113cf527c547424f2550",
+      "applicability": "7db716f9597bcf25080cd8ef054720e9c04a39c008eed057c2ee8bb14eba7dc3"
+    },
+    "behavior_contract": {
+      "version": "public_evidence_contract_v4",
+      "hash": "05b1f937334f6332f32b58a6582c0a083aaddcc4ced1113cf527c547424f2550"
+    },
+    "applicability_contract": {
+      "version": "applicability_contract_v3_3_1",
+      "hash": "7db716f9597bcf25080cd8ef054720e9c04a39c008eed057c2ee8bb14eba7dc3"
+    },
+    "legacy_adapter": {
+      "version": "legacy_v33_stage_adapter_v1",
+      "hash": "86f1c6393532e780c3763111906baa6d525c1a5e9df2e46903bf929064d9dc03",
+      "migration": {
+        "adapter_version": "legacy_v33_stage_adapter_v1",
+        "adapter_sha256": "86f1c6393532e780c3763111906baa6d525c1a5e9df2e46903bf929064d9dc03",
+        "migration_review_sha256": "01aa9921a258833e594e9d4a5e46f30b06c91903e9d6db7e60c213cdd42a26f2",
+        "clauses": [
+          {
+            "clause_id": "doctor_condition:0",
+            "clause_sha256": "cd024153d47fd11116c2471c767ca7e446608a6035b707862d6e66c601f55d68",
+            "legacy_status": "supported",
+            "new_requirement_type": "presence",
+            "new_status": "supported",
+            "review": null,
+            "transformation": "explicit_status_mapping"
+          },
+          {
+            "clause_id": "agent_condition:0",
+            "clause_sha256": "a90e78331f7f23c714aea55432e09cc76bba041cebd71a231d68f2a25c0fbdaf",
+            "legacy_status": "not_required",
+            "new_requirement_type": "not_required",
+            "new_status": "not_required",
+            "review": null,
+            "transformation": "explicit_status_mapping"
+          }
+        ]
+      }
+    },
+    "final_assembler": {
+      "version": "gate_v3_3_1_isolated_assembler_v1",
+      "hash": "31b9f64510fd31ab0ba86ba3b6c1ec4decc2e0c7203a427ed933275bc30e8972"
+    },
+    "rubric_content_sha256": "8567925edc2fcc9cd162506dbd3b1f30e8ff59ff2309235b4280f21ee18ccdff",
+    "strict_prefix_sha256": "0bf2501a2d18f152767c710e1921fc2041907ab4b9219695ea5632a83863a4e6",
+    "target_reply_sha256": "6f4f9855c5b82146d04592d01ede77f46021fada7068dc367c2d8ebec27c7b78",
+    "model_settings": {
+      "quality": {
+        "model": "gpt-6-luna",
+        "provider": "openai_direct",
+        "max_tokens": 8192,
+        "protocol_sha256": "5de15741ba323952e2abf0cde5ce25ca29704bc7eef2a517524e3de9696938f2",
+        "temperature": "provider_default_structured_decision"
+      },
+      "applicability": {
+        "model": "gpt-6-luna",
+        "provider": "openai_direct",
+        "max_tokens": 8192,
+        "protocol_sha256": "1aa88dd74fdf725963606a89d6aeeb9b77786abb3d8ba0175e98b8eece46e6e3",
+        "temperature": "provider_default_structured_decision"
+      },
+      "blind_source": {
+        "model": "gpt-6-luna",
+        "provider": "openai_direct",
+        "max_tokens": 4096,
+        "protocol_sha256": "24f1254a4dbc64abdbe7da8cff7ba89c206a0d81a3080ae3e892f93a69e461a0",
+        "temperature": "provider_default_structured_decision"
+      },
+      "instruction": {
+        "model": "gpt-6-luna",
+        "provider": "openai_direct",
+        "max_tokens": 4096,
+        "protocol_sha256": "940a010f77d6d5a815dc3749121ab4326a7d94b50765ec5c5a5d91f618536ada",
+        "temperature": "provider_default_structured_decision"
+      }
+    },
+    "source_record_tag": "C4/0.0",
+    "source_outcome_used_only_by_local_assembly": "success",
+    "existing_v3_3_records_read_only": true,
+    "behavior_schema_sha256": "05b1f937334f6332f32b58a6582c0a083aaddcc4ced1113cf527c547424f2550",
+    "applicability_schema_sha256": "7db716f9597bcf25080cd8ef054720e9c04a39c008eed057c2ee8bb14eba7dc3",
+    "assembler_sha256": "31b9f64510fd31ab0ba86ba3b6c1ec4decc2e0c7203a427ed933275bc30e8972",
+    "behavior_contract_version": "public_evidence_contract_v4",
+    "applicability_contract_version": "applicability_contract_v3_3_1"
+  },
+  "cache_identity_sha256": "4439074353ba1fba748fc9ffed788d2a0fba12e7bd72d927bbd0d68f1c8a8bcd"
+}

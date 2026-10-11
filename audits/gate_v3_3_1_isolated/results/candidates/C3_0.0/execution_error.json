@@ -1,0 +1,11 @@
+{
+  "protocol": "public_mc_gate_compact_v3_3_1",
+  "assembler_version": "gate_v3_3_1_isolated_assembler_v1",
+  "assembler_sha256": "31b9f64510fd31ab0ba86ba3b6c1ec4decc2e0c7203a427ed933275bc30e8972",
+  "decision": "execution_error",
+  "passed": false,
+  "source_level": null,
+  "failure_codes": [],
+  "reason": "Stored blind-source execution error remains unresolved; the v4 request is frozen but not executed.",
+  "request_preview_sha256": "ce4fadd65f63c53cc3c130b30bb2cf25912b8aacc2ccff22f51328286491c55e"
+}

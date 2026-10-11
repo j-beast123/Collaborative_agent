@@ -1,0 +1,120 @@
+{
+  "schema": "gate_v3_3_1_artifact_manifest_v1",
+  "files": [
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/api_preview/C3_0.0_blind_source_request.json",
+      "sha256": "1b1dec952e426e66a084bd000632107dde3da62587eb8d7fa8c90efb8bdef1f6",
+      "bytes": 21836
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/audit_rerun.py",
+      "sha256": "97a8cd719d464bbd9089d3f70bdacda47a2beb57b91c87287f089165bc3f1fd1",
+      "bytes": 5646
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/check_no_case_exceptions.py",
+      "sha256": "875623d7c3f01ef2aa78475fae84d250b1fd49970acfdfcb3787099f56d7c501",
+      "bytes": 1644
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/compact_quality_gate_v3_3_1.py",
+      "sha256": "31b9f64510fd31ab0ba86ba3b6c1ec4decc2e0c7203a427ed933275bc30e8972",
+      "bytes": 12405
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/contracts/applicability_contract_v3_3_1.schema.json",
+      "sha256": "7db716f9597bcf25080cd8ef054720e9c04a39c008eed057c2ee8bb14eba7dc3",
+      "bytes": 1825
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/contracts/public_evidence_contract_v4.schema.json",
+      "sha256": "05b1f937334f6332f32b58a6582c0a083aaddcc4ced1113cf527c547424f2550",
+      "bytes": 2052
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/legacy_v33_stage_adapter_v1.py",
+      "sha256": "86f1c6393532e780c3763111906baa6d525c1a5e9df2e46903bf929064d9dc03",
+      "bytes": 5275
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/migration_reviews.json",
+      "sha256": "01aa9921a258833e594e9d4a5e46f30b06c91903e9d6db7e60c213cdd42a26f2",
+      "bytes": 483
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/prompts/applicability_v3_3_1.txt",
+      "sha256": "30c4aa39a033a3349425b37d27f25938f120b745b8610953a900a408228d5308",
+      "bytes": 1107
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/prompts/blind_source_v3_3_1.txt",
+      "sha256": "9e85a4b713e35616d509ecf1850cf772751baa58fbfef04c902715a17274cca5",
+      "bytes": 1513
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/replay_offline.py",
+      "sha256": "accc894a65e4867e89273980626e3e4f4483ed45cb0ef70fb278deb5b879ba70",
+      "bytes": 13081
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/reports/case_exception_search.json",
+      "sha256": "b6292c807cf73e922ce92f65dcdb410b3b118c993b54edc08c2621ba97dff659",
+      "bytes": 1066
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/reports/implementation_report.md",
+      "sha256": "b42b7186ffbac03ac59e63e06cf1ab77769538aae8ae221f380389569e3edf6d",
+      "bytes": 8640
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/reports/rerun_wire_audit.json",
+      "sha256": "847fecbd51c42108e1a45193fc1d954bd56cf4363818ffaf047a5c7c98a3885c",
+      "bytes": 36992
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C1_1.0/gate_result.json",
+      "sha256": "150e8b6d33da08d0f91dddffa8d5c5ba8ea24a6540fe10ec0a43d43bfc1175ec",
+      "bytes": 10661
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C3_0.0/execution_error.json",
+      "sha256": "f216da07752c0f2d80603e1b54d1712560cb162f782db78dd81b54d86a2ebde4",
+      "bytes": 509
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C4_0.0/gate_result.json",
+      "sha256": "1f750df320c15000cbda1776f8590eab68a6957d7f3bdf88634b296117dbe527",
+      "bytes": 9568
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C4_0.3/gate_result.json",
+      "sha256": "906f8a2b78c73704eb6bb4bc997ce1b68d2c9f0138aebdd422b4501cb03aef74",
+      "bytes": 11102
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C4_0.3/legacy_conversion_provenance.json",
+      "sha256": "8f193fca3c40c5b2791a865287eed740d9ec8683142fd5518d61047be0977d03",
+      "bytes": 1649
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C5_0.0/gate_result.json",
+      "sha256": "d0b8877d650b12b7422558720ba88e0de688449b232ef74689566ef9242cc028",
+      "bytes": 9911
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/candidates/C5_1.2/gate_result.json",
+      "sha256": "cf716b2d44cfd9bc773eb759bbf68dd5440a57af999beb703bb90c448a54ab8e",
+      "bytes": 10522
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/results/manifest.json",
+      "sha256": "e82f5673ce015791c5a6a7f9d2a05db89905607f29ac20b66257b89910138d03",
+      "bytes": 2860
+    },
+    {
+      "path": "/home/kai/audits/compact_gate_contract_v1/gate_v3_3_1_isolated/tests/test_contracts.py",
+      "sha256": "64f978bd167b827b6bb4ea22b015de6cd7c06f3551203fa6f1dc33e0e4929e86",
+      "bytes": 6306
+    }
+  ]
+}

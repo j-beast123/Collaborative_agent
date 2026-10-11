@@ -1,0 +1,261 @@
+{
+  "protocol": "public_mc_gate_compact_v3_3_1",
+  "assembler_version": "gate_v3_3_1_isolated_assembler_v1",
+  "decision": "reject",
+  "passed": false,
+  "source_level": 1,
+  "failure_codes": [
+    "INSTRUCTION_ALIGNMENT",
+    "SOURCE_ANCHOR_MISMATCH"
+  ],
+  "stage_summary": {
+    "quality": {
+      "mc_anchor_alignment": true,
+      "meaningful_partial": true,
+      "boundary_coverage": true,
+      "source_grounding": true,
+      "unsupported_premise": true,
+      "source_claim_strength": true,
+      "concise_sufficiency": true,
+      "conclusion_neutrality": true,
+      "observability": true
+    },
+    "applicability": {
+      "clauses": [
+        {
+          "clause_id": "doctor_condition:0",
+          "clause": "The user asks whether specific candidate options can undergo or are preferentially treated with a designated sterilization modality",
+          "requirement_type": "presence",
+          "status": "supported",
+          "evidence_scope": "complete_visible_prefix",
+          "evidence_quote": {
+            "turn_id": "prefix:0",
+            "quote": "I'm curious if you see a compelling reason why one of the other options would be preferentially sterilized with irradiation."
+          },
+          "inspected_turn_ids": [
+            "prefix:0"
+          ],
+          "satisfied": true
+        },
+        {
+          "clause_id": "doctor_condition:1",
+          "clause": "proposing a specific item based on an equipment-type assumption.",
+          "requirement_type": "presence",
+          "status": "supported",
+          "evidence_scope": "complete_visible_prefix",
+          "evidence_quote": {
+            "turn_id": "prefix:0",
+            "quote": "I think the correct answer is D. Bronchoscope. Irradiation is a common sterilization method for reusable medical equipment, and a bronchoscope fits that category."
+          },
+          "inspected_turn_ids": [
+            "prefix:0"
+          ],
+          "satisfied": true
+        },
+        {
+          "clause_id": "agent_condition:0",
+          "clause": "No additional recorded Agent state is required.",
+          "requirement_type": "not_required",
+          "status": "not_required",
+          "evidence_scope": "active_history",
+          "evidence_quote": null,
+          "inspected_turn_ids": [],
+          "satisfied": true
+        }
+      ],
+      "applicable": true
+    },
+    "source_behavior": {
+      "independent_level": "1",
+      "score_unique": true,
+      "anchor_matches": [
+        "1"
+      ],
+      "evidence": [
+        {
+          "turn_id": "source",
+          "quote": "irradiation is often used for heat-sensitive items like bone grafts or artificial tissue grafts, which can be damaged by steam or chemical agents."
+        },
+        {
+          "turn_id": "source",
+          "quote": "Sutures are typically sterilized with ethylene oxide or gamma irradiation, depending on the material."
+        }
+      ],
+      "legacy_task_frame": {
+        "requested_operator": "comparison",
+        "requested_targets": [
+          "Bone graft (option A)",
+          "Suture (option B)",
+          "Aificial tissue graft (option C)"
+        ],
+        "reference_targets": [
+          "Bronchoscope (option D)"
+        ],
+        "request_quotes": [
+          {
+            "turn_id": "prefix:0",
+            "speaker": "doctor",
+            "quote": "I'm curious if you see a compelling reason why one of the other options would be preferentially sterilized with irradiation."
+          }
+        ],
+        "target_assessments": [
+          {
+            "target": "Bone graft (option A)",
+            "coverage": "addressed",
+            "response_operators": [
+              "frequency_typicality",
+              "relation",
+              "comparison"
+            ],
+            "response_quotes": [
+              "irradiation is often used for heat-sensitive items like bone grafts or artificial tissue grafts, which can be damaged by steam or chemical agents."
+            ]
+          },
+          {
+            "target": "Suture (option B)",
+            "coverage": "addressed",
+            "response_operators": [
+              "frequency_typicality",
+              "relation",
+              "comparison"
+            ],
+            "response_quotes": [
+              "Sutures are typically sterilized with ethylene oxide or gamma irradiation, depending on the material."
+            ]
+          },
+          {
+            "target": "Aificial tissue graft (option C)",
+            "coverage": "addressed",
+            "response_operators": [
+              "frequency_typicality",
+              "relation",
+              "comparison"
+            ],
+            "response_quotes": [
+              "irradiation is often used for heat-sensitive items like bone grafts or artificial tissue grafts, which can be damaged by steam or chemical agents."
+            ]
+          }
+        ],
+        "scope_met": true,
+        "reason": "The response compares sterilization characteristics across the requested alternatives, but does not clearly settle the appropriate selection."
+      },
+      "behavior_v4": null,
+      "legacy_source_record_sha256": "09ca67e67a92b58c8ea9bb786cf3a813b890e52833d52bdd18b9301fd85c74cd"
+    },
+    "intervention_quality": {
+      "instruction_aligned": false,
+      "no_unsupported_context_premise": true,
+      "no_conclusion_prescribed": true
+    }
+  },
+  "provenance": {
+    "stage_prompt_sha256": {
+      "quality": "dffa8db3cf3afac6d48078723fbcfbe2890aeaab9a5efe2bfeb25b945940b7e1",
+      "applicability": "c5ff8aa2a1a76063865f022557b73d221536163be7ac81520f1d619104d54a40",
+      "blind_source": "b84430981107811d3d9b4bcbab6e831f3058bdd7daca1d762fc971735b45a051",
+      "instruction": "0155b9b2ced8ebcd0a5552c0bf7c9ed5ad804f9f77b0b23d535eedad0b92739c"
+    },
+    "stage_record_sha256": {
+      "quality": "0817b88c3a1ac12b8be97ab3e02d059c7c32657ece570f1feba511116805b842",
+      "applicability": "ef5a69d093efb56399d7a119af93d4bec8abd20ddea39d5e2f4c481b960de834",
+      "blind_source": "124dbbef6292c7f5948446bf682100c8dd7f868587fde419b972031a72f3a53b",
+      "instruction": "7957bcbcc885af3708b15dc1a84eb1a1ff480f174b7eadc12b89348aa1fec5b3"
+    },
+    "json_schema_sha256": {
+      "behavior": "05b1f937334f6332f32b58a6582c0a083aaddcc4ced1113cf527c547424f2550",
+      "applicability": "7db716f9597bcf25080cd8ef054720e9c04a39c008eed057c2ee8bb14eba7dc3"
+    },
+    "behavior_contract": {
+      "version": "public_evidence_contract_v4",
+      "hash": "05b1f937334f6332f32b58a6582c0a083aaddcc4ced1113cf527c547424f2550"
+    },
+    "applicability_contract": {
+      "version": "applicability_contract_v3_3_1",
+      "hash": "7db716f9597bcf25080cd8ef054720e9c04a39c008eed057c2ee8bb14eba7dc3"
+    },
+    "legacy_adapter": {
+      "version": "legacy_v33_stage_adapter_v1",
+      "hash": "86f1c6393532e780c3763111906baa6d525c1a5e9df2e46903bf929064d9dc03",
+      "migration": {
+        "adapter_version": "legacy_v33_stage_adapter_v1",
+        "adapter_sha256": "86f1c6393532e780c3763111906baa6d525c1a5e9df2e46903bf929064d9dc03",
+        "migration_review_sha256": "01aa9921a258833e594e9d4a5e46f30b06c91903e9d6db7e60c213cdd42a26f2",
+        "clauses": [
+          {
+            "clause_id": "doctor_condition:0",
+            "clause_sha256": "d9469928696ae51fc37245ae168007c3246996ec4cdbb99bab6a8c6e321817b0",
+            "legacy_status": "supported",
+            "new_requirement_type": "presence",
+            "new_status": "supported",
+            "review": null,
+            "transformation": "explicit_status_mapping"
+          },
+          {
+            "clause_id": "doctor_condition:1",
+            "clause_sha256": "380bce180dee10b205baf343f61dee3a5b32256c70239bcaaad85b201dace450",
+            "legacy_status": "supported",
+            "new_requirement_type": "presence",
+            "new_status": "supported",
+            "review": null,
+            "transformation": "explicit_status_mapping"
+          },
+          {
+            "clause_id": "agent_condition:0",
+            "clause_sha256": "a90e78331f7f23c714aea55432e09cc76bba041cebd71a231d68f2a25c0fbdaf",
+            "legacy_status": "not_required",
+            "new_requirement_type": "not_required",
+            "new_status": "not_required",
+            "review": null,
+            "transformation": "explicit_status_mapping"
+          }
+        ]
+      }
+    },
+    "final_assembler": {
+      "version": "gate_v3_3_1_isolated_assembler_v1",
+      "hash": "31b9f64510fd31ab0ba86ba3b6c1ec4decc2e0c7203a427ed933275bc30e8972"
+    },
+    "rubric_content_sha256": "194858d2011cfdaed5ad11e6734eff0ecd4a8de361d15b42fe6d30b0ae63f31b",
+    "strict_prefix_sha256": "f3ef1f1da501cbad0d2b2e7badd56a712cffc2ba4d908b14a30f19efbf7691be",
+    "target_reply_sha256": "d463e6c5f89a8d9b7b0fc7bc228348ca95220ae207f074489f9ac233135f9caa",
+    "model_settings": {
+      "quality": {
+        "model": "gpt-6-luna",
+        "provider": "openai_direct",
+        "max_tokens": 8192,
+        "protocol_sha256": "5de15741ba323952e2abf0cde5ce25ca29704bc7eef2a517524e3de9696938f2",
+        "temperature": "provider_default_structured_decision"
+      },
+      "applicability": {
+        "model": "gpt-6-luna",
+        "provider": "openai_direct",
+        "max_tokens": 8192,
+        "protocol_sha256": "1aa88dd74fdf725963606a89d6aeeb9b77786abb3d8ba0175e98b8eece46e6e3",
+        "temperature": "provider_default_structured_decision"
+      },
+      "blind_source": {
+        "model": "gpt-6-luna",
+        "provider": "openai_direct",
+        "max_tokens": 4096,
+        "protocol_sha256": "24f1254a4dbc64abdbe7da8cff7ba89c206a0d81a3080ae3e892f93a69e461a0",
+        "temperature": "provider_default_structured_decision"
+      },
+      "instruction": {
+        "model": "gpt-6-luna",
+        "provider": "openai_direct",
+        "max_tokens": 4096,
+        "protocol_sha256": "940a010f77d6d5a815dc3749121ab4326a7d94b50765ec5c5a5d91f618536ada",
+        "temperature": "provider_default_structured_decision"
+      }
+    },
+    "source_record_tag": "C1/1.0",
+    "source_outcome_used_only_by_local_assembly": "failure",
+    "existing_v3_3_records_read_only": true,
+    "behavior_schema_sha256": "05b1f937334f6332f32b58a6582c0a083aaddcc4ced1113cf527c547424f2550",
+    "applicability_schema_sha256": "7db716f9597bcf25080cd8ef054720e9c04a39c008eed057c2ee8bb14eba7dc3",
+    "assembler_sha256": "31b9f64510fd31ab0ba86ba3b6c1ec4decc2e0c7203a427ed933275bc30e8972",
+    "behavior_contract_version": "public_evidence_contract_v4",
+    "applicability_contract_version": "applicability_contract_v3_3_1"
+  },
+  "cache_identity_sha256": "8b453cc94738f2df7134c99db83392f93849393b10992d9f9d6227069b4286b3"
+}

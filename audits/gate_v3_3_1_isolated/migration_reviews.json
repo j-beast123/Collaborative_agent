@@ -1,0 +1,12 @@
+{
+  "schema": "legacy_clause_polarity_review_v1",
+  "reviews": [
+    {
+      "clause_sha256": "89d443f76db7cccbc6424d49e68c33e3829b1e0ae44cc623837db93dbdc1509c",
+      "requirement_type": "absence",
+      "review_basis": "The frozen clause explicitly requires that a prior comparison has not yet occurred; this polarity was confirmed during the authorized v3.3.1 migration review.",
+      "review_scope": "frozen_regression_fixture_only",
+      "keep_inheritance": false
+    }
+  ]
+}
