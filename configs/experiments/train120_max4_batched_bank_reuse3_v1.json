@@ -1,0 +1,39 @@
+{
+  "extends": "configs/experiments/train120_max4_direct_luna_v9_1.json",
+  "experiment": {
+    "output_root": "outputs/train120_max4_batched_bank_reuse3_v1_20261011",
+    "run_label": "train120_max4_batched_bank_reuse3_v1"
+  },
+  "rubric": {
+    "assignment_protocol": null
+  },
+  "feedback": {
+    "endpoint": "http://127.0.0.1:14935"
+  },
+  "five_gpu": {
+    "doctor_urls": [
+      "http://127.0.0.1:14935",
+      "http://127.0.0.1:14936",
+      "http://127.0.0.1:14937",
+      "http://127.0.0.1:14938",
+      "http://127.0.0.1:14939"
+    ],
+    "first_batch_frozen_records": {
+      "0": {
+        "file": "outputs/train120_max4_idle_eval_v1_20261011/r05_o05__p0fixed__gemma3doctor__seed0__train120_max4_idle_eval_v1/batches/batch_000001/case_000000/bank_prepare.json",
+        "sha256": "bc63f3645ddcaa3f167158dae65fc133335229d2df6770fbea5c9f2f2428fbbb"
+      },
+      "3": {
+        "file": "outputs/train120_max4_idle_eval_v1_20261011/r05_o05__p0fixed__gemma3doctor__seed0__train120_max4_idle_eval_v1/batches/batch_000001/case_000003/bank_prepare.json",
+        "sha256": "de19fbca0a7eda468d97099830e6f5715d6f5d6ae1ed72361b8157b174a02ba4"
+      },
+      "4": {
+        "file": "outputs/train120_max4_idle_eval_v1_20261011/r05_o05__p0fixed__gemma3doctor__seed0__train120_max4_idle_eval_v1/batches/batch_000001/case_000004/bank_prepare.json",
+        "sha256": "d7d62ae700dc096b21074a35679f059ce5b82fb06a3a616d91828ba2c1b8773f"
+      }
+    }
+  },
+  "notes": {
+    "first_batch_reuse": "Cases 0, 3, and 4 reuse only the hash-pinned tree and Doctor feedback from the identical base policy and case assignment. Rubrics, Gate decisions, witnesses, scores, bank state, rewards, and updates are recomputed under this run. Cases 1 and 2 roll out normally."
+  }
+}

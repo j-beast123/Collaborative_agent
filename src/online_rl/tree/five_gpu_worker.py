@@ -141,10 +141,27 @@ def run_case(job, phase='fixed', prompt=None):
                                       defer_verification=False, cumulative_snapshot=snapshot,
                                       online_working_bank=True)
         elif phase == 'bank_prepare':
+            frozen = None
+            seeds = (cfg.get('five_gpu') or {}).get('first_batch_frozen_records') or {}
+            seed = seeds.get(str(job['index']))
+            if seed is not None:
+                import hashlib
+                seed_path = Path(seed['file'])
+                if not seed_path.is_absolute(): seed_path = Path(__file__).resolve().parents[3] / seed_path
+                if hashlib.sha256(seed_path.read_bytes()).hexdigest() != seed['sha256']:
+                    raise RuntimeError('Frozen first-batch record hash changed')
+                frozen = json.loads(seed_path.read_text())
+                if (frozen.get('case_id') != job['case']['case_id'] or
+                        frozen.get('policy_sha256') != trainer.state.policy_sha256 or
+                        not frozen.get('tree') or not frozen.get('feedback')):
+                    raise RuntimeError('Frozen first-batch tree/feedback identity changed')
             with activity('bank_prepare.tree_rubric_reuse'):
-                record = trainer.step(prompt_text=prompt['text'], prompt_id=prompt['id'],
+                record = trainer.step(frozen_record=frozen, prompt_text=prompt['text'], prompt_id=prompt['id'],
                                       score_responses=False, commit=False, apply_update=False,
                                       defer_verification=True, cumulative_snapshot=snapshot)
+            if frozen is not None:
+                record['frozen_rollout_source'] = {'file': str(seed_path), 'sha256': seed['sha256'],
+                                                   'reused_fields': ['tree', 'feedback']}
         elif phase == 'bank_verify':
             prepared = validate_phase(json.loads((base / 'bank_prepare.json').read_text()), 'bank_prepare', snapshot)
             with activity('bank_verify.witness_verification'):
