@@ -266,7 +266,8 @@ class TreeTrainer:
             self.step(); done += 1
 
     def step(self, *, frozen_record=None, prompt_text=None, prompt_id=None, score_responses=True, commit=True,
-             apply_update=True, defer_verification=False, cumulative_snapshot=None, online_working_bank=False) -> dict:
+             apply_update=True, defer_verification=False, cumulative_snapshot=None, online_working_bank=False,
+             reuse_frozen_rubric_candidates=False) -> dict:
         cumulative_reuse = []
         if getattr(self, 'cumulative_bank', None):
             from src.online_rl.tree import cumulative_bank as CB
@@ -280,6 +281,8 @@ class TreeTrainer:
             raise ValueError('Batch assessment requires commit=False; the batch coordinator owns inheritance')
         if online_working_bank and (defer_verification or self.exact_source_case or not self.rubric_on):
             raise ValueError('online working bank requires semantic assignment and immediate verification')
+        if reuse_frozen_rubric_candidates and (frozen_record is None or self.exact_source_case or not self.reuse):
+            raise ValueError('frozen rubric candidate reuse requires a semantic-match frozen rollout record')
         if defer_verification and (not self.rubric_on or self.verification not in W.PROTOCOLS):
             raise ValueError('deferred verification requires a rubric-enabled witness protocol')
         t_case = time.time(); rollout_seconds = 0.0
@@ -321,6 +324,7 @@ class TreeTrainer:
                 rollout_seconds = time.perf_counter() - rollout_started
         decided = [l for l in tree.leaves if l.outcome is not None]
         feedback, tins, rubrics, source_scores, effs, selection, scores, weights, bank = [], [], [], [], [], [], [], {}, None
+        seeded_rubric_candidates=[]; seeded_candidate_aliases={}
         if self.rubric_on:                                           # Outcome-only arm: no feedback, rubric, verification or scoring
             fb = lambda l: doctor_feedback(case, l, e.feedback_fn, self.fb_sha, self.cache, self.fb_model)
             if frozen_record is not None:
@@ -339,6 +343,42 @@ class TreeTrainer:
             nodes = {n.node_id: n for n in tree.nodes}
             if self.reuse and self.verification in W.PROTOCOLS:       # consolidation + bounded causal-witness verification (witness.py)
                 tin_of = {t.leaf_id: t for t in tins}
+                if reuse_frozen_rubric_candidates:
+                    from src.online_rl.tree.cumulative_bank import content_hash
+                    from src.online_rl.tree.records import TrajectoryRubric
+                    if (frozen_record.get('case_id') != cid or frozen_record.get('policy_sha256') != s.policy_sha256 or
+                            frozen_record.get('prompt_sha256') != s.prompt_sha256):
+                        raise RuntimeError('Frozen rubric candidates differ from current case, policy or generation prompt')
+                    source_bank=frozen_record.get('rubric_bank') or {}
+                    if source_bank.get('verification_pending') is not True:
+                        raise RuntimeError('Frozen candidate source is not an uncommitted prepared rubric phase')
+                    raw_candidates=frozen_record.get('trajectory_rubrics')
+                    if not isinstance(raw_candidates,list):
+                        raise RuntimeError('Frozen candidate source lacks trajectory rubric records')
+                    content_to_id={}
+                    for raw in raw_candidates:
+                        candidate=from_dict(TrajectoryRubric,raw)
+                        if not candidate.valid:
+                            continue
+                        gate=candidate.gate or {}; source=candidate.source_check or {}
+                        stage=source.get('second') if source.get('status')=='REPAIRED_PASS' else source.get('first')
+                        rubric=candidate.rubric or {}
+                        provenance=rubric.get('source_provenance') or {}
+                        if (candidate.prompt_sha256 != s.prompt_sha256 or provenance.get('source_case_id') != cid or
+                                candidate.leaf_id not in tin_of or gate.get('protocol') != 'public_mc_gate_v3' or
+                                gate.get('passed') is not True or gate.get('public_criterion_version') != 'public_behavior_app_alignment_v5' or
+                                rubric.get('criterion_version') != 'public_behavior_app_alignment_v5' or
+                                source.get('status') not in ('PASS','REPAIRED_PASS') or (stage or {}).get('applicable') is not True or
+                                not isinstance(candidate.intervention_instruction,str) or not candidate.intervention_instruction.strip()):
+                            raise RuntimeError(f'Frozen candidate {candidate.rubric_id} does not satisfy the reusable generation/Gate contract')
+                        digest=content_hash(rubric)
+                        if digest in content_to_id:
+                            seeded_candidate_aliases[candidate.rubric_id]=content_to_id[digest]
+                            continue
+                        content_to_id[digest]=candidate.rubric_id
+                        seeded_rubric_candidates.append(candidate)
+                    if len({r.rubric_id for r in seeded_rubric_candidates}) != len(seeded_rubric_candidates):
+                        raise RuntimeError('Frozen candidate source contains duplicate rubric IDs')
                 online_decisions = []
                 if online_working_bank:
                     working = cumulative_snapshot; all_canon = {}; all_assignments = []; all_witness = []; all_wit_objs = {}
@@ -408,7 +448,8 @@ class TreeTrainer:
                         self.cache, source_stage1_for=ssf, parallel_strata=self.parallel_strata)
                 else:
                     canon, assignments = RB.build_banks(case, ruled, tin_of, prompt, s.prompt_sha256, e.generate_fn,
-                                                        e.assign_fn, e.gate_fn, self.cache, parallel_strata=self.parallel_strata, source_stage1_for=ssf)
+                                                        e.assign_fn, e.gate_fn, self.cache, parallel_strata=self.parallel_strata,
+                                                        source_stage1_for=ssf, initial_candidates=seeded_rubric_candidates or None)
                     generated_candidates = None
                 rubrics = list(canon.values()); assignments_raw = [to_dict(a) for a in assignments]
                 telemetry = {**RB.assignment_telemetry(canon, assignments, candidates=generated_candidates),
@@ -427,6 +468,19 @@ class TreeTrainer:
                             **({'assignment_protocol': RB.EXACT_SOURCE_CASE_PROTOCOL,
                                 'generated_candidates': [to_dict(r) for r in generated_candidates]} if generated_candidates is not None else {}),
                             'verification_pending': bool(defer_verification)}
+                    if reuse_frozen_rubric_candidates:
+                        imported={r.rubric_id for r in seeded_rubric_candidates}
+                        used=imported & set(canon)
+                        bank['seeded_rubric_candidates']={
+                            'source_case_id':cid,
+                            'source_policy_sha256':frozen_record['policy_sha256'],
+                            'source_prompt_sha256':frozen_record['prompt_sha256'],
+                            'source_assignment_protocol':(frozen_record.get('rubric_bank') or {}).get('assignment_protocol'),
+                            'imported_candidate_ids':sorted(imported),
+                            'matched_candidate_ids':sorted(used),
+                            'exact_duplicate_source_candidate_aliases':seeded_candidate_aliases,
+                            'prior_assignments_reused':False,
+                            'new_assignment_protocol':'semantic_same_case_recomputed_v1'}
                 if online_working_bank:
                     pass
                 elif not defer_verification:

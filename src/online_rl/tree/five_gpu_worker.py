@@ -158,10 +158,18 @@ def run_case(job, phase='fixed', prompt=None):
             with activity('bank_prepare.tree_rubric_reuse'):
                 record = trainer.step(frozen_record=frozen, prompt_text=prompt['text'], prompt_id=prompt['id'],
                                       score_responses=False, commit=False, apply_update=False,
-                                      defer_verification=True, cumulative_snapshot=snapshot)
+                                      defer_verification=True, cumulative_snapshot=snapshot,
+                                      reuse_frozen_rubric_candidates=bool(frozen is not None and
+                                          (cfg.get('five_gpu') or {}).get('reuse_frozen_rubric_candidates',False)))
             if frozen is not None:
                 record['frozen_rollout_source'] = {'file': str(seed_path), 'sha256': seed['sha256'],
-                                                   'reused_fields': ['tree', 'feedback']}
+                                                   'reused_fields': ['tree', 'feedback'] +
+                                                     (['gate-passed rubric candidates; assignments rematched'] if
+                                                      (cfg.get('five_gpu') or {}).get('reuse_frozen_rubric_candidates',False) else []),
+                                                   'source_run':seed.get('source_run'),
+                                                   'source_run_manifest_sha256':seed.get('source_run_manifest_sha256'),
+                                                   'source_generator_model':seed.get('source_generator_model'),
+                                                   'reusable_gated_candidates':seed.get('reusable_gated_candidates')}
         elif phase == 'bank_verify':
             prepared = validate_phase(json.loads((base / 'bank_prepare.json').read_text()), 'bank_prepare', snapshot)
             with activity('bank_verify.witness_verification'):
