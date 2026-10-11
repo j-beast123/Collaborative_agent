@@ -1,0 +1,40 @@
+{
+  "extends": "configs/experiments/train120_max4_direct_luna_v9_1.json",
+  "experiment": {
+    "output_root": "outputs/train120_max4_consolidation8_random5_idle622_v1_20261011",
+    "run_label": "max4_consolidation8_random5_idle622_v1"
+  },
+  "api_provider": "openrouter",
+  "rubric": {
+    "generator_model": "google/gemini-3.8-flash-20260902",
+    "assignment_protocol": null,
+    "match_batch_size": 8,
+    "generation": {
+      "api_provider": "openrouter"
+    }
+  },
+  "judges": {
+    "api_provider": "openai_direct"
+  },
+  "verification": {
+    "mode": "random5_witness_v1",
+    "max_valid_supports": 5,
+    "reruns_per_support": 3,
+    "short_circuit": "Within each trajectory, decide after two agreeing outcomes (2 of K=3). Across trajectories, KEEP at the first trajectory reaching the target in at least 2/3 reruns.",
+    "support_order": "A deterministic uniform sample of at most five same-rubric trajectories, without replacement.",
+    "target": "Each member's own feedback behavioral locus and member-specific intervention; Stage-1 Applicable required, No Match proceeds to the next assigned trajectory.",
+    "stage2_in_verification": false,
+    "keep": "KEEP immediately when any sampled applicable trajectory reaches the requested outcome change in at least 2/3 reruns; otherwise NOT_VALIDATED after at most five valid trajectories or candidate exhaustion.",
+    "support_sampling": "uniform_random5_without_replacement_v1"
+  },
+  "notes": {
+    "consolidation": "Success and failure strata are independent. The first trajectory in each non-empty stratum always generates. Gemini compares each later group of at most eight trajectories both with the current valid bank and with one another. One representative per proposed same-reason peer group generates; peers are rechecked against the actual generated rubric before reuse.",
+    "generation_savings": "A matched trajectory reuses the unchanged rubric and skips rubric generation and Gate. Matching is performed by the configured rubric-generator model; topic or label similarity alone is insufficient because all matcher checks must pass.",
+    "verification": "Sample at most five same-rubric trajectories. Each gets up to three reruns with early 2-of-3 decision; KEEP at the first passing trajectory.",
+    "unchanged": "Agent, Doctor, Gate, scorer, prompts, rollout tree, reward, optimizer, schedule, cumulative scoring scope, and checkpoint behavior are inherited unchanged from train120_max4_direct_luna_v9_1.json. Rubric generation and both bank/peer consolidation matching use Gemini through OpenRouter.",
+    "evaluation": "Independent training-priority idle evaluators process all 622 pinned cases for C30, C60, C90, and C120. Training inference and updates have priority."
+  },
+  "five_gpu": {
+    "checkpoint_evaluation_enabled": false
+  }
+}

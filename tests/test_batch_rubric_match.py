@@ -67,7 +67,7 @@ def test_eight_trajectories_are_peer_clustered_then_checked_against_generated_ru
 @pytest.mark.parametrize('bad',['missing','duplicate','unknown','bad_bool'])
 def test_malformed_batch_response_raises_and_is_not_cached(monkeypatch,bad):
     leaves,tins=many();items=[tins[l.leaf_id] for l in leaves[:2]]
-    rows=[{'trajectory_id':t.leaf_id,'peer_representative_id':t.leaf_id,'decision':'CREATE_NEW','rubric_id':'','checks':{k:False for k in A.MATCH_CHECKS},'rationale':'new'} for t in items]
+    rows=[{'trajectory_id':t.leaf_id,'peer_representative_id':t.leaf_id,'peer_checks':{k:True for k in A.MATCH_CHECKS},'decision':'CREATE_NEW','rubric_id':'','checks':{k:False for k in A.MATCH_CHECKS},'rationale':'new'} for t in items]
     if bad=='missing':rows.pop()
     if bad=='duplicate':rows[1]['trajectory_id']=rows[0]['trajectory_id']
     if bad=='unknown':rows[1]['trajectory_id']='elsewhere'

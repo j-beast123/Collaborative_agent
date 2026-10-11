@@ -835,9 +835,14 @@ def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: s
         batch_schema={'type':'object','additionalProperties':False,'required':['decisions'],
                 'properties':{'decisions':{'type':'array','items':{
                     'type':'object','additionalProperties':False,
-                    'required':['trajectory_id','peer_representative_id',*schema['required']],
+                    'required':['trajectory_id','peer_representative_id','peer_checks',*schema['required']],
                     'properties':{'trajectory_id':{'type':'string'},
                                   'peer_representative_id':{'type':['string','null']},**schema['properties']}}}}}
+        batch_schema['properties']['decisions']['items']['properties']['peer_checks']={
+            'type':['object','null'],
+            'additionalProperties':False,
+            'required':list(MATCH_CHECKS),
+            'properties':{key:{'type':'boolean'} for key in MATCH_CHECKS}}
         if context_addendum:package += '\n\n'+context_addendum
         package += ('\n\nBATCH MATCH + PEER CONSOLIDATION CONTRACT: Compare every trajectory against both the SAME frozen bank '
                     'and all other trajectories in this batch. First use REUSE_EXISTING only when a frozen-bank rubric '
@@ -846,7 +851,11 @@ def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: s
                     'peer_representative_id to its own ID for the representative and to that representative ID for the '
                     'other members. Use separate groups whenever applicability, required behavior, M, C, score boundaries, '
                     'source outcome direction, or assertion strength differs. A singleton points to itself. For '
-                    'REUSE_EXISTING, peer_representative_id must be null. Peer grouping is a generation-saving proposal, '
+                    'every CREATE_NEW row, peer_checks must contain the same six checks and every value must be true '
+                    'against its named representative. Comparing only the shared clinical question, options, initial '
+                    'Doctor message, topic, or final outcome is insufficient: compare the concrete behavior evidenced '
+                    'by the full trajectory and Doctor reflection. For REUSE_EXISTING, peer_representative_id and '
+                    'peer_checks must be null. Peer grouping is a generation-saving proposal, '
                     'not proof that a future generated rubric passes Gate; non-representatives will be checked again '
                     'against the actual generated criterion. '
                     'Return {"decisions": [...]} with exactly one entry for each supplied trajectory_id. '
@@ -865,22 +874,26 @@ def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: s
             if not isinstance(rows,list) or len(rows)!=len(expected):raise RubricOutputIncomplete('Batch match ID coverage differs')
             out={}
             for row in rows:
-                if not isinstance(row,dict) or set(row)!={'trajectory_id','peer_representative_id',*schema['required']}:raise RubricOutputIncomplete('Malformed batch match row')
+                if not isinstance(row,dict) or set(row)!={'trajectory_id','peer_representative_id','peer_checks',*schema['required']}:raise RubricOutputIncomplete('Malformed batch match row')
                 tid=row['trajectory_id']
                 if not isinstance(tid,str) or tid not in expected or tid in out:raise RubricOutputIncomplete('Missing, duplicate or unknown trajectory ID')
                 value={k:row[k] for k in schema['required']}
                 if not valid_decision(value):raise RubricOutputIncomplete('Malformed batch match decision')
                 peer=row['peer_representative_id']
-                if value['decision']=='REUSE_EXISTING' and peer is not None:
-                    raise RubricOutputIncomplete('Frozen-bank reuse cannot name a peer representative')
+                peer_checks=row['peer_checks']
+                if value['decision']=='REUSE_EXISTING' and (peer is not None or peer_checks is not None):
+                    raise RubricOutputIncomplete('Frozen-bank reuse cannot name or certify a peer representative')
                 if value['decision']=='CREATE_NEW' and (not isinstance(peer,str) or peer not in expected):
                     raise RubricOutputIncomplete('CREATE_NEW must name a supplied peer representative')
+                if value['decision']=='CREATE_NEW' and not (isinstance(peer_checks,dict) and set(peer_checks)==set(MATCH_CHECKS)
+                                                             and all(v is True for v in peer_checks.values())):
+                    raise RubricOutputIncomplete('Peer consolidation requires all six peer checks to pass')
                 if member_interventions and value['decision'] == 'REUSE_EXISTING':
                     tin = next(t for t in items if t.leaf_id == tid)
                     agent_count = sum(turn[0] == 'agent' for turn in tin.dialogue)
                     if value['selected_agent_turn_id'] > agent_count:
                         raise RubricOutputIncomplete('Member selected_agent_turn_id is not an actual Agent reply ID')
-                out[tid]={**value,'peer_representative_id':peer}
+                out[tid]={**value,'peer_representative_id':peer,'peer_checks':peer_checks}
             positions={t.leaf_id:i for i,t in enumerate(items)}
             for tid,value in out.items():
                 peer=value['peer_representative_id']
