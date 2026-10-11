@@ -1,0 +1,331 @@
+{
+  "name": "r05_o05__p0fixed__gemma3doctor__seed0",
+  "output_dir": "outputs/reward_prompt_matrix/p0_fixed_v2_3_intervention_alignment_max2_train120/r05_o05__p0fixed__gemma3doctor__seed0",
+  "policy": {
+    "base_model": "Qwen/Qwen3-8B",
+    "init_adapter": null,
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.0,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "use_rslora": true,
+      "init_seed": 20261006
+    }
+  },
+  "data": {
+    "train": "data/interim/medmcqa/five_gpu_train120_seed20261008/train120_excluding_calibration_seed20261008.jsonl",
+    "train_sha256": "3d34929094925c822062d03839b49de8f6fb43afba71fb573de409471bb5b8ab",
+    "train_manifest": "data/interim/medmcqa/five_gpu_train500/train500_excluding_calibration.manifest.json",
+    "excluded_calibration_case_ids": [
+      "medmcqa_1b8e64f8-bbec-496b-8460-3359bd24d326",
+      "medmcqa_1d184378-ee3b-46c9-8391-3557e141e653",
+      "medmcqa_2335f0d1-c480-409a-a022-b7c84eca71ca",
+      "medmcqa_507feb54-647f-46c5-906b-4b2233c59ddf",
+      "medmcqa_52673829-5fed-493c-9c73-7f998842e442",
+      "medmcqa_5855dbc9-15c4-4305-8c7c-8cfd659b4f7b",
+      "medmcqa_78a5e288-2c7d-44a0-9e9b-816dfaa7f0f7",
+      "medmcqa_858f875a-344d-45da-bf0a-7f2b7fc93bac",
+      "medmcqa_899e79e3-37f6-46e1-ab3c-d585647f4d96",
+      "medmcqa_9422d9f9-0e8d-4aee-a4b1-93d09b399bb2",
+      "medmcqa_dfe8b671-5d53-4cf8-832a-c5bae5fb36c7",
+      "medmcqa_ecb57f7e-806c-414c-af8a-a90078b796fa",
+      "medmcqa_eda5f31a-9eac-42a8-8ce3-5b233cb3eb90"
+    ]
+  },
+  "rollout": {
+    "branching": 4,
+    "rounds": 4,
+    "budget": "full_tree",
+    "doctor_model": "ollama/gemma3:12b-it-q8_0@997a7c2c0975",
+    "max_tokens_doctor": 256,
+    "max_completion_length": 400,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 0,
+    "doctor_backend": {
+      "engine": "ollama",
+      "endpoint": "http://127.0.0.1:11935",
+      "model": "gemma3:12b-it-q8_0",
+      "model_digest": "997a7c2c09753e9011ec18a3fcb498e27c0ba330599dfb26a2e05b58cfbdc1bc",
+      "quantization": "Q8_0",
+      "ollama_version": "0.12.5",
+      "source_model": "google/gemma-3-12b-it",
+      "gpu": "one pinned server per physical GPU 0..4 (five_gpu.doctor_urls)",
+      "options": {
+        "temperature": 0.4,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "num_ctx": 8192,
+        "num_batch": 64
+      },
+      "final_response": {
+        "mode": "label_only_v1",
+        "max_tokens": 32
+      }
+    },
+    "halting": {
+      "enabled": true,
+      "min_agent_turns": 2,
+      "repeat_agent_reply_after_turns": 4
+    },
+    "doctor_system_prompt_file": "prompts/user_simulator_v4_final_label.txt",
+    "doctor_system_prompt_sha256": "026f3771659f97b16f7d8985169478bd0b9eb5c141316a982eb49f3f60cff3a2",
+    "agent_protocol": "precommit_v1",
+    "agent_sampling_protocol": "per_row_rng_batch_v1"
+  },
+  "schedule": {
+    "seed": 0,
+    "cases": 120,
+    "calibration_only_cursors": []
+  },
+  "optimizer": {
+    "learning_rate": 1e-05,
+    "beta": 0.04,
+    "clip_epsilon": 0.2,
+    "grad_clip": 1.0,
+    "logprob_token_chunk_size": 16,
+    "pre_update_ratio_tolerance": 0.001,
+    "require_raw_on_policy_sampling": true
+  },
+  "advantage_normalization": {
+    "mode": "mean_center"
+  },
+  "rubric": {
+    "enabled": true,
+    "generator_prompt_file": "prompts/sherpa/trajectory_rubric_generator_v2_8_app_alignment.txt",
+    "prompt_id": "P0-isolated-app-alignment-v7",
+    "prompt_sha256": "3ceb771bab18878aaea62621c7e44d008ff89a147d49584f9dacef2cc877dfc5",
+    "gold_answer_visible": false,
+    "generator_model": "google/gemini-3.8-flash-20260902",
+    "reuse": "assign_or_create_v1",
+    "generation": {
+      "max_tokens": 6144,
+      "temperature": 0.7,
+      "reasoning_effort": "low",
+      "response_format": null,
+      "output_contract": "trajectory_analysis_candidate_v2_with_intervention",
+      "local_schema_file": "prompts/sherpa/trajectory_rubric_generator_v2_8_app_alignment.schema.json",
+      "local_schema_sha256": "404d7fdc1b1580650dfc8419c2ac9fbfe18536dfd097dd317befaa8bdb8b0843",
+      "selected_turn_policy": "generator_v1",
+      "feedback_check_protocol": "all_reflection_claims_v1",
+      "instruction_alignment_protocol": "intervention_alignment_analysis_v1",
+      "public_criterion_protocol": "public_behavior_mc_v1",
+      "generation_semantic_protocol": "public_app_alignment_generation_v5",
+      "api_provider": "openrouter"
+    },
+    "source_consistency": "source_locus_v1",
+    "schema": "observed_context_behavior_v1",
+    "state_addendum_file": "prompts/sherpa/observed_context_behavior_v2.txt",
+    "state_addendum_sha256": "5d48dd7533799eb7762b1e0fd4709b1f9494024623d4fd0fbfc8e2f48893618a",
+    "state_addendum_enabled": false,
+    "cumulative_bank": {
+      "protocol": "cumulative_keep_bank_v1",
+      "retrieval_top_k": 8,
+      "scoring_scope": "all",
+      "matcher_prompt_file": "prompts/sherpa/cumulative_bank_match_public_mc_v1.txt",
+      "matcher_prompt_sha256": "dbd061dcfb40f1d62d4fcdb4b4129ff2ebfd95d0db590d9976a3bc6742807739",
+      "working_bank_protocol": "offline_chunk8_single_call_bank_v1"
+    },
+    "assignment_protocol": null,
+    "match_batch_size": 8
+  },
+  "feedback": {
+    "model": "ollama/gemma3:12b-it-q8_0@997a7c2c0975",
+    "protocol": "physician_post_final_reflection_v1",
+    "prompt_file": "prompts/sherpa/doctor_post_final_reflection_v1.txt",
+    "prompt_sha256": "595b384270dc1bd8a80bc006ec1550bbe2a0207fc7dddce1cdc2f1e4ebdd426f",
+    "max_tokens": 512,
+    "behavioral_locus": true,
+    "leakage_guard": "No ground truth or outcome label in Doctor input; validate original Agent reply IDs; structured none-supported experience allowed"
+  },
+  "intervention": {
+    "reruns_per_intervention": 3,
+    "score2_template_file": "prompts/sherpa/pilot_joint_v2_1/score2.txt",
+    "score2_template_sha256": "cd76b7346fdd74641c4df933003e64cd12df36b9a9abf05dad9960eeee3dfab0",
+    "score0_template_file": "prompts/sherpa/pilot_joint_v2_1/score0.txt",
+    "score0_template_sha256": "deab6dbd055a131cca57285df16da5debcb7719b4ebd656628e7767e0457332d",
+    "guided_protocol": "joint_instruction_v2_1",
+    "agent_system_prompt_file": "prompts/sherpa/pilot_joint_v2_1/agent_system.txt",
+    "agent_system_prompt_sha256": "05da16d22d2f30dd9829ef19252a9156582378ebe6c29086d23c6f8bc47e5eec"
+  },
+  "selection": {
+    "mode": "threshold",
+    "min_R_O": 0.6666666666666666
+  },
+  "verification": {
+    "mode": "random5_witness_v1",
+    "max_valid_supports": 5,
+    "reruns_per_support": 3,
+    "short_circuit": "Within each trajectory, decide after two agreeing outcomes (2 of K=3). Across trajectories, KEEP at the first trajectory reaching the target in at least 2/3 reruns.",
+    "support_order": "A deterministic uniform sample of at most five same-rubric trajectories, without replacement.",
+    "target": "Each member's own feedback behavioral locus and member-specific intervention; Stage-1 Applicable required, No Match proceeds to the next assigned trajectory.",
+    "stage2_in_verification": false,
+    "keep": "KEEP immediately when any sampled applicable trajectory reaches the requested outcome change in at least 2/3 reruns; otherwise NOT_VALIDATED after at most five valid trajectories or candidate exhaustion.",
+    "support_sampling": "uniform_random5_without_replacement_v1"
+  },
+  "agent_reward": {
+    "w_outcome": 0.5,
+    "w_rubric": 0.5,
+    "r_a_weighting": "equal"
+  },
+  "prompt_update": {
+    "enabled": false,
+    "every_n_cases": 5,
+    "minimum_trajectories": 0,
+    "reruns_per_intervention": 3,
+    "candidate_count": 1,
+    "retain_top_k": 1,
+    "refinement_depth": 1,
+    "feedback_prompt_file": "prompts/sherpa/tree_prompt_feedback_v3.txt",
+    "feedback_prompt_sha256": "56e410f15d6016ccad01aec20f1b0e3959bbbf0ce0f3a4d2be47c809f4366b9d",
+    "refiner_prompt_file": "prompts/sherpa/tree_prompt_refiner_v3.txt",
+    "refiner_prompt_sha256": "750432a59f4f1a94b6ec5ece3230101b932af8a0d82cfc7cc22b7156e325fd7d",
+    "reflection_model": "gpt-6-luna",
+    "refiner_model": "gpt-6-luna",
+    "mode": "five_case_p0_p1_v1",
+    "aggregation": "mean_sampled_witness_effect_per_direction_product_v1",
+    "tie": "keep_parent",
+    "missing_direction": "keep_parent",
+    "training_rubrics": "union_both_kept_deduplicated_v1",
+    "candidate_seed": "first_completed_P0_v1"
+  },
+  "evaluation": null,
+  "notes": {
+    "mode": "ONLINE Ours (collaborator decision 2026-10-11): the collaborator max-4 Ours with the rubric bank built and updated DURING RL. Per five-case batch: rollout with the current policy -> Doctor post-final reflection -> chunk transactions against the CURRENT bank (case by case) -> full-bank scoring -> reward 0.5 Outcome + 0.5 R_A -> GRPO; the next batch starts from the accumulated bank. This is an ONLINE EVOLVING rubric bank; the OFFLINE run differs only in bank timing (bank precomputed at fresh theta0 and frozen).",
+    "derived_from": "train120_max4_offline_chunk8_bank_stage_a_v2.json without rubric.cumulative_bank.offline_build (same code, same generator contract offline_chunk8_single_call_bank_v1: cap 48, chunks of 8, one primary generator call per chunk, bank updated after every call).",
+    "evaluation": "No evaluation of any kind; no DEV or TEST data.",
+    "execution_robustness": "Execution settings only (no prompt / model / criterion / decision change): judges.scorer_max_tokens 4096 -> 16384 (the Stage-1 applicability and behavior judge output allowance; smoke applicability answers used up to the 4096 cap with 3200-4000 reasoning tokens and were truncated; 16384 equals the Gate allowance), and judges.execution_retry_attempts = 12 (bounded local repetition of the unchanged request when a judge / generator response is execution-invalid or truncated; such a response is never a verdict).",
+    "uncertain": "A Stage-1 applicability verdict of uncertain gets up to two fresh re-judgments by the same judge; if still uncertain only that rubric / state pair is unresolved (abstain): no score, no reward or penalty, never read as FALSE."
+  },
+  "acceptance": {
+    "rule": "strictly_higher_product_v1"
+  },
+  "judges": {
+    "gate_model": "openai/gpt-6-luna",
+    "gate_prompt_file": "prompts/sherpa/gate_public_mc_v5.txt",
+    "gate_prompt_sha256": "1b801deb1cbb2f1be25f39c7e0d754f190b130c2e1fe4cb8191da92ef90deda3",
+    "scorer_model": "openai/gpt-6-luna",
+    "scorer_prompt_file": "prompts/sherpa/scorer_public_mc_v3.txt",
+    "scorer_prompt_sha256": "c2620507db304919270d8a154ea6cdfbe35de810c4c71bce39c8ee13ae6d0fc9",
+    "luna_canonical_slug": "openai/gpt-6-luna-20260922 (OpenRouter canonical slug of the routable id openai/gpt-6-luna)",
+    "scorer_protocol": "public_mc_evidence_v3",
+    "scorer_max_tokens": 16384,
+    "gate_protocol": "public_mc_gate_v3",
+    "gate_max_tokens": 16384,
+    "gate_quote_protocol": "input_field_refs_v2",
+    "intervention_audit_protocol": "intervention_instruction_audit_v1",
+    "intervention_audit_model": "openai/gpt-6-luna",
+    "intervention_audit_prompt_file": "prompts/sherpa/intervention_instruction_audit_v1.txt",
+    "intervention_audit_structured": true,
+    "intervention_audit_max_tokens": 2048,
+    "intervention_audit_timeout_s": 180,
+    "intervention_audit_prompt_sha256": "c399975bbb6d76ca2da77599e0258a615e9156bdd02379d2320bac51dcb436ac",
+    "applicability_prompt_file": "prompts/sherpa/applicability_public_mc_v3.txt",
+    "applicability_prompt_sha256": "4b2553c3cdc89256f0aeac54e636e6bb8eac32e34573ddf4aa4c7c71ce764b4c",
+    "compact_runtime": "v7_5_v7_6",
+    "compact_prompt_sha256": {
+      "prompts/sherpa/compact_applicability_semantics_v3.txt": "12a679fd795f7c0ac43a7d7358dd5e39766dec557d03b24c7bd8c571eb5df18a",
+      "prompts/sherpa/compact_behavior_semantics_v3.txt": "42a55e920d5941a1d559378004f1bde426302f9aded3bfd18294df345ce9e98f",
+      "prompts/sherpa/compact_applicability_relation_v7_4.txt": "ffe3f97f34708fd8cdd325a2432f3b19796f4e50cb58b0d8b6ced7f38106a056",
+      "prompts/sherpa/compact_applicability_referent_v7_5.txt": "7c4af94678acd56b10b37eeffc0ccd5fe40767d071a0146e7f9d4503c6916470",
+      "prompts/sherpa/compact_behavior_referent_v7_6.txt": "82bb2c03160e640d030798d834c1f715500a00761500d635e226c28bda96cb14"
+    },
+    "api_provider": "openrouter",
+    "execution_retry_attempts": 12
+  },
+  "execution": {
+    "doctor_workers": 1,
+    "rerun_workers": 3,
+    "note": "execution only (thread counts); values and cache keys are unchanged. Doctor worker endpoints come from SHERPA_DOCTOR_ENDPOINTS (provenance in the manifest)",
+    "agent_workers": 4,
+    "member_workers": 2,
+    "rubric_score_batch_size": 4
+  },
+  "condition": "r05_o05__p0fixed__gemma3doctor__seed0",
+  "five_gpu": {
+    "rollout_gpus": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "lanes_per_gpu": 1,
+    "update_gpu": 4,
+    "checkpoint_every_cases": 30,
+    "doctor_urls": [
+      "http://127.0.0.1:11935",
+      "http://127.0.0.1:11936",
+      "http://127.0.0.1:11937",
+      "http://127.0.0.1:11938",
+      "http://127.0.0.1:11939"
+    ],
+    "eval_file": "data/interim/casimedicos/all_en_622.jsonl",
+    "eval_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+    "eval_cases": 622,
+    "eval_seed": 0,
+    "opening_mode": "immutable_runtime_D1_v1",
+    "api_workers": 3,
+    "opening_identity": {
+      "engine": "ollama",
+      "model": "gemma3:12b-it-q8_0",
+      "model_digest": "997a7c2c09753e9011ec18a3fcb498e27c0ba330599dfb26a2e05b58cfbdc1bc",
+      "quantization": "Q8_0",
+      "ollama_version": "0.12.5",
+      "source_model": "google/gemma-3-12b-it",
+      "options": {
+        "temperature": 0.4,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "num_ctx": 8192,
+        "num_predict": 256,
+        "num_batch": 64
+      },
+      "system_prompt_sha256": "026f3771659f97b16f7d8985169478bd0b9eb5c141316a982eb49f3f60cff3a2"
+    },
+    "train_order_file": "data/interim/medmcqa/five_gpu_train120_seed20261008/train120_order_seed20261008.json",
+    "train_order_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
+    "batch_cases": 5,
+    "base_evaluation": {
+      "enabled": false,
+      "mode": "original_base_no_precommit_v1",
+      "priority": "before_checkpoint_evaluation",
+      "cases": 622
+    },
+    "ollama_binary": "/home/kai/.local/ollama-v0.12.5/bin/ollama",
+    "agent_batch_size": 4,
+    "doctor_concurrency": 1,
+    "execution_mode": "shared_ready_tasks_v1",
+    "checkpoint_evaluation_enabled": false
+  },
+  "experiment": {
+    "feedback_model": "ollama/gemma3:12b-it-q8_0@997a7c2c0975",
+    "seed": 0,
+    "train_order_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41",
+    "output_root": "outputs/train120_max4_online_chunk8_v2_20261011",
+    "pfinal_artifact": null,
+    "family": "reward_sweep",
+    "reward_weight_rubric": 0.5,
+    "reward_weight_outcome": 0.5,
+    "prompt_mode": "p0_fixed",
+    "output_dir": null,
+    "run_label": "max4_online_chunk8_bank_v2"
+  },
+  "rollout_protocol_sha256_override": null,
+  "supervision_handoff": null,
+  "api_provider": "openrouter"
+}

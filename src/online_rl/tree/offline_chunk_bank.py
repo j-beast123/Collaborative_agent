@@ -202,7 +202,18 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
         identity = {'protocol': VERSION, 'case': cid, 'chunk_index': index, 'prompt': state.prompt_sha256,
                     'tins': [[t.leaf_id, t.sha256] for t in tins], 'bank_sha256': before['sha256'], 'transcript': TRANSCRIPT_FORMAT,
                     'model': chunk_generate.model, 'settings': chunk_generate.settings}
-        result = cache.call('offline_chunk_generation', identity, lambda: chunk_generate(package, tins, before))
+        def primary_call():                                      # ONE primary generator call; an execution-invalid response
+            from src.online_rl.tree.backends import RubricOutputIncomplete   # (not JSON / contract violation after its correction)
+            bound = int((trainer.cfg.get('judges') or {}).get('execution_retry_attempts') or 1)   # repeats the SAME request, bounded
+            for attempt in range(bound):
+                try:
+                    out = chunk_generate(package, tins, before); out['execution_retries'] = attempt
+                    return out
+                except RubricOutputIncomplete as exc:
+                    if attempt == bound - 1: raise
+                    print(json.dumps({'event': 'generator_execution_retry', 'case_id': cid, 'chunk_index': index, 'attempt': attempt + 1,
+                                      'of': bound, 'error': str(exc)[:160]}), flush=True)
+        result = cache.call('offline_chunk_generation', identity, primary_call)
         if result.get('bank_sha256') != before['sha256']: raise RuntimeError('Chunk result belongs to another bank')
         rows = result['decisions']; chunk_sha = sha256_json(identity); groups = {}; report = []
         for tid in ids:
@@ -284,6 +295,7 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                                'refused': group['refused'].get(tid), 'representative_keep': group['kept'], 'bank_id': group['bank_id'] if reused else None})
         chunk_reports.append({'chunk_index': index, 'trajectory_ids': ids, 'trajectories': len(ids), 'generator_calls': 1,
                               'generator_api_requests': result['api_calls'], 'generator_correction_requests': result['api_calls'] - 1,
+                              'generator_execution_retries': result.get('execution_retries', 0),
                               'peer_matching_calls': sum(r.get('peer_matching_calls', 0) for r in report), 'bank_before_sha256': before['sha256'],
                               'bank_before_size': len(before['entries']), 'bank_after_sha256': working['sha256'],
                               'bank_after_size': len(working['entries']), 'rows': report})

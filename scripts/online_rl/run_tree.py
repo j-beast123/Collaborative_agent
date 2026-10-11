@@ -492,24 +492,43 @@ def make_scorer(cfg: dict, client):
         # score. Retry the unchanged Stage-1 request once while retaining the
         # failed wire evidence in the eventual cached decision. This wrapper
         # does not alter the criterion or its pinned cache identity.
+        # judges.execution_retry_attempts (optional; absent = the historical single retry): bounded LOCAL repetition of the
+        # unchanged request when the judge response is execution-invalid (schema / evidence-contract / malformed JSON) or
+        # truncated (finish_reason). Such a response is never a TRUE / FALSE / UNCERTAIN verdict, a score or an NA.
+        local_attempts = jm.get('execution_retry_attempts')
+        if local_attempts is not None and (type(local_attempts) is not int or not 2 <= local_attempts <= 32):
+            raise ValueError('judges.execution_retry_attempts must be an integer in 2..32')
+        attempts = local_attempts or 2
+
+        def execution_invalid(validation):
+            if validation.get('status') == 'execution_error' and validation.get('kind') in ('schema', 'evidence_contract', 'json_or_response'):
+                return True
+            return bool(local_attempts) and validation.get('status') == 'execution_incomplete' and validation.get('kind') == 'finish_reason'
+
+        def note_retry(stage, attempt, validation):
+            import json as _json, time as _time
+            print(_json.dumps({'event': 'judge_execution_retry', 'stage': stage, 'attempt': attempt + 1, 'of': attempts,
+                               'status': validation.get('status'), 'kind': validation.get('kind'),
+                               'error': str(validation.get('error'))[:120]}), flush=True)
+            if local_attempts: _time.sleep(min(2 * (attempt + 1), 20))
+
         original_review = getattr(scorer, 'review_state', None)
         if callable(original_review):
             @wraps(original_review)
             def retry_invalid_stage1(*args, **kwargs):
                 failed = []
-                for attempt in range(2):
+                for attempt in range(attempts):
                     try:
                         rows = original_review(*args, **kwargs)
                     except IntegrationUnavailable as exc:
                         audit = getattr(exc, 'audit', None) or {}
                         validation = audit.get('validation') or {}
-                        if (attempt == 1 or validation.get('status') != 'execution_error' or
-                                validation.get('kind') not in ('schema', 'evidence_contract', 'json_or_response')):
+                        if attempt == attempts - 1 or not execution_invalid(validation):
                             if failed:
                                 exc.audit = {**audit, 'prior_failed_attempts': failed}
                             raise
                         failed.append(audit)
-                        print('Compact applicability execution invalid; retry 1/1', flush=True)
+                        print('Compact applicability execution invalid; retry 1/1', flush=True) if not local_attempts else note_retry('applicability', attempt, validation)
                         continue
                     if failed:
                         for row in rows.values():
@@ -537,6 +556,20 @@ def make_scorer(cfg: dict, client):
                     print(f'Compact scorer omitted public checks; retry {attempt + 1}/4', flush=True)
 
         scorer.score_behavior_batch = retry_incomplete_checks
+        if local_attempts:                                      # the same bounded local repetition for the behavior judgment
+            checked_batch = scorer.score_behavior_batch
+
+            def retry_invalid_behavior(*args, **kwargs):
+                for attempt in range(attempts):
+                    try:
+                        return checked_batch(*args, **kwargs)
+                    except IntegrationUnavailable as exc:
+                        validation = (getattr(exc, 'audit', None) or {}).get('validation') or {}
+                        if attempt == attempts - 1 or not execution_invalid(validation):
+                            raise
+                        note_retry('behavior', attempt, validation)
+
+            scorer.score_behavior_batch = retry_invalid_behavior
         return scorer
     if jm.get('scorer_protocol') in (PUBLIC_SCORER_PROTOCOL, PUBLIC_SCORER_PROTOCOL_V2, PUBLIC_SCORER_PROTOCOL_V3):
         from src.online_rl.tree.pilot_evidence_scorer import evidence_scorer
