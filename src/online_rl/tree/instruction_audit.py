@@ -195,6 +195,28 @@ def make_instruction_auditor(client):
     return audit
 
 
+def execution_invalid_audit(exc) -> bool:
+    """True only for an audit RESPONSE that stayed invalid (malformed / evidence contract / no valid decision); a transport or
+    credential failure is never treated as a missing verdict."""
+    text = str(exc)
+    return isinstance(getattr(exc, 'audit', None), dict) and (
+        text.startswith('Invalid instruction audit evidence') or 'returned no valid' in text)
+
+
+def execution_unresolved_auditor(auditor, attempts, on_unresolved=None):
+    """After the auditor's own local retry budget an execution-invalid audit is EXECUTION_UNRESOLVED: the member has no audit
+    verdict, which is no evidence for or against the candidate. Nothing is cached; the witness rule is unchanged."""
+    def audit(case, prefix, rubric, member_spec):
+        try: return auditor(case, prefix, rubric, member_spec)
+        except IntegrationUnavailable as exc:
+            if not execution_invalid_audit(exc): raise
+            if on_unresolved: on_unresolved(rubric, member_spec, exc)
+            return {'execution_unresolved': True, 'protocol': PROTOCOL, 'total_attempts': attempts, 'execution_error': str(exc)[:200]}
+    for name in ('settings', 'model', 'protocol'):
+        if hasattr(auditor, name): setattr(audit, name, getattr(auditor, name))
+    return audit
+
+
 def cached_instruction_auditor(auditor, cache, policy_sha256=None):
     """Identical frozen inputs share one decision; changed guides cannot hit it."""
     def cached(case, prefix, rubric, member_spec):

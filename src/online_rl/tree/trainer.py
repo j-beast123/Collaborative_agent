@@ -514,6 +514,16 @@ class TreeTrainer:
         if self.env.intervention_audit_fn is not None:
             from src.online_rl.tree.instruction_audit import cached_instruction_auditor
             audit = cached_instruction_auditor(self.env.intervention_audit_fn, self.cache, tree.policy_sha256)
+            if (self.cfg.get('judges') or {}).get('execution_retry_attempts'):
+                # The auditor already repeated an execution-invalid response locally. If its budget is exhausted the member has
+                # no audit verdict (EXECUTION_UNRESOLVED): no evidence for or against; the witness rule itself is unchanged.
+                from src.online_rl.tree.instruction_audit import execution_unresolved_auditor
+                from src.online_rl.tree.applicability import log_execution_unresolved
+                budget, cache, case_id = self.cfg['judges']['execution_retry_attempts'], self.cache, case['case_id']
+                audit = execution_unresolved_auditor(audit, budget, lambda rubric, member_spec, exc: log_execution_unresolved(
+                    cache, stage='intervention_audit', case_id=case_id, rubric_id=(rubric or {}).get('rubric_id'),
+                    node_id=(member_spec or {}).get('leaf_id') if isinstance(member_spec, dict) else None,
+                    attempts=budget, reasons=[str(exc)[:200]]))
         return W.verify_witness(case, nodes, {l.leaf_id: l for l in ruled}, canon, assignments, loci,
                                 applicability=self.env.scorer.applicability, writer=self.env.writer,
                                 continuation=self.env.continuation,

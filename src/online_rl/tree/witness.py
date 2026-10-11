@@ -107,7 +107,7 @@ def source_stage1_for(case: dict, nodes: dict, leaf: Leaf, locus: Optional[int],
         node = nodes[leaf.path[selected - 1]]
         r = stage1_decision(case, node, rubric, applicability, cache)
         return {'applicable': r['applicable'], 'stage1': r.get('stage1'), 'node_id': node.node_id, 'target_reply_id': selected,
-                'applicability_provenance': r['provenance']}
+                'applicability_provenance': r['provenance'], **({'execution_unresolved': True} if r.get('execution_unresolved') else {})}
     return check
 
 
@@ -183,10 +183,13 @@ def verify_witness(case: dict, nodes: dict[str, AgentNode], leaves: dict[str, Le
             ok = stage1['applicable']; row['stage1_applicable'] = ok
             row['stage1'] = stage1.get('stage1')
             row['applicability_provenance'] = stage1['provenance']
-            if ok is None: tested.append({**row, 'result': 'unresolved_abstain'}); continue     # skipped pair: neither a support nor a No Match
+            if ok is None:                                       # skipped pair: neither a support nor a No Match
+                tested.append({**row, 'result': 'execution_unresolved' if stage1.get('execution_unresolved') else 'unresolved_abstain'}); continue
             if not ok: tested.append({**row, 'result': 'no_match'}); continue
             if intervention_audit is not None:
                 audit = intervention_audit(case_view(case), to_dialogue(node.prefix), visible_rubric(rub.rubric), member_spec)
+                if isinstance(audit, dict) and audit.get('execution_unresolved') is True:      # no audit verdict: no evidence either way
+                    tested.append({**row, 'intervention_audit': audit, 'result': 'execution_unresolved'}); continue
                 if not isinstance(audit, dict) or type(audit.get('passed')) is not bool or audit.get('error'):
                     raise ScoringContractError('Invalid intervention instruction audit result')
                 row['intervention_audit'] = audit

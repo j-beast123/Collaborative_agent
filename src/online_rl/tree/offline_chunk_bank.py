@@ -241,6 +241,23 @@ def speculate(tasks, workers):
     _ordered_map(quiet, [t for t in tasks if t is not None], workers)
 
 
+PEER_EXECUTION_UNRESOLVED = 'EXECUTION_UNRESOLVED: peer re-check invalid after every local retry'
+
+
+def recheck_peers(request, bound):
+    """The unchanged peer re-check request, repeated locally while its output is execution-invalid. Returns
+    (decisions, calls, reasons); decisions is None when the budget is exhausted (no peer is confirmed, none is rejected on
+    its merits). Without a configured budget the original behaviour is kept: the error propagates."""
+    from src.online_rl.tree.backends import RubricOutputIncomplete
+    bound = int(bound or 0); reasons = []
+    for attempt in range(max(bound, 1)):
+        try: return request(), attempt + 1, reasons
+        except RubricOutputIncomplete as exc:
+            if not bound: raise
+            reasons.append(str(exc)[:200])
+    return None, bound, reasons
+
+
 def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_text, snapshot):
     """Sequential chunk transactions of one case against the latest working bank; returns the pieces of the online-bank record."""
     from src.online_rl.tree import witness as W
@@ -335,7 +352,12 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
                                   source_stage1=stage1_on(logical))
             confirmed = {}; matching_calls = 0
             if rub.valid and proposed:                           # as rubric_bank.batched_stratum: followers are checked against the ACTUAL rubric
-                confirmed = match_request([rub], logical); matching_calls = 1
+                confirmed, matching_calls, reasons = recheck_peers(lambda: match_request([rub], logical),
+                                                                   (trainer.cfg.get('judges') or {}).get('execution_retry_attempts'))
+                if confirmed is None:                            # EXECUTION_UNRESOLVED: no re-check verdict, so no peer is confirmed
+                    from src.online_rl.tree.applicability import log_execution_unresolved
+                    log_execution_unresolved(cache, stage='peer_reconfirmation', case_id=cid, node_id=tid, rubric_id=rub.rubric_id,
+                                             attempts=matching_calls, reasons=reasons)
             timing[tid] = {'admit_s': round(time.monotonic() - started, 1), 'speculative_requests': speculated,
                            'speculative_results_discarded': spec.discarded}
             return rub, proposed, confirmed, matching_calls
@@ -352,6 +374,7 @@ def process_case(trainer, *, case, state, tree, feedback, ruled, tin_of, prompt_
             orders[layer] += 1
             for pid in proposed:
                 if not rub.valid: refused[pid] = 'representative rubric rejected'; continue
+                if confirmed is None: refused[pid] = PEER_EXECUTION_UNRESOLVED; continue
                 decision = confirmed[pid]; problem = RB.match_problem(decision, [rub])
                 if problem: refused[pid] = problem; continue
                 assignments.append(RubricAssignment(pid, cid, layer, orders[layer], rub.rubric_id, 'REUSED_EXISTING', decision, '',

@@ -33,6 +33,7 @@ class ApplicabilityUncertain(RuntimeError):
     scoring_status = 'applicability_uncertain'
 
 
+from src.common.config import IntegrationUnavailable
 UNCERTAIN_REJUDGMENTS = 2
 UNRESOLVED_STATUS = 'applicability_unresolved'
 
@@ -50,6 +51,28 @@ def resolve_uncertain(first: dict, rejudge, retries: int = UNCERTAIN_REJUDGMENTS
             return row, {'initial': 'uncertain', 'retries': trail,
                          'final': 'retry_resolved_true' if verdict else 'retry_resolved_false'}
     return {**first, 'unresolved_abstain': True}, {'initial': 'uncertain', 'retries': trail, 'final': 'final_unresolved_abstain'}
+
+
+EXECUTION_UNRESOLVED = 'execution_unresolved'      # execution-invalid judge response after every local retry: no verdict at all
+
+
+def execution_invalid(exc) -> bool:
+    """An IntegrationUnavailable whose audit shows an execution-invalid / truncated judge response (never a transport or
+    credential failure)."""
+    validation = (getattr(exc, 'audit', None) or {}).get('validation') or {}
+    return validation.get('status') in ('execution_error', 'execution_incomplete')
+
+
+def log_execution_unresolved(cache, *, stage, case_id, node_id=None, rubric_id=None, attempts=None, reasons=None, reference=None):
+    """One line per terminal EXECUTION_UNRESOLVED judgment in <case cache>.execution_unresolved.jsonl (never mixed with UNCERTAIN)."""
+    path = getattr(cache, 'path', None)
+    if not path: return
+    import json
+    from pathlib import Path
+    with Path(path).with_suffix('.execution_unresolved.jsonl').open('a') as f:
+        f.write(json.dumps({'final_status': 'EXECUTION_UNRESOLVED', 'stage': stage, 'case_id': case_id, 'node_id': node_id,
+                            'rubric_id': rubric_id, 'total_attempts': attempts, 'reasons_by_attempt': reasons, 'raw_reference': reference},
+                           ensure_ascii=False) + '\n')
 
 
 def _log_uncertain(cache, case, node, rubric_id, audit, cache_key):
@@ -183,11 +206,27 @@ not change the judge context or create competing decisions for the same item.
                     judged['status'] != row.get('applicability_status')):
                 raise ScoringContractError('Contradictory compact applicability')
             return value
-        value = cache.call(APPLICABILITY_CACHE_KIND, identity,
-                           lambda: checked(callback(view, prefix, [canonical])))
-        row = deepcopy(checked(value)['criterion'])
+        def judged():
+            try:
+                return checked(callback(view, prefix, [canonical]))
+            except IntegrationUnavailable as exc:
+                # Collaborator decision 2026-10-11: when every configured local retry of this request returned an
+                # execution-invalid response, the judgment is EXECUTION_UNRESOLVED (no TRUE / FALSE / UNCERTAIN) and the run goes on.
+                if not getattr(callback, 'execution_unresolved_terminal', False) or not execution_invalid(exc): raise
+                audit = getattr(exc, 'audit', None) or {}
+                tries = [*audit.get('prior_failed_attempts', []), audit]
+                return {'criterion': {'applicable': None, 'applicability_status': EXECUTION_UNRESOLVED, 'execution_unresolved': True,
+                                      'stage1_contract': evidence_contract, 'stage1': {}, 'total_attempts': len(tries),
+                                      'reasons_by_attempt': [{k: str((a.get('validation') or {}).get(k))[:160] for k in ('status', 'kind', 'error')} for a in tries]}}
+        value = cache.call(APPLICABILITY_CACHE_KIND, identity, judged)
+        terminal = isinstance(value, dict) and isinstance(value.get('criterion'), dict) and value['criterion'].get('execution_unresolved') is True
+        row = deepcopy(value['criterion'] if terminal else checked(value)['criterion'])
         row['provenance'] = {'cache_kind': APPLICABILITY_CACHE_KIND,
             'cache_key': sha256_json([APPLICABILITY_CACHE_KIND, identity]), 'identity': identity}
+        if terminal:
+            log_execution_unresolved(cache, stage='applicability', case_id=case.get('case_id'), node_id=node.node_id, rubric_id=rubric_id,
+                                     attempts=row['total_attempts'], reasons=row['reasons_by_attempt'], reference=row['provenance']['cache_key'])
+            return row
         if row['applicable'] is None:                       # uncertain: up to two fresh re-judgments, then abstain on this pair only
             first_key = row['provenance']['cache_key']
             def rejudge(n):

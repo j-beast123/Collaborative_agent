@@ -33,6 +33,8 @@ def effectiveness_weighted_r_a(scores: list[ResponseRubricScore], weights: dict[
             continue
         if status == 'applicability_unresolved' and not s.match and s.score is None:   # abstained pair: excluded from R_A
             continue
+        if status == 'execution_unresolved' and s.score is None and s.hard is None:     # no valid judgment: excluded, never a zero
+            continue
         if status == 'not_applicable' and not s.match:
             continue
         if status != 'scored' or not s.match:

@@ -35,6 +35,10 @@ def _score_record(node, rid, source, applicable, result=None):
     status = result.get('scoring_status', 'scored')
     evidence = {key: result[key] for key in ('stage1', 'stage2', 'evidence_validation') if key in result}
     hard, probabilities = result.get('hard'), result.get('probabilities')
+    if status == 'execution_unresolved':                         # behavior judgment invalid after every local retry: no score at all
+        if hard is not None or probabilities is not None:
+            raise ScoringContractError(f'{node.node_id}/{rid}: EXECUTION_UNRESOLVED must not carry a numeric score')
+        return ResponseRubricScore(node.node_id, rid, source, True, None, None, None, status, evidence)
     if status == 'rubric_unscorable':
         if hard is not None or probabilities is not None:
             raise ScoringContractError(f'{node.node_id}/{rid}: UNSCORABLE must not carry a numeric score')
@@ -220,7 +224,12 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
                 r = behavior.get(rid) if applicable else None
                 record = _score_record(n, rid, src[rid], applicable, r)
                 if review[rid].get('applicable') is None:        # unresolved after re-judgment: no score, no reward or penalty from this pair
-                    record = replace(record, scoring_status='applicability_unresolved')
+                    record = replace(record, scoring_status='execution_unresolved' if review[rid].get('execution_unresolved')
+                                     else 'applicability_unresolved')
+                if record.scoring_status == 'execution_unresolved' and review[rid].get('applicable') is not None:
+                    from src.online_rl.tree.applicability import log_execution_unresolved
+                    log_execution_unresolved(cache, stage='behavior_scoring', case_id=case.get('case_id'), node_id=n.node_id, rubric_id=rid,
+                                             attempts=(r or {}).get('total_attempts'), reasons=(r or {}).get('reasons_by_attempt'))
                 out.append(replace(record, scoring_evidence={**(record.scoring_evidence or {}), 'applicability': review[rid]}))
         return _mask_unscorable(out, view, nodes)
 

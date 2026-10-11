@@ -44,7 +44,7 @@ def upgrade(payload, *, revision='v7_1'):
     return q
 
 
-def compact_scorer(client, app_client, response_batch_size=4, *, revision='v7_1'):
+def compact_scorer(client, app_client, response_batch_size=4, *, revision='v7_1', execution_retry_attempts=None):
     if revision not in REVISIONS:
         raise ValueError('Unknown compact scorer revision')
     app_contract = {'v7_1': APP_CONTRACT, 'v7_3': QUALITY_APP_CONTRACT,
@@ -69,6 +69,24 @@ def compact_scorer(client, app_client, response_batch_size=4, *, revision='v7_1'
             error.audit = audit
             raise error
         return result, audit
+
+    def invoke_bounded(judge, packet, role):
+        """The unchanged request, repeated locally while its response is execution-invalid; (None, record) when the configured
+        budget is exhausted (EXECUTION_UNRESOLVED: no verdict, never a score). Without a budget: the original single call."""
+        if not execution_retry_attempts: return invoke(judge, packet, role)
+        import time
+        failed = []
+        for attempt in range(execution_retry_attempts):
+            try: return invoke(judge, packet, role)
+            except IntegrationUnavailable as exc:
+                validation = (getattr(exc, 'audit', None) or {}).get('validation') or {}
+                if validation.get('status') not in ('execution_error', 'execution_incomplete'): raise
+                failed.append({k: str(validation.get(k))[:160] for k in ('status', 'kind', 'error')})
+                if attempt == execution_retry_attempts - 1:
+                    return None, {'execution_unresolved': True, 'total_attempts': len(failed), 'reasons_by_attempt': failed}
+                print(json.dumps({'event': 'judge_execution_retry', 'stage': 'behavior', 'attempt': attempt + 1, 'of': execution_retry_attempts,
+                                  'status': validation.get('status'), 'kind': validation.get('kind'), 'error': str(validation.get('error'))[:120]}), flush=True)
+                time.sleep(min(2 * (attempt + 1), 20))
 
     def review(view, prefix, rubrics):
         result = {}
@@ -102,7 +120,11 @@ def compact_scorer(client, app_client, response_batch_size=4, *, revision='v7_1'
                 packet = {'stage': 'level', 'shared_pre_reply_state': condition_state(view, prefix),
                     'rubric_items': public_behavior_items([rubric], client.system),
                     'responses': [response]}
-                result, audit = invoke(client, packet, 'rubric_scorer')
+                result, audit = invoke_bounded(client, packet, 'rubric_scorer')
+                if result is None:                               # only this response x criterion pair is left without a judgment
+                    out[nid][rid] = {'applicable': True, 'probabilities': None, 'hard': None, 'scoring_status': 'execution_unresolved',
+                                     'stage2': None, 'total_attempts': audit['total_attempts'], 'reasons_by_attempt': audit['reasons_by_attempt']}
+                    continue
                 item = result['answers'][nid][rid]
                 out[nid][rid] = {'applicable': True, 'probabilities': None, 'hard': item['score'],
                     'scoring_status': item['scoring_status'], 'stage2': item['evidence'],

@@ -510,7 +510,7 @@ def make_scorer(cfg: dict, client):
             post=client.post, sleep=client.sleep, timeout_s=client.timeout_s,
             provider=getattr(client, 'provider', 'openrouter'))
         scorer = compact_scorer(client, app_client, rubric_score_batch_size(cfg),
-                                revision=jm['compact_runtime'])
+                                revision=jm['compact_runtime'], execution_retry_attempts=jm.get('execution_retry_attempts'))
         # A malformed judge response is an execution failure, not an NA or a
         # score. Retry the unchanged Stage-1 request once while retaining the
         # failed wire evidence in the eventual cached decision. This wrapper
@@ -559,6 +559,8 @@ def make_scorer(cfg: dict, client):
                     return rows
                 raise AssertionError('unreachable compact applicability retry')
 
+            # With a configured local retry budget, exhausting it yields EXECUTION_UNRESOLVED for that judgment (applicability.py).
+            retry_invalid_stage1.execution_unresolved_terminal = bool(local_attempts)
             scorer.review_state = scorer.applicability = retry_invalid_stage1
         # A judge can omit one of the required public M/C checks while still
         # returning valid JSON. Retry that incomplete execution; never turn it

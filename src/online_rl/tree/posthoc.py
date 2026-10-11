@@ -154,6 +154,8 @@ def _source_consistency(prompt_text, prompt_sha256, tin, generate_fn, cache, sou
     if first is None: return {'status': 'NO_SOURCE_LOCUS', 'locus': None}, rubric, raw, ['source_inconsistent: no behavioral locus']
     check = {'locus': first.get('target_reply_id', tin.target_reply_id), 'node_id': first.get('node_id'), 'first': first}
     if first['applicable'] is None:                               # unresolved after re-judgment: this rubric / source pair is skipped (abstain)
+        if first.get('execution_unresolved'):                    # no judge verdict exists: the admission proof is missing, nothing negative was judged
+            return {**check, 'status': 'EXECUTION_UNRESOLVED'}, rubric, raw, ['execution_unresolved: source applicability judgment invalid after every local retry']
         return {**check, 'status': 'APPLICABILITY_UNRESOLVED'}, rubric, raw, ['source_unresolved: Stage-1 applicability unresolved (abstain) at the selected turn']
     if first['applicable']: return {**check, 'status': 'PASS'}, rubric, raw, []
     if (rubric.get('source_provenance') or {}).get('selected_turn_policy') == 'generator_v1':
