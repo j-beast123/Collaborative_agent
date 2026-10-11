@@ -33,6 +33,36 @@ class ApplicabilityUncertain(RuntimeError):
     scoring_status = 'applicability_uncertain'
 
 
+UNCERTAIN_REJUDGMENTS = 2
+UNRESOLVED_STATUS = 'applicability_unresolved'
+
+
+def resolve_uncertain(first: dict, rejudge, retries: int = UNCERTAIN_REJUDGMENTS) -> tuple[dict, dict]:
+    """Collaborator decision 2026-10-11. `first` is a valid Stage-1 row whose verdict is uncertain (applicable is None).
+    rejudge(n) asks the SAME judge again (same prompt, model, input, parser) and returns its validated row. A fresh TRUE or
+    FALSE is used normally. If every re-judgment is also uncertain, only this rubric / state pair is left unresolved
+    (applicable stays None, unresolved_abstain = True): callers skip the pair; it is never read as FALSE."""
+    trail = []
+    for n in range(1, retries + 1):
+        row = rejudge(n); verdict = row['applicable']
+        trail.append({'retry': n, 'result': 'true' if verdict is True else 'false' if verdict is False else 'uncertain'})
+        if verdict is not None:
+            return row, {'initial': 'uncertain', 'retries': trail,
+                         'final': 'retry_resolved_true' if verdict else 'retry_resolved_false'}
+    return {**first, 'unresolved_abstain': True}, {'initial': 'uncertain', 'retries': trail, 'final': 'final_unresolved_abstain'}
+
+
+def _log_uncertain(cache, case, node, rubric_id, audit, cache_key):
+    """One line per uncertain first verdict in <case cache>.applicability_uncertain.jsonl (repeated on cache replays; same cache_key)."""
+    path = getattr(cache, 'path', None)
+    if not path: return
+    import json
+    from pathlib import Path
+    with Path(path).with_suffix('.applicability_uncertain.jsonl').open('a') as f:
+        f.write(json.dumps({'case_id': case.get('case_id'), 'trajectory_node_id': node.node_id, 'rubric_id': rubric_id,
+                            'cache_key': cache_key, **audit}, ensure_ascii=False) + '\n')
+
+
 def _reviewer(reviewer):
     """Prefer the exact callable exposed to the source and witness paths."""
     callback = getattr(reviewer, 'applicability', None)
@@ -158,10 +188,18 @@ not change the judge context or create competing decisions for the same item.
         row = deepcopy(checked(value)['criterion'])
         row['provenance'] = {'cache_kind': APPLICABILITY_CACHE_KIND,
             'cache_key': sha256_json([APPLICABILITY_CACHE_KIND, identity]), 'identity': identity}
-        if row['applicable'] is None:
-            error = ApplicabilityUncertain('Uncertain compact applicability; no rubric reward')
-            error.audit = {'applicability': row, 'provenance': row['provenance']}
-            raise error
+        if row['applicable'] is None:                       # uncertain: up to two fresh re-judgments, then abstain on this pair only
+            first_key = row['provenance']['cache_key']
+            def rejudge(n):
+                again = {**identity, 'uncertain_rejudgment': n}    # a new cache key = a fresh call; the request itself is unchanged
+                fresh = deepcopy(checked(cache.call(APPLICABILITY_CACHE_KIND, again,
+                                                    lambda: checked(callback(view, prefix, [canonical]))))['criterion'])
+                fresh['provenance'] = {'cache_kind': APPLICABILITY_CACHE_KIND,
+                                       'cache_key': sha256_json([APPLICABILITY_CACHE_KIND, again]), 'identity': again}
+                return fresh
+            row, audit = resolve_uncertain(row, rejudge)
+            row['uncertain_rejudgment'] = audit
+            _log_uncertain(cache, case, node, rubric_id, audit, first_key)
         return row
     identity = {
         'contract': APPLICABILITY_CONTRACT,

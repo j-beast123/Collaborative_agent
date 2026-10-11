@@ -153,6 +153,8 @@ def _source_consistency(prompt_text, prompt_sha256, tin, generate_fn, cache, sou
     first = source_stage1(rubric)
     if first is None: return {'status': 'NO_SOURCE_LOCUS', 'locus': None}, rubric, raw, ['source_inconsistent: no behavioral locus']
     check = {'locus': first.get('target_reply_id', tin.target_reply_id), 'node_id': first.get('node_id'), 'first': first}
+    if first['applicable'] is None:                               # unresolved after re-judgment: this rubric / source pair is skipped (abstain)
+        return {**check, 'status': 'APPLICABILITY_UNRESOLVED'}, rubric, raw, ['source_unresolved: Stage-1 applicability unresolved (abstain) at the selected turn']
     if first['applicable']: return {**check, 'status': 'PASS'}, rubric, raw, []
     if (rubric.get('source_provenance') or {}).get('selected_turn_policy') == 'generator_v1':
         # Jointly generated instructions are fixed experimental inputs. A separate

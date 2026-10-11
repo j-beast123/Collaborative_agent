@@ -183,6 +183,7 @@ def verify_witness(case: dict, nodes: dict[str, AgentNode], leaves: dict[str, Le
             ok = stage1['applicable']; row['stage1_applicable'] = ok
             row['stage1'] = stage1.get('stage1')
             row['applicability_provenance'] = stage1['provenance']
+            if ok is None: tested.append({**row, 'result': 'unresolved_abstain'}); continue     # skipped pair: neither a support nor a No Match
             if not ok: tested.append({**row, 'result': 'no_match'}); continue
             if intervention_audit is not None:
                 audit = intervention_audit(case_view(case), to_dialogue(node.prefix), visible_rubric(rub.rubric), member_spec)

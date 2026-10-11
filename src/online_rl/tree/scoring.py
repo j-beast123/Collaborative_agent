@@ -208,6 +208,8 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
                     str(matched[rid].get('value', 'Y')).upper() == 'Y')
                 r = behavior.get(rid) if applicable else None
                 record = _score_record(n, rid, src[rid], applicable, r)
+                if review[rid].get('applicable') is None:        # unresolved after re-judgment: no score, no reward or penalty from this pair
+                    record = replace(record, scoring_status='applicability_unresolved')
                 out.append(replace(record, scoring_evidence={**(record.scoring_evidence or {}), 'applicability': review[rid]}))
         return _mask_unscorable(out, view, nodes)
 
