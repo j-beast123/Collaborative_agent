@@ -834,10 +834,21 @@ def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: s
             raise ValueError('Batch matcher requires 1..8 unique trajectory IDs')
         batch_schema={'type':'object','additionalProperties':False,'required':['decisions'],
                 'properties':{'decisions':{'type':'array','items':{
-                    'type':'object','additionalProperties':False,'required':['trajectory_id',*schema['required']],
-                    'properties':{'trajectory_id':{'type':'string'},**schema['properties']}}}}}
+                    'type':'object','additionalProperties':False,
+                    'required':['trajectory_id','peer_representative_id',*schema['required']],
+                    'properties':{'trajectory_id':{'type':'string'},
+                                  'peer_representative_id':{'type':['string','null']},**schema['properties']}}}}}
         if context_addendum:package += '\n\n'+context_addendum
-        package += ('\n\nBATCH MATCH CONTRACT: Judge each numbered trajectory independently against the SAME frozen bank. '
+        package += ('\n\nBATCH MATCH + PEER CONSOLIDATION CONTRACT: Compare every trajectory against both the SAME frozen bank '
+                    'and all other trajectories in this batch. First use REUSE_EXISTING only when a frozen-bank rubric '
+                    'passes every required check. For each remaining same-reason group, choose the earliest supplied '
+                    'trajectory_id as its representative. Return CREATE_NEW for every member of that group: set '
+                    'peer_representative_id to its own ID for the representative and to that representative ID for the '
+                    'other members. Use separate groups whenever applicability, required behavior, M, C, score boundaries, '
+                    'source outcome direction, or assertion strength differs. A singleton points to itself. For '
+                    'REUSE_EXISTING, peer_representative_id must be null. Peer grouping is a generation-saving proposal, '
+                    'not proof that a future generated rubric passes Gate; non-representatives will be checked again '
+                    'against the actual generated criterion. '
                     'Return {"decisions": [...]} with exactly one entry for each supplied trajectory_id. '
                     'Each entry has trajectory_id, decision, rubric_id, all six boolean checks, and a concise rationale '
                     'identifying its behavioral locus and quoting the relevant visible dialogue. Never reference another '
@@ -854,17 +865,29 @@ def api_rubric_matcher(key: str, model: str, settings: dict, context_addendum: s
             if not isinstance(rows,list) or len(rows)!=len(expected):raise RubricOutputIncomplete('Batch match ID coverage differs')
             out={}
             for row in rows:
-                if not isinstance(row,dict) or set(row)!={'trajectory_id',*schema['required']}:raise RubricOutputIncomplete('Malformed batch match row')
+                if not isinstance(row,dict) or set(row)!={'trajectory_id','peer_representative_id',*schema['required']}:raise RubricOutputIncomplete('Malformed batch match row')
                 tid=row['trajectory_id']
                 if not isinstance(tid,str) or tid not in expected or tid in out:raise RubricOutputIncomplete('Missing, duplicate or unknown trajectory ID')
                 value={k:row[k] for k in schema['required']}
                 if not valid_decision(value):raise RubricOutputIncomplete('Malformed batch match decision')
+                peer=row['peer_representative_id']
+                if value['decision']=='REUSE_EXISTING' and peer is not None:
+                    raise RubricOutputIncomplete('Frozen-bank reuse cannot name a peer representative')
+                if value['decision']=='CREATE_NEW' and (not isinstance(peer,str) or peer not in expected):
+                    raise RubricOutputIncomplete('CREATE_NEW must name a supplied peer representative')
                 if member_interventions and value['decision'] == 'REUSE_EXISTING':
                     tin = next(t for t in items if t.leaf_id == tid)
                     agent_count = sum(turn[0] == 'agent' for turn in tin.dialogue)
                     if value['selected_agent_turn_id'] > agent_count:
                         raise RubricOutputIncomplete('Member selected_agent_turn_id is not an actual Agent reply ID')
-                out[tid]=value
+                out[tid]={**value,'peer_representative_id':peer}
+            positions={t.leaf_id:i for i,t in enumerate(items)}
+            for tid,value in out.items():
+                peer=value['peer_representative_id']
+                if peer is None:continue
+                leader=out[peer]
+                if leader['decision']!='CREATE_NEW' or leader['peer_representative_id']!=peer or positions[peer]>positions[tid]:
+                    raise RubricOutputIncomplete('Peer groups must be earliest-member stars with a self-referencing representative')
             return {'decisions':out}
         return request_decision(package, user, batch_schema, 'rubric_match_batch', validate)
     decide.model = model; decide.settings = settings

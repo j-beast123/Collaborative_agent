@@ -86,8 +86,8 @@ def test_joint_create_requires_both_explicit_null_fields(monkeypatch):
 
 
 def test_joint_batch_removes_forced_feedback_locus_and_preserves_per_member_decisions(monkeypatch):
-    raw = {'decisions': [{'trajectory_id': 'first', **decision()},
-                         {'trajectory_id': 'second', **decision('CREATE_NEW')}]}
+    raw = {'decisions': [{'trajectory_id': 'first', 'peer_representative_id': None, **decision()},
+                         {'trajectory_id': 'second', 'peer_representative_id': 'second', **decision('CREATE_NEW')}]}
     calls = fake_response(monkeypatch, raw)
     matcher = B.api_rubric_matcher('key', 'generator', JOINT, match_batch_size=8)
     result = matcher.batch('Package', [member('first'), member('second', outcome='success')], bank())
@@ -102,18 +102,20 @@ def test_joint_batch_removes_forced_feedback_locus_and_preserves_per_member_deci
     for hidden in ('CREATOR_PRIVATE_INSTRUCTION', 'CREATOR_PRIVATE_PROVENANCE'):
         assert hidden not in calls[0]['user']
     schema = calls[0]['schema']['properties']['decisions']['items']
-    assert set(schema['required']) == {'trajectory_id', *B.MEMBER_MATCH_JSON_SCHEMA['required']}
+    assert set(schema['required']) == {'trajectory_id', 'peer_representative_id', *B.MEMBER_MATCH_JSON_SCHEMA['required']}
 
 
 @pytest.mark.parametrize('override', [{'selected_agent_turn_id': 3}, {'selected_agent_turn_id': True},
                                     {'intervention_instruction': ''}, {'decision': 'CREATE_NEW'}])
 def test_joint_batch_rejects_invalid_or_nonexistent_member_turn(monkeypatch, override):
-    fake_response(monkeypatch, {'decisions': [{'trajectory_id': 'member', **decision(**override)}]})
+    d=decision(**override)
+    peer=None if d['decision']=='REUSE_EXISTING' else 'member'
+    fake_response(monkeypatch, {'decisions': [{'trajectory_id': 'member', 'peer_representative_id': peer, **d}]})
     with pytest.raises(B.RubricOutputIncomplete):
         B.api_rubric_matcher('key', 'generator', JOINT).batch('Package', [member()], bank())
 
 
-def test_legacy_single_and_batch_match_schema_remain_unchanged(monkeypatch):
+def test_legacy_single_schema_is_unchanged_and_batch_adds_peer_grouping(monkeypatch):
     output = {key: value for key, value in decision().items() if key in B.MATCH_JSON_SCHEMA['required']}
     calls = fake_response(monkeypatch, output)
     matcher = B.api_rubric_matcher('key', 'generator', {'response_format': 'json_schema_strict'})
@@ -121,8 +123,8 @@ def test_legacy_single_and_batch_match_schema_remain_unchanged(monkeypatch):
     assert calls[0]['schema'] == B.MATCH_JSON_SCHEMA
     assert not matcher.member_interventions and matcher.member_intervention_version is None
     assert 'JOINT MEMBER' not in calls[0]['system']
-    calls = fake_response(monkeypatch, {'decisions': [{'trajectory_id': 'member', **output}]})
+    calls = fake_response(monkeypatch, {'decisions': [{'trajectory_id': 'member', 'peer_representative_id': None, **output}]})
     matcher.batch('Package', [member()], bank())
     assert json.loads(calls[0]['user'])['trajectories'][0]['behavioral_locus'] == 1
     schema = calls[0]['schema']['properties']['decisions']['items']
-    assert set(schema['required']) == {'trajectory_id', *B.MATCH_JSON_SCHEMA['required']}
+    assert set(schema['required']) == {'trajectory_id', 'peer_representative_id', *B.MATCH_JSON_SCHEMA['required']}

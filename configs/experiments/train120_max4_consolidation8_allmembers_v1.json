@@ -4,9 +4,17 @@
     "output_root": "outputs/train120_max4_consolidation8_allmembers_v1_20261011",
     "run_label": "train120_max4_consolidation8_allmembers_v1"
   },
+  "api_provider": "openrouter",
   "rubric": {
+    "generator_model": "google/gemini-3.8-flash-20260902",
     "assignment_protocol": null,
-    "match_batch_size": 8
+    "match_batch_size": 8,
+    "generation": {
+      "api_provider": "openrouter"
+    }
+  },
+  "judges": {
+    "api_provider": "openai_direct"
   },
   "verification": {
     "mode": "all_members_witness_v1",
@@ -20,9 +28,9 @@
     "support_sampling": "topology"
   },
   "notes": {
-    "consolidation": "Success and failure strata are independent. The first trajectory in each non-empty stratum always generates. Later trajectories are matched against the current valid bank in batches of at most eight; only unmatched trajectories generate, and pending members are re-matched whenever a valid new rubric is added.",
+    "consolidation": "Success and failure strata are independent. The first trajectory in each non-empty stratum always generates. Gemini compares each later group of at most eight trajectories both with the current valid bank and with one another. One representative per proposed same-reason peer group generates; peers are rechecked against the actual generated rubric before reuse.",
     "generation_savings": "A matched trajectory reuses the unchanged rubric and skips rubric generation and Gate. Matching is performed by the configured rubric-generator model; topic or label similarity alone is insufficient because all matcher checks must pass.",
     "verification": "Every trajectory assigned to a newly generated rubric is eligible as a witness. The rubric is kept at the first trajectory with a 2-of-3 target outcome change; if none passes, all applicable assigned trajectories are exhausted before rejection.",
-    "unchanged": "Agent, Doctor, generator, Gate, scorer, prompts, rollout tree, reward, optimizer, schedule, cumulative scoring scope, and checkpoint behavior are inherited unchanged from train120_max4_direct_luna_v9_1.json."
+    "unchanged": "Agent, Doctor, Gate, scorer, prompts, rollout tree, reward, optimizer, schedule, cumulative scoring scope, and checkpoint behavior are inherited unchanged from train120_max4_direct_luna_v9_1.json. Rubric generation and both bank/peer consolidation matching use Gemini through OpenRouter."
   }
 }

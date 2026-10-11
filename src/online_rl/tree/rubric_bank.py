@@ -34,7 +34,7 @@ from src.online_rl.tree.records import CanonicalSupport, Leaf, RubricAssignment,
 ASSIGNMENT_VERSION = 'assign_or_create_v1'
 EXACT_SOURCE_CASE_PROTOCOL = 'exact_generated_source_case_v1'
 EXACT_DUPLICATE_ASSIGNMENT = 'GENERATED_EXACT_DUPLICATE'
-BATCH_VERSION = 'snapshot_match8_new_recheck_v1'
+BATCH_VERSION = 'snapshot_match8_bank_and_peer_consolidation_v2'
 ASSIGNMENT_CACHE_VERSION = 'member_intervention_specs_v1'
 MARKER = '[Assign or create]'
 CHECKS = ('same_construct', 'applicability_visible', 'same_required_behavior', 'same_direction', 'score_semantics_apply', 'no_new_premise')
@@ -256,6 +256,11 @@ def build_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubric
                 decision=decisions[leaf.leaf_id];note=match_problem(decision,snapshot)
                 if not note:save(leaf,decision['rubric_id'],'REUSED_EXISTING',decision)
                 else:remaining.append((leaf,decision,note))
+            # Keep Gemini's within-batch same-reason groups adjacent. The leader is generated
+            # first; followers are then checked against the actual generated rubric before reuse.
+            position={leaf.leaf_id:i for i,leaf in enumerate(group)}
+            remaining.sort(key=lambda row:(position.get((row[1] or {}).get('peer_representative_id'),position[row[0].leaf_id]),
+                                           position[row[0].leaf_id]))
             return remaining
         # Both strata create their first rubric unconditionally. Later calls always use actual, gate-passed anchors.
         if not ordered:return canon,[]

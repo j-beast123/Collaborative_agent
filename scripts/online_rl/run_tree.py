@@ -57,8 +57,8 @@ def blockers(cfg: dict) -> list[str]:
                              ('judges', 'scorer_model'), ('judges', 'intervention_audit_model')):
             if key in cfg.get(section, {}) and cfg[section][key] != 'gpt-6-luna':
                 out.append(f'{section}.{key} must be gpt-6-luna for the OpenAI direct run')
-    elif judge_provider == 'openai_direct' or generation_provider == 'openai_direct':
-        out.append('Direct judge/generator provider requires top-level api_provider=openai_direct')
+    # Mixed transport is supported: e.g. Gemini generation through OpenRouter and
+    # Luna Gate/scoring through the direct OpenAI API. Each role loads its own secret.
     raw_sampling = (cfg.get('optimizer') or {}).get('require_raw_on_policy_sampling', False)
     if not isinstance(raw_sampling, bool):
         out.append('optimizer.require_raw_on_policy_sampling must be boolean')
@@ -679,12 +679,15 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
     context_addendum = (text(cfg['rubric']['state_addendum_file'])
                         if observed_context and cfg['rubric'].get('state_addendum_enabled', True) else None)
     ro, pu, ar = cfg['rollout'], cfg['prompt_update'], cfg['agent_reward']
-    jm = cfg['judges']; key = load_key(cfg) if cfg.get('api_provider') == 'openai_direct' else load_key()
+    jm = cfg['judges']
     judge_provider = jm.get('api_provider', cfg.get('api_provider', 'openrouter'))
+    generation_provider = (cfg.get('rubric', {}).get('generation') or {}).get('api_provider', cfg.get('api_provider','openrouter'))
+    key = load_key({'api_provider': generation_provider})
+    judge_key = load_key({'api_provider': judge_provider})
     provider_kw = {'provider': judge_provider} if judge_provider != 'openrouter' else {}
-    gate_client = judge_client(jm['gate_model'], key, text(jm['gate_prompt_file']),
+    gate_client = judge_client(jm['gate_model'], judge_key, text(jm['gate_prompt_file']),
         **({'max_tokens': jm['gate_max_tokens']} if 'gate_max_tokens' in jm else {}), **provider_kw)
-    scorer_client = judge_client(jm['scorer_model'], key, text(jm['scorer_prompt_file']),
+    scorer_client = judge_client(jm['scorer_model'], judge_key, text(jm['scorer_prompt_file']),
         **({'max_tokens': jm['scorer_max_tokens']} if 'scorer_max_tokens' in jm else {}), **provider_kw)
     policy = policy if policy is not None else make_policy(cfg, key)
     if (policy.args.rounds, policy.args.doctor_model) != (ro['rounds'], ro['doctor_model']):
@@ -722,7 +725,7 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
                   assign_fn=api_rubric_matcher(key, cfg['rubric']['generator_model'], generation_settings(cfg['rubric']), context_addendum,
                                               cfg['rubric'].get('match_batch_size',1)) if cfg['rubric'].get('reuse') else None,
                   opening=opening_table(cfg, policy, 'train'),
-                  intervention_audit_fn=make_intervention_audit(cfg, key), bank_matcher=bank_matcher)
+                  intervention_audit_fn=make_intervention_audit(cfg, judge_key), bank_matcher=bank_matcher)
     # the tree prompt search uses only the reflection / refinement calls of this backend
     backend = sol_backend(key, text(pu['feedback_prompt_file']), text(pu['refiner_prompt_file']), env.generate_fn, env.gate_fn, env.scorer,
                           reflection_model=pu['reflection_model'], refiner_model=pu['refiner_model'])

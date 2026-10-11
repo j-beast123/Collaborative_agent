@@ -58,10 +58,10 @@ def test_persistent_schema_failure_is_error_and_is_never_cached(monkeypatch, tmp
 
 
 def test_batch_correction_preserves_exact_member_id_coverage(monkeypatch):
-    bad = {'decisions': [{'trajectory_id': 'first', **decision()}]}
+    bad = {'decisions': [{'trajectory_id': 'first', 'peer_representative_id': None, **decision()}]}
     good = {'decisions': [
-        {'trajectory_id': 'first', **decision()},
-        {'trajectory_id': 'second', **decision('CREATE_NEW')},
+        {'trajectory_id': 'first', 'peer_representative_id': None, **decision()},
+        {'trajectory_id': 'second', 'peer_representative_id': 'second', **decision('CREATE_NEW')},
     ]}
     sent = scripted(monkeypatch, [bad, good])
     matcher = B.api_rubric_matcher('secret', 'fixed-generator', JOINT, match_batch_size=8)

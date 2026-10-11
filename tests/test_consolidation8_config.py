@@ -14,18 +14,23 @@ def test_consolidation_config_changes_only_identity_assignment_and_witness_scope
 
     # The requested feature must not silently change the actual learning/model contract.
     for section in (
-        "api_provider", "policy", "rollout", "feedback", "judges",
+        "policy", "rollout", "feedback",
         "agent_reward", "optimizer", "schedule", "data", "intervention",
         "five_gpu",
     ):
         assert cfg[section] == base[section], section
 
-    base_rubric = dict(base["rubric"])
-    cfg_rubric = dict(cfg["rubric"])
+    assert cfg["api_provider"] == "openrouter"
+    assert cfg["judges"] == {**base["judges"], "api_provider": "openai_direct"}
+
+    base_rubric = dict(base["rubric"]); base_generation=dict(base_rubric.pop("generation"))
+    cfg_rubric = dict(cfg["rubric"]); cfg_generation=dict(cfg_rubric.pop("generation"))
+    assert cfg_rubric.pop("generator_model") == "google/gemini-3.8-flash-20260902"
     assert cfg_rubric.pop("assignment_protocol") is None
     assert cfg_rubric.pop("match_batch_size") == 8
-    base_rubric.pop("assignment_protocol")
+    base_rubric.pop("assignment_protocol"); base_rubric.pop("generator_model")
     assert cfg_rubric == base_rubric
+    assert cfg_generation == {**base_generation, "api_provider": "openrouter"}
 
     assert cfg["verification"]["mode"] == "all_members_witness_v1"
     assert cfg["verification"]["max_valid_supports"] is None

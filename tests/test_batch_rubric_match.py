@@ -43,10 +43,31 @@ def test_new_members_rechecked_against_real_new_rubric_not_blindly_clustered():
     assert asg[1].assignment=='CREATED_NEW' and all(a.canonical_rubric_id==asg[1].canonical_rubric_id for a in asg[2:])
 
 
+def test_eight_trajectories_are_peer_clustered_then_checked_against_generated_rubric():
+    leaves,tins=many();leaves=leaves[:9];calls=[];f=R.Fakes()
+    def single(*args):pytest.fail('Used individual match API')
+    def match(package,items,bank):
+        calls.append(([t.leaf_id for t in items],len(bank)))
+        if len(bank)==1:
+            leader=items[0].leaf_id
+            return {'decisions':{t.leaf_id:{'decision':'CREATE_NEW','rubric_id':'',
+                'peer_representative_id':leader,'checks':{k:False for k in B.CHECKS},
+                'rationale':f'same peer reason as {leader}'} for t in items}}
+        return {'decisions':{t.leaf_id:{'decision':'REUSE_EXISTING','rubric_id':bank[-1].rubric_id,
+            'peer_representative_id':None,'checks':{k:True for k in B.CHECKS},
+            'rationale':'matches the generated peer representative'} for t in items}}
+    single.batch=match;single.batch_size=8
+    canon,asg=B.build_banks(R.CASE,leaves,tins,R.PROMPT,'p',f.generate_fn,single,f.gate_fn,CallCache(None))
+    assert len(canon)==2 and len(f.calls['generate'])==2
+    assert calls==[([f'L{i:03d}' for i in range(1,9)],1),([f'L{i:03d}' for i in range(2,9)],2)]
+    assert asg[1].assignment=='CREATED_NEW'
+    assert all(a.assignment=='REUSED_EXISTING' and a.canonical_rubric_id==asg[1].canonical_rubric_id for a in asg[2:])
+
+
 @pytest.mark.parametrize('bad',['missing','duplicate','unknown','bad_bool'])
 def test_malformed_batch_response_raises_and_is_not_cached(monkeypatch,bad):
     leaves,tins=many();items=[tins[l.leaf_id] for l in leaves[:2]]
-    rows=[{'trajectory_id':t.leaf_id,'decision':'CREATE_NEW','rubric_id':'','checks':{k:False for k in A.MATCH_CHECKS},'rationale':'new'} for t in items]
+    rows=[{'trajectory_id':t.leaf_id,'peer_representative_id':t.leaf_id,'decision':'CREATE_NEW','rubric_id':'','checks':{k:False for k in A.MATCH_CHECKS},'rationale':'new'} for t in items]
     if bad=='missing':rows.pop()
     if bad=='duplicate':rows[1]['trajectory_id']=rows[0]['trajectory_id']
     if bad=='unknown':rows[1]['trajectory_id']='elsewhere'
