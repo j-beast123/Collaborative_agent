@@ -222,20 +222,20 @@ def build_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubric
     if match_batch_size==8 and not callable(getattr(assign_fn,'batch',None)):raise ValueError('Batch matching requires assign_fn.batch')
 
     leaf_by_id={leaf.leaf_id:leaf for leaf in leaves}
-    seeded_by_stratum={name:[] for name,_ in STRATA}
+    saved_by_leaf={}
     for candidate in initial_candidates or []:
         source_leaf=leaf_by_id.get(candidate.leaf_id)
         provenance=((candidate.rubric or {}).get('source_provenance') or {})
         if (source_leaf is None or provenance.get('source_case_id') != case['case_id'] or
                 not candidate.valid or not isinstance(candidate.gate,dict) or candidate.gate.get('passed') is not True):
             raise ValueError('Initial rubric candidates must be valid candidates from this case')
-        source_stratum='success' if source_leaf.outcome==1.0 else 'failure'
-        seeded_by_stratum[source_stratum].append(candidate)
+        if candidate.leaf_id in saved_by_leaf:
+            raise ValueError('At most one saved generated candidate is allowed per trajectory')
+        saved_by_leaf[candidate.leaf_id]=candidate
 
     def batched_stratum(stratum,o):
         ordered=sorted((l for l in leaves if l.outcome==o),key=lambda l:l.leaf_id)
-        seeded=sorted(seeded_by_stratum[stratum],key=lambda r:(r.leaf_id,r.rubric_id))
-        canon={r.rubric_id:r for r in seeded};bank=list(seeded);assigned={};orders={l.leaf_id:k for k,l in enumerate(ordered)}
+        canon={};bank=[];assigned={};orders={l.leaf_id:k for k,l in enumerate(ordered)}
         def save(leaf,rid,kind,decision,note=''):
             assigned[leaf.leaf_id]=RubricAssignment(leaf.leaf_id,case['case_id'],stratum,orders[leaf.leaf_id],rid,kind,decision,note,sha256_json(tins[leaf.leaf_id].feedback),
                 _member_spec(canon[rid],tins[leaf.leaf_id],kind,decision))
@@ -247,6 +247,14 @@ def build_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubric
             else:note += ('; ' if note else '')+'generated rubric rejected: '+', '.join(rub.problems or _gate_reasons(rub.gate))
             save(leaf,rub.rubric_id,'CREATED_NEW' if rub.valid else 'CREATE_REJECTED',decision,note)
             return rub.valid
+        def adopt_saved(leaf,decision=None,note=''):
+            rub=saved_by_leaf.get(leaf.leaf_id)
+            if rub is None:return create(leaf,decision,note)
+            if rub.rubric_id in canon:raise RuntimeError('Saved generated candidate rubric_id collision')
+            canon[rub.rubric_id]=rub;bank.append(rub)
+            save(leaf,rub.rubric_id,'CREATED_NEW',decision,
+                 (note+'; ' if note else '')+'reused saved generated candidate; Gate proof preserved')
+            return True
         def match(group):
             snapshot=list(bank)
             identity={'version':BATCH_VERSION,'case':case['case_id'],'stratum':stratum,'prompt':prompt_sha256,
@@ -270,20 +278,19 @@ def build_banks(case: dict, leaves: list[Leaf], tins: dict[str, TrajectoryRubric
                 if not note:save(leaf,decision['rubric_id'],'REUSED_EXISTING',decision)
                 else:remaining.append((leaf,decision,note))
             return remaining
-        # Existing, fully gated source candidates seed the per-case bank. Otherwise
-        # the first trajectory creates an anchor as before. New members are matched
-        # in configured batches; only unmatched members generate a new rubric.
+        # The first trajectory in each outcome stratum always supplies the first
+        # rubric. Later trajectories are matched in batches against the frozen
+        # working bank. A saved all-generated candidate is adopted only if its own
+        # trajectory needs CREATE_NEW; it never pre-seeds or bypasses consolidation.
         if not ordered:return {},[]
-        cursor=0
-        if not bank:
-            create(ordered[0]);cursor=1
+        adopt_saved(ordered[0]);cursor=1
         while cursor<len(ordered):
             group=ordered[cursor:cursor+match_batch_size];cursor+=len(group)
             if bank:pending=match(group)
             else:pending=[(l,None,'') for l in group]
             while pending:
                 leaf,decision,note=pending.pop(0)
-                added=create(leaf,decision,note)
+                added=adopt_saved(leaf,decision,note)
                 # NEW members are compared together against the expanded frozen bank, not assigned blindly to their leader.
                 if added and pending:pending=match([l for l,_,_ in pending])
         assignments=[assigned[l.leaf_id] for l in ordered]

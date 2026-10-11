@@ -43,7 +43,7 @@ def test_new_members_rechecked_against_real_new_rubric_not_blindly_clustered():
     assert asg[1].assignment=='CREATED_NEW' and all(a.canonical_rubric_id==asg[1].canonical_rubric_id for a in asg[2:])
 
 
-def test_gate_passed_saved_candidates_seed_batch_match_without_regeneration():
+def test_gate_passed_saved_first_candidates_anchor_batch_match_without_regeneration():
     leaves,tins=R.tree()[1:]
     generated=R.Fakes(reuse=R.SAME)
     original,_=B.build_banks(R.CASE,leaves,tins,R.PROMPT,'p',generated.generate_fn,
@@ -62,10 +62,36 @@ def test_gate_passed_saved_candidates_seed_batch_match_without_regeneration():
     canon,assign=B.build_banks(R.CASE,leaves,tins,R.PROMPT,'p',fresh.generate_fn,single,
         fresh.gate_fn,CallCache(None),initial_candidates=list(original.values()))
     assert fresh.calls['generate']==[]
-    assert all(a.assignment=='REUSED_EXISTING' for a in assign)
+    assert sum(a.assignment=='CREATED_NEW' for a in assign)==2
+    assert sum(a.assignment=='REUSED_EXISTING' for a in assign)==3
     assert len(canon)==2 and len(assign)==5
-    assert calls==[(3,(next(r.rubric_id for r in original.values() if r.leaf_id.startswith('L0')),)),
-                   (2,(next(r.rubric_id for r in original.values() if r.leaf_id.startswith('L2')),))]
+    assert calls==[(2,(next(r.rubric_id for r in original.values() if r.leaf_id.startswith('L0')),)),
+                   (1,(next(r.rubric_id for r in original.values() if r.leaf_id.startswith('L2')),))]
+
+
+def test_all_generated_candidates_are_consolidated_in_order_not_preseeded_as_bank():
+    leaves,tins=many();leaves=leaves[:9];tins={l.leaf_id:tins[l.leaf_id] for l in leaves}
+    old=R.Fakes();saved=[]
+    for leaf in leaves:
+        candidate=P.generate_rubric(R.PROMPT,'p',tins[leaf.leaf_id],old.generate_fn,CallCache(None),old.gate_fn)
+        candidate=dataclasses.replace(candidate,rubric={**candidate.rubric,
+            'source_provenance':{'source_case_id':R.CASE['case_id']}})
+        saved.append(candidate)
+    calls=[]
+    def single(*args):pytest.fail('Saved full-generation candidates must use batch consolidation')
+    def batch(package,items,bank):
+        calls.append((tuple(t.leaf_id for t in items),tuple(r.leaf_id for r in bank)))
+        return {'decisions':{t.leaf_id:{'decision':'REUSE_EXISTING','rubric_id':bank[0].rubric_id,
+            'checks':{k:True for k in B.CHECKS},'rationale':'same reason'} for t in items}}
+    single.batch=batch;single.batch_size=8
+    fresh=R.Fakes()
+    canon,assign=B.build_banks(R.CASE,leaves,tins,R.PROMPT,'p',fresh.generate_fn,single,
+        fresh.gate_fn,CallCache(None),initial_candidates=saved)
+    assert fresh.calls['generate']==[]
+    assert len(canon)==1
+    assert assign[0].assignment=='CREATED_NEW'
+    assert all(a.assignment=='REUSED_EXISTING' for a in assign[1:])
+    assert calls==[(tuple(l.leaf_id for l in leaves[1:]),(leaves[0].leaf_id,))]
 
 
 @pytest.mark.parametrize('bad',['missing','duplicate','unknown','bad_bool'])

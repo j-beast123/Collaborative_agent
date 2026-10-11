@@ -116,6 +116,15 @@ def prepare(source_runs: list[Path], config_out: Path, output_root: str, run_lab
     config = deep_merge(load_raw(base), {
         'experiment': {'output_root': output_root, 'run_label': run_label},
         'rubric': {'match_batch_size': 8},
+        'verification': {
+            'mode': 'all_members_witness_v1',
+            'max_valid_supports': None,
+            'support_sampling': 'topology',
+            'support_order': ('all same-ID trajectories in deterministic topology order; stop only after the first '
+                              'trajectory reaches the existing within-member 2-of-3 target'),
+            'keep': ('KEEP when any assigned trajectory reaches at least 2/3 target outcomes; otherwise exhaust every '
+                     'applicable assigned trajectory and REMOVE/NOT_VALIDATED'),
+        },
         'five_gpu': {
             'reuse_frozen_rubric_candidates': True,
             'first_batch_frozen_records': frozen,
@@ -127,8 +136,10 @@ def prepare(source_runs: list[Path], config_out: Path, output_root: str, run_lab
         'notes': {
             'first_batch_reuse': (
                 'Reuse only the hash-pinned five-case rollout, Doctor feedback, and individually Gate-passed '
-                'source rubric candidates. Recompute same-case semantic assignments in batches of up to eight; '
-                'generate/Gate only trajectories unmatched to valid seeded candidates. Do not reuse prior '
+                'source rubric candidates. Consolidate them in trajectory order: the first success and failure '
+                'trajectory establish their respective working banks, then match up to eight trajectories at a time; '
+                'adopt a saved candidate or generate/Gate only when its trajectory is unmatched. Test every assigned '
+                'trajectory until one reaches the existing 2-of-3 result-change rule. Do not reuse prior '
                 'assignments, witness/KEEP, score, reward, advantage, or optimizer records. Re-run witness '
                 'verification and scoring before the single first-batch update.'
             )
@@ -143,7 +154,8 @@ def prepare(source_runs: list[Path], config_out: Path, output_root: str, run_lab
     return {'config': str(out), 'source_runs': [str(s['run']) for s in sources],
             'selected_sources_by_case': selected_sources, 'source_policy_sha256': first['policy'],
             'source_prompt_sha256': first['prompt'], 'frozen_cases': len(frozen),
-            'candidate_reuse': 'valid source candidates only; assignments and witness decisions recomputed',
+            'candidate_reuse': ('valid source candidates are consolidated in trajectory order; assignments and witness '
+                                'decisions recomputed'),
             'match_batch_size': 8, 'launched': False}
 
 
