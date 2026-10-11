@@ -96,6 +96,29 @@ def test_stable_settled_status_halts():
     assert halt() == 'doctor_halt' and halt(last='The axillary nerve course supports this.') == 'doctor_halt'
 
 
+def test_a1_can_halt_only_when_fully_settled():
+    settled = ST()
+    assert D.halt_reason(agent_turns=1, status=settled, prev_status=None,
+                         last_agent='I agree that B fits best.', options='ABCD',
+                         min_agent_turns=1) == 'doctor_halt_a1_settled'
+    assert D.halt_reason(agent_turns=1, status={**settled, 'open_issue': True},
+                         prev_status=None, last_agent='I agree that B fits best.',
+                         options='ABCD', min_agent_turns=1) is None
+    assert D.halt_reason(agent_turns=1, status=settled, prev_status=None,
+                         last_agent='I still favor option C.', options='ABCD',
+                         min_agent_turns=1) is None
+
+
+def test_a2_defaults_to_final_unless_every_extension_signal_is_active():
+    base = dict(agent_turns=2, prev_status=ST(), last_agent='I still favor option C.',
+                options='ABCD', min_agent_turns=1, default_final_after_agent_turns=2)
+    for flag in D.FLAGS:
+        status = {**ST(), **{key: True for key in D.FLAGS}, flag: False}
+        assert D.halt_reason(status=status, **base) == 'doctor_halt_default_after_a2'
+    all_active = {**ST(), **{key: True for key in D.FLAGS}}
+    assert D.halt_reason(status=all_active, **base) is None
+
+
 @pytest.mark.parametrize('kw', [dict(prev=ST(opt='C')), dict(prev=None), dict(status=None), dict(status=ST(opt='none'), prev=ST(opt='none'))])
 def test_unstable_or_missing_decision_continues(kw):
     assert halt(**kw) is None

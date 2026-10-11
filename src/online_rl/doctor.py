@@ -95,14 +95,24 @@ def minimum_agent_turns(doctor) -> int:
 
 
 def halt_reason(*, agent_turns: int, status: Optional[dict], prev_status: Optional[dict], last_agent: str, options,
-                min_agent_turns: int, stable_choice_no_objection_after_turns: Optional[int] = None) -> Optional[str]:
+                min_agent_turns: int, stable_choice_no_objection_after_turns: Optional[int] = None,
+                default_final_after_agent_turns: Optional[int] = None) -> Optional[str]:
     """'doctor_halt' or None (continue). Called after a Doctor turn that follows `agent_turns` Agent replies."""
     from src.collaboration.generator import option
-    if agent_turns < min_agent_turns or status is None or prev_status is None: return None
+    if agent_turns < min_agent_turns or status is None: return None
     cur = status['current_option']
     if cur == 'none' or cur not in {str(o).upper() for o in options}: return None
-    if prev_status.get('current_option') != cur: return None                       # the decision must be stable
     said = option(last_agent or '')
+    if prev_status is None:
+        if agent_turns == 1 and not any(status[k] for k in FLAGS) and (not said or said.upper() == cur):
+            return 'doctor_halt_a1_settled'
+        return None
+    if (default_final_after_agent_turns is not None and
+            agent_turns >= default_final_after_agent_turns):
+        if not all(status[k] for k in FLAGS):
+            return 'doctor_halt_default_after_a2'
+        return None
+    if prev_status.get('current_option') != cur: return None                       # the decision must be stable
     if said and said.upper() != cur: return None                                   # the Agent argues for another option
     if not any(status[k] for k in FLAGS): return 'doctor_halt'
     if (stable_choice_no_objection_after_turns is not None and
@@ -141,9 +151,13 @@ class OllamaDoctor:
         self.halting = halting or {'enabled': False, 'min_agent_turns': 2}
         self.min_agent_turns = int(self.halting.get('min_agent_turns', 2))
         self.stable_choice_no_objection_after_turns = self.halting.get('stable_choice_no_objection_after_turns')
+        self.default_final_after_agent_turns = self.halting.get('default_final_after_agent_turns')
         late = self.stable_choice_no_objection_after_turns
         if late is not None and (isinstance(late, bool) or not isinstance(late, int) or late < self.min_agent_turns):
             raise ValueError('stable_choice_no_objection_after_turns must be an integer >= min_agent_turns')
+        default_final = self.default_final_after_agent_turns
+        if default_final is not None and (isinstance(default_final, bool) or not isinstance(default_final, int) or default_final < 2):
+            raise ValueError('default_final_after_agent_turns must be an integer >= 2')
         self.options = {**backend['options'], 'num_predict': max_tokens}
         self.final_response = backend.get('final_response')
         if self.final_response is not None:
@@ -244,7 +258,8 @@ class OllamaDoctor:
         if not self.halts(): return None
         return halt_reason(agent_turns=agent_turns, status=status, prev_status=prev_status, last_agent=last_agent, options=options,
                            min_agent_turns=self.min_agent_turns,
-                           stable_choice_no_objection_after_turns=self.stable_choice_no_objection_after_turns)
+                           stable_choice_no_objection_after_turns=self.stable_choice_no_objection_after_turns,
+                           default_final_after_agent_turns=self.default_final_after_agent_turns)
 
     def verify(self, require_loaded: bool = False) -> dict:
         """Every worker endpoint: server version and model digest must equal the pinned ones; with require_loaded, the model

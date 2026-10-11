@@ -93,8 +93,8 @@ def preflight(cfg):
         errors.append('D1 identity must use the current Doctor generation options')
     if cfg['rollout'].get('doctor_opening') or fg.get('opening_mode') != 'immutable_runtime_D1_v1':
         errors.append('This runner uses the declared immutable runtime D1 protocol')
-    if cfg['rollout']['halting']['min_agent_turns'] not in (2,3):
-        errors.append('Minimum Agent turns must be two or three')
+    if cfg['rollout']['halting']['min_agent_turns'] not in (1,2,3):
+        errors.append('Minimum Agent turns must be one, two or three')
     if (ROOT/cfg['data']['train']).exists() and (ROOT/fg['eval_file']).exists():
         train = load_cases(ROOT/cfg['data']['train']); test = load_cases(ROOT/fg['eval_file'])
         if len(test) != fg['eval_cases'] or len({c['case_id'] for c in test}) != len(test):

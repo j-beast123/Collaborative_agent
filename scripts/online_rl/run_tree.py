@@ -390,8 +390,8 @@ def setup_problems(cfg: dict, config_path: str) -> list[str]:
         for k in ('engine', 'endpoint', 'model', 'model_digest', 'quantization', 'ollama_version', 'source_model', 'options'):
             if not b.get(k): out.append(f'missing rollout.doctor_backend.{k}')
         if not str(ro.get('doctor_model', '')).startswith('ollama/'): out.append('rollout.doctor_model must name the local Doctor (ollama/<tag>@<digest>)')
-        if not isinstance((ro.get('halting') or {}).get('enabled'), bool) or (ro.get('halting') or {}).get('min_agent_turns') not in (2, 3):
-            out.append('rollout.halting needs enabled (true/false) and min_agent_turns = 2 or 3')
+        if not isinstance((ro.get('halting') or {}).get('enabled'), bool) or (ro.get('halting') or {}).get('min_agent_turns') not in (1, 2, 3):
+            out.append('rollout.halting needs enabled (true/false) and min_agent_turns = 1, 2 or 3')
     rb = cfg.get('rubric') or {}
     if rb.get('reuse'):
         from src.online_rl.tree.rubric_bank import ASSIGNMENT_VERSION, prompt_sections
