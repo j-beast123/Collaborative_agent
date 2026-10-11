@@ -223,7 +223,7 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
                     str(matched[rid].get('value', 'Y')).upper() == 'Y')
                 r = behavior.get(rid) if applicable else None
                 record = _score_record(n, rid, src[rid], applicable, r)
-                if review[rid].get('applicable') is None:        # unresolved after re-judgment: no score, no reward or penalty from this pair
+                if review[rid].get('applicable') is None:        # no verdict (abstain or execution-unresolved): no score, reward or penalty
                     record = replace(record, scoring_status='execution_unresolved' if review[rid].get('execution_unresolved')
                                      else 'applicability_unresolved')
                 if record.scoring_status == 'execution_unresolved' and review[rid].get('applicable') is not None:

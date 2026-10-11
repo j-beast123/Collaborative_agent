@@ -1,4 +1,4 @@
-"""Uncertain Stage-1 applicability: two fresh re-judgments, then abstain on that rubric / state pair only (2026-10-11)."""
+"""Uncertain Stage-1 applicability: two fresh re-judgments, then abstain on that rubric / state pair only."""
 from dataclasses import replace
 import pytest
 from src.online_rl.tree import applicability as A

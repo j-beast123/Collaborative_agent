@@ -39,7 +39,7 @@ UNRESOLVED_STATUS = 'applicability_unresolved'
 
 
 def resolve_uncertain(first: dict, rejudge, retries: int = UNCERTAIN_REJUDGMENTS) -> tuple[dict, dict]:
-    """Collaborator decision 2026-10-11. `first` is a valid Stage-1 row whose verdict is uncertain (applicable is None).
+    """`first` is a valid Stage-1 row whose verdict is uncertain (applicable is None).
     rejudge(n) asks the SAME judge again (same prompt, model, input, parser) and returns its validated row. A fresh TRUE or
     FALSE is used normally. If every re-judgment is also uncertain, only this rubric / state pair is left unresolved
     (applicable stays None, unresolved_abstain = True): callers skip the pair; it is never read as FALSE."""
@@ -210,8 +210,8 @@ not change the judge context or create competing decisions for the same item.
             try:
                 return checked(callback(view, prefix, [canonical]))
             except IntegrationUnavailable as exc:
-                # Collaborator decision 2026-10-11: when every configured local retry of this request returned an
-                # execution-invalid response, the judgment is EXECUTION_UNRESOLVED (no TRUE / FALSE / UNCERTAIN) and the run goes on.
+                # Every configured local retry returned an execution-invalid response: the judgment is
+                # EXECUTION_UNRESOLVED (no TRUE / FALSE / UNCERTAIN) and the run goes on.
                 if not getattr(callback, 'execution_unresolved_terminal', False) or not execution_invalid(exc): raise
                 audit = getattr(exc, 'audit', None) or {}
                 tries = [*audit.get('prior_failed_attempts', []), audit]

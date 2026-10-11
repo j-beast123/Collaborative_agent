@@ -1,6 +1,6 @@
 """Offline rubric-bank construction: ONE Rubric-Generator call per chunk of at most eight trajectories.
 
-Collaborator-authorized protocol (2026-10-11). For one case, the eligible trajectories (valid Doctor reflection, decided
+For one case, the eligible trajectories (valid Doctor reflection, decided
 outcome) are capped at 48 by a reproducible sample and processed in leaf-id order in chunks of at most eight. Each chunk makes
 one call with the CURRENT persistent KEEP bank; its rows are applied immediately, so the next chunk sees the updated bank.
 
@@ -10,7 +10,8 @@ cumulative-bank reuse decision; a PEER row is, as in the existing batch contract
 representative's rubric exists and passed its Gate, the proposed peers are re-checked against that actual rubric with the
 unchanged batch matcher (rubric_bank / api_rubric_matcher.batch) and attached only on its REUSE_EXISTING decision. A trajectory
 whose representative is rejected or whose re-check is not a reuse gets no rubric in this protocol (no further primary call).
-Judge errors and unresolved verdicts are not handled here: they propagate exactly as in the per-trajectory path. Layers never mix."""
+A peer re-check that stays execution-invalid after the local retry budget confirms no peer (EXECUTION_UNRESOLVED); other judge
+errors propagate as in the per-trajectory path. Layers never mix."""
 from __future__ import annotations
 import copy, hashlib, json, random, re, time
 from dataclasses import replace

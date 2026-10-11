@@ -1,4 +1,4 @@
-"""EXECUTION_UNRESOLVED (2026-10-11): a judgment whose response is still execution-invalid after the local retry budget has no
+"""EXECUTION_UNRESOLVED: a judgment whose response is still execution-invalid after the local retry budget has no
 verdict. It never stops the run, is never read as FALSE / NA / 0, and never relaxes the admission or witness rules."""
 import json
 from dataclasses import replace
