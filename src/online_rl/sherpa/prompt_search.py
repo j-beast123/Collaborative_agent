@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from src.online_rl.integrated.continuation import derive_seed
@@ -33,27 +35,38 @@ def collect_base(cfg, policy, cases, root, *, max_cases=None):
         previous = {'identity': identity, 'case_ids': [case['case_id'] for case in order], 'complete': False}
         atomic_write_json(manifest, previous)
     completed = 0
-    # Offline observations come from the actual frozen base, not a trained adapter.
+    def one(case):
+        folder = home / 'base_rollouts' / case['case_id']
+        folder.mkdir(parents=True, exist_ok=True)
+        saved = folder / 'rollouts.json'
+        if saved.exists():
+            row = read_json(saved)
+            if row['identity'] != identity or row['case_id'] != case['case_id']:
+                raise RuntimeError('Base rollout identity mismatch')
+        else:
+            _, trajectories = collect(case, cfg, policy, CallCache(folder / 'calls.jsonl'), 0, behavior=False)
+            outcomes = [row['outcome'] for row in trajectories]
+            row = {'identity': identity, 'case_id': case['case_id'], 'trajectories': trajectories,
+                   'outcomes': outcomes, 'success_rate': sum(outcomes) / 32,
+                   'mixed': set(outcomes) == {0, 1}}
+            atomic_write_json(saved, row)
+        return case['case_id'], row
+    # All replicas have adapters disabled before any worker starts. Up to four
+    # cases overlap Doctor I/O with batched generation on the two GPU queues.
     with original_base_policy(policy):
-        for case in order:
-            folder = home / 'base_rollouts' / case['case_id']
-            folder.mkdir(parents=True, exist_ok=True)
-            saved = folder / 'rollouts.json'
-            if saved.exists():
-                row = read_json(saved)
-                if row['identity'] != identity or row['case_id'] != case['case_id']:
-                    raise RuntimeError('Base rollout identity mismatch')
-            else:
-                _, trajectories = collect(case, cfg, policy, CallCache(folder / 'calls.jsonl'), 0, behavior=False)
-                outcomes = [row['outcome'] for row in trajectories]
-                row = {'identity': identity, 'case_id': case['case_id'], 'trajectories': trajectories,
-                       'outcomes': outcomes, 'success_rate': sum(outcomes) / 32,
-                       'mixed': set(outcomes) == {0, 1}}
-                atomic_write_json(saved, row)
-            completed += 1
-            print(f'Base rollout {completed}/120: {case["case_id"]} success={row["success_rate"]:.3f}', flush=True)
-            if max_cases is not None and completed >= max_cases:
-                break
+        with ThreadPoolExecutor(cfg['prompt_optimization'].get('rollout_case_workers', 1)) as pool:
+            futures = [pool.submit(one, case) for case in (order[:max_cases] if max_cases else order)]
+            try:
+                for future in as_completed(futures):
+                    case_id, row = future.result()
+                    completed += 1
+                    previous.update(complete=completed == 120, completed_cases=completed)
+                    atomic_write_json(manifest, previous)
+                    print(f'Base rollout {completed}/120: {case_id} success={row["success_rate"]:.3f}', flush=True)
+            except BaseException:
+                for future in futures:
+                    future.cancel()
+                raise
     previous.update(complete=completed == 120, completed_cases=completed)
     atomic_write_json(manifest, previous)
     return previous
@@ -82,20 +95,37 @@ def optimize(cfg, policy, backend, cases, root):
     cache = CallCache(home / 'optimization_calls.jsonl')
     # Exactly one fixed reflection sample per selected base case, shared by every candidate.
     examples = {}
-    for key in selected:
-        examples[key] = reflections(by_id[key], observations[key]['trajectories'], backend, cache,
-                                   derive_seed(cfg['schedule']['seed'], key, 'base_reflection_selection', 0))
-        atomic_write_json(home / 'reflections' / f'{key}.json', examples[key])
+    def reflect_case(key):
+        rows = reflections(by_id[key], observations[key]['trajectories'], backend, cache,
+                           derive_seed(cfg['schedule']['seed'], key, 'base_reflection_selection', 0))
+        atomic_write_json(home / 'reflections' / f'{key}.json', rows)
+        return key, rows
+    with ThreadPoolExecutor(cfg['prompt_optimization'].get('candidate_workers', 1)) as pool:
+        examples.update(pool.map(reflect_case, selected))
 
-    def evaluate(text, candidate_id):
+    evaluation_locks = {}
+    evaluation_guard = threading.Lock()
+
+    def evaluate(text, candidate_id, *, confirmation_repeat=None):
+        # Duplicate proposals share one immutable evidence directory. Serialize
+        # only identical prompts; distinct candidates are evaluated concurrently.
+        key = (sha256_text(text), confirmation_repeat)
+        with evaluation_guard:
+            lock = evaluation_locks.setdefault(key, threading.Lock())
+        with lock:
+            return evaluate_locked(text, candidate_id, confirmation_repeat=confirmation_repeat)
+
+    def evaluate_locked(text, candidate_id, *, confirmation_repeat=None):
         digest = sha256_text(text)
-        folder = home / 'candidates' / digest
+        scope = ('offline_prompt' if confirmation_repeat is None
+                 else f'offline_prompt_confirmation_{confirmation_repeat}')
+        folder = (home / 'candidates' / digest if confirmation_repeat is None else
+                  home / 'confirmation' / f'repeat_{confirmation_repeat}' / digest)
         folder.mkdir(parents=True, exist_ok=True)
         (folder / 'prompt.txt').write_text(text)
         identity = {'base': manifest['identity'], 'case_ids': selected, 'prompt': digest,
-                    'backend': backend.identity()}
-        scores = []
-        for key in selected:
+                    'backend': backend.identity(), 'scope': scope}
+        def evaluate_case(key):
             path = folder / 'cases' / f'{key}.json'
             if path.exists():
                 result = read_json(path)
@@ -103,23 +133,35 @@ def optimize(cfg, policy, backend, cases, root):
                     raise RuntimeError('Prompt candidate evidence identity mismatch')
             else:
                 result = assess(by_id[key], observations[key]['trajectories'], examples[key], text,
-                                backend, cache, {'scope': 'offline_prompt', 'candidate': digest})
+                                backend, cache, {'scope': scope, 'candidate': digest})
                 # Invalid sets earn zero fitness; the fixed 24-case denominator never shrinks.
                 result.update(case_id=key, identity=identity, fitness_auc=result['auc'] if result['valid'] else 0.0)
                 atomic_write_json(path, result)
             if result['fitness_auc'] is None:
                 raise RuntimeError('Selected mixed case has no defined AUC')
-            scores.append({'case_id': key, 'auc': result['auc'], 'fitness_auc': result['fitness_auc'],
-                           'valid': result['valid'], 'rubrics': result['generation']['rubrics']})
+            return {'case_id': key, 'auc': result['auc'], 'fitness_auc': result['fitness_auc'],
+                    'valid': result['valid'], 'rubrics': result['generation']['rubrics']}
+        # Each candidate overlaps independent cases; API semaphores remain global.
+        # Consume in fixed case order so AUC aggregation/tie breaking is unchanged.
+        with ThreadPoolExecutor(cfg['prompt_optimization'].get('case_workers', 4)) as pool:
+            futures = [pool.submit(evaluate_case, key) for key in selected]
+            try:
+                scores = [future.result() for future in futures]
+            except BaseException:
+                for future in futures:
+                    future.cancel()
+                raise
         evaluated = {'candidate_id': candidate_id, 'prompt_sha256': digest, 'text': text,
                      'case_scores': scores, 'mean_auc': sum(row['fitness_auc'] for row in scores) / 24,
                      'identity': identity}
         atomic_write_json(folder / 'score.json', evaluated)
+        print(f'Prompt {candidate_id}: mean AUC={evaluated["mean_auc"]:.4f} scope={scope}', flush=True)
         return evaluated
 
     spec = cfg['prompt_optimization']
     initial = (Path(root) / spec['initial_prompt_file']).read_text()
     winner = evaluate(initial, 'initial')
+    initial_result = winner
     history = [winner]
     started = time.perf_counter()
     iterations = spec['iterations']
@@ -130,13 +172,14 @@ def optimize(cfg, policy, backend, cases, root):
         evidence = [{'case': {key: by_id[row['case_id']].get(key) for key in ('question', 'scenario', 'options')},
                      'auc': row['fitness_auc'], 'rubrics': row['rubrics'],
                      'examples': examples[row['case_id']]} for row in low]
-        candidates = []
-        for index in range(4):
+        def propose_and_evaluate(index):
             proposal = cache.call('prompt_proposal', {'parent': winner['prompt_sha256'], 'iteration': iteration,
                                  'index': index, 'evidence': sha256_json(evidence), 'backend': backend.identity()},
                                   lambda: backend.propose(winner['text'], evidence, iteration, index))
             atomic_write_json(home / 'proposals' / f'iteration_{iteration}_candidate_{index}.json', proposal)
-            candidates.append(evaluate(proposal['text'], f'iteration_{iteration}_candidate_{index}'))
+            return evaluate(proposal['text'], f'iteration_{iteration}_candidate_{index}')
+        with ThreadPoolExecutor(spec.get('candidate_workers', 1)) as pool:
+            candidates = list(pool.map(propose_and_evaluate, range(4)))
         # Deterministic ties keep the parent; no test or checkpoint selection enters fitness.
         winner = max([winner, *candidates], key=lambda candidate: candidate['mean_auc'])
         history.extend(candidates)
@@ -145,6 +188,29 @@ def optimize(cfg, policy, backend, cases, root):
         print(f'Prompt search iteration {iteration}: mean AUC={winner["mean_auc"]:.4f}', flush=True)
         if iteration >= 2 and spec.get('max_seconds') is not None and time.perf_counter() - started >= spec['max_seconds']:
             break
+    # Fresh generation/judging calls on the same fixed cases and reflections.
+    # These observations report repeatability; they never reselect the winner.
+    confirmation = {'same_optimization_cases': True, 'held_out': False,
+                    'used_for_selection': False, 'repeats': [],
+                    'search_initial_mean_auc': initial_result['mean_auc'],
+                    'search_final_mean_auc': winner['mean_auc']}
+    for repeat in range(1, spec.get('confirmation_repeats', 0) + 1):
+        with ThreadPoolExecutor(min(2, spec.get('candidate_workers', 1))) as pool:
+            first = pool.submit(evaluate, initial, 'confirmation_initial', confirmation_repeat=repeat)
+            last = pool.submit(evaluate, winner['text'], 'confirmation_final', confirmation_repeat=repeat)
+            repeated_initial, repeated_final = first.result(), last.result()
+        initial_by_case = {row['case_id']: row['fitness_auc'] for row in repeated_initial['case_scores']}
+        confirmation['repeats'].append({
+            'repeat': repeat, 'initial_prompt_sha256': repeated_initial['prompt_sha256'],
+            'final_prompt_sha256': repeated_final['prompt_sha256'],
+            'same_prompt': repeated_initial['prompt_sha256'] == repeated_final['prompt_sha256'],
+            'initial_mean_auc': repeated_initial['mean_auc'],
+            'final_mean_auc': repeated_final['mean_auc'],
+            'delta_mean_auc': repeated_final['mean_auc'] - repeated_initial['mean_auc'],
+            'case_deltas': [{'case_id': row['case_id'],
+                             'delta_auc': row['fitness_auc'] - initial_by_case[row['case_id']]}
+                            for row in repeated_final['case_scores']]})
+        atomic_write_json(home / 'confirmation.json', confirmation)
     prompt_path = home / 'final_prompt.txt'
     prompt_path.write_text(winner['text'])
     final = {'schema': 'sherpa_auc_prompt_v1', 'prompt_file': str(prompt_path.resolve()),

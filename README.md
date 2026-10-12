@@ -1,5 +1,129 @@
 # SHERPA online — anchored group learning
 
+## Prompt optimization on this machine
+
+Use `run_prompt_optimization.sh` for the current offline generator-prompt search.
+The Python environment is `.venv`, inheriting the host's B200-compatible NVIDIA
+PyTorch; the additional pinned packages are in `requirements-prompt.txt`.
+The local Qwen3-8B model is loaded from `../vllm/qwen3` via
+`policy.local_model_path`, while its logical model identity remains
+`Qwen/Qwen3-8B`. No model download is needed.
+
+Fill `OPENAI_API_KEY` and `OPENROUTER_API_KEY` in `.env` locally, then run:
+
+```bash
+bash run_prompt_optimization.sh                     # local preflight, no API calls
+bash run_prompt_optimization.sh --launch             # base rollouts, then prompt search
+```
+
+Optional one-case smoke run and stage-specific resume:
+
+```bash
+bash run_prompt_optimization.sh --launch --phase base-rollouts --max-cases 1
+bash run_prompt_optimization.sh --launch --phase base-rollouts
+bash run_prompt_optimization.sh --launch --phase optimize-prompt
+```
+
+The default visible GPUs are `0,1`; override `CUDA_VISIBLE_DEVICES` to select a
+different pair. Base collection now uses **vLLM 0.31.0**, one original Qwen3-8B
+model per GPU, with `--gpu-memory-utilization 0.9`, tensor parallel size 1,
+`--max-num-seqs 128` per server and a **global 128-request limit**. Four cases
+(each with 32 branches) overlap; vLLM continuously batches waiting requests.
+Servers bind only to localhost, start automatically, and stop after collection.
+Logs are `vllm_gpu0.log` / `vllm_gpu1.log` in the experiment output directory.
+The server environment `.venv-vllm` is isolated from the existing GRPO `.venv`:
+
+```bash
+uv venv --python /usr/bin/python3 .venv-vllm
+uv pip install --python .venv-vllm/bin/python -r requirements-vllm.txt
+```
+
+Doctor is now `gpt-4o-mini`, with no `reasoning` parameter in the API request
+(non-reasoning model). Doctor temperature stays 0.4 and its global API limit is
+50. Judge remains `gpt-6-luna`; the rubric generator remains Gemini.
+The new experiment writes to `outputs/sherpa_prompt_auc_gpt4o_mini_vllm_v1`.
+Previous Luna-doctor results in `outputs/sherpa_prompt_auc_v1` are preserved;
+changing Doctor starts fresh, without importing those outcomes.
+
+Prompt phases set `rate_limit_retries: 0`: rate-limit errors propagate without
+sleeping or resending. Other transient errors retain their retry policy.
+Restart with the same command and output directory to reuse completed cases,
+successful calls inside unfinished cases, and cached prompt evaluations.
+Concurrency and retry settings do not invalidate these caches. Engine migration
+can reuse validated original-base evidence, including the legacy disabled-adapter
+cache namespace. New vLLM traces record `vllm_seeded_v1`: equal seeds do not imply
+identical outputs across engines. This new Doctor experiment starts entirely
+with vLLM. GRPO training continues to use Transformers/PEFT and its full traces.
+
+Local-only GPU verification (no paid APIs, refuses GPUs locked by another run):
+
+```bash
+.venv/bin/python scripts/online_rl/smoke_vllm.py
+```
+
+After collection, both GPU models are released. Prompt search uses remote APIs
+only, evaluates four candidates concurrently with four cases per candidate,
+and shares the run-wide limits of
+10 generator calls and 20 judge calls. It reuses 24 fixed mixed-outcome cases,
+evaluates the initial prompt plus four candidates in each of three iterations,
+then independently regenerates and rescores the initial and winning prompts once.
+Confirmation uses the same cases, is not held-out evaluation, and never changes
+the selected winner. Generator temperature is 0.2; rubric behaviors must belong
+to the assistant, with partner state allowed only as a condition.
+All cases share one judge worker pool; case parallelism does not multiply the
+20-request judge limit. Cached case results, aggregation order and tie rules
+remain unchanged. Changed runtime settings take effect after restart.
+
+To compare the older Transformers sampler configurations on an idle GPU:
+
+```bash
+.venv/bin/python scripts/online_rl/benchmark_prompt_gpu.py --gpu 0 --trace-mode both
+```
+
+This uses the same batch sampler with 512 synthetic input tokens and 128 output
+tokens, EOS disabled, one warm-up and three measured repetitions per setting.
+Override `--input-tokens` and `--output-tokens` to match another benchmark.
+It compares 1 model × 4/8/16 requests and 2 models × 4/8 requests on one GPU,
+and writes median output tokens/s to `outputs/prompt_benchmark/`. It refuses to
+run while that GPU's SHERPA lock is held and never changes production settings.
+Synthetic throughput does not measure end-to-end dialogue/API latency.
+
+Monitor an existing run without restarting it:
+
+```bash
+bash monitor.sh                         # automatically select prompt optimization
+bash monitor.sh --mode optimization --details
+bash monitor.sh --mode optimization --json
+# Explicit directory, if a different output directory was used:
+bash monitor.sh --mode optimization --output outputs/sherpa_prompt_auc_gpt4o_mini_vllm_v1
+```
+
+The monitor reads existing artifacts and incrementally tails completed API/cache
+records. It shows case/FINAL progress, mixed-case selection, reflections,
+candidate scores and partial judge counts, confirmation AUC differences, API
+usage, and server GPU utilization. GPU utilization includes other processes.
+`--mode training` retains the training monitor. Ctrl+C stops only the monitor.
+
+Results and per-phase API usage logs are under `outputs/sherpa_prompt_auc_gpt4o_mini_vllm_v1/`.
+The principal outputs are `final_prompt.txt`, `final_prompt.json`, `history.json`
+and `confirmation.json`. Completed case/candidate evidence is reused on restart.
+At least 24 of the 120 base cases must have both successful and failed trajectories.
+This workflow does not run GRPO training or upload model checkpoints.
+
+To recreate the environment on this NVIDIA image without replacing host PyTorch:
+
+```bash
+uv venv --system-site-packages --python /usr/bin/python3 .venv
+uv pip install --python .venv/bin/python --no-deps -r requirements-prompt.txt
+bash run_prompt_optimization.sh
+```
+
+## Earlier anchored-group workflow notes
+
+The notes below describe the earlier anchored-group experiments. The current
+`run.sh` defaults to `configs/sherpa.json`; use the prompt workflow above for
+offline prompt optimization.
+
 The default configuration is `configs/group_a100_partner_state.json`.
 Doctor uses `gpt-6-luna` on the OpenAI platform, with a shared run-wide limit
 of 50 concurrent Doctor requests. Assistant uses `Qwen/Qwen3-8B`, sampled at

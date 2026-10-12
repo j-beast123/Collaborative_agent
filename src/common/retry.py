@@ -11,7 +11,7 @@ SAME request is sent again to the SAME model; it never changes the request, the 
 - Every retry and the final outcome are logged (attempt, kind, reason, wait, total wait); exhausting the rate-limit
   budget raises RetryExhausted with that summary."""
 from __future__ import annotations
-import email.utils, random, time
+import email.utils, os, random, time
 from typing import Callable, Optional
 
 RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
@@ -53,6 +53,9 @@ class Retry:
     def __init__(self, label: str, sleep: Optional[Callable[[float], None]] = None, log: Optional[Callable[[str], None]] = None,
                  rng: random.Random = _JITTER):
         self.label, self.sleep, self.log, self.rng = label, sleep, log, rng
+        self.rate_limit_retries = int(os.environ.get('SHERPA_RATE_LIMIT_RETRIES', RATE_LIMIT_RETRIES))
+        if self.rate_limit_retries < 0:
+            raise ValueError('SHERPA_RATE_LIMIT_RETRIES must be nonnegative')
         self.retries = {'rate_limit': 0, 'transient': 0}; self.total_wait_s = 0.0
 
     def _say(self, msg: str) -> None:
@@ -65,7 +68,7 @@ class Retry:
         n = self.retries[kind]; ra = retry_after_seconds(retry_after)
         delay = min(RETRY_AFTER_MAX_S, ra) if ra is not None else backoff_s(n, self.rng)
         if kind == 'rate_limit':
-            spent = n >= RATE_LIMIT_RETRIES or self.total_wait_s + delay > RATE_LIMIT_WAIT_BUDGET_S
+            spent = n >= self.rate_limit_retries or self.total_wait_s + delay > RATE_LIMIT_WAIT_BUDGET_S
             if spent:
                 msg = (f'FAILED after {sum(self.retries.values()) + 1} attempts: rate-limit budget exhausted ({n} rate-limit retries, '
                        f'{self.retries["transient"]} transient, waited {self.total_wait_s:.0f}s of {RATE_LIMIT_WAIT_BUDGET_S:.0f}s); last: {reason}')
@@ -75,7 +78,7 @@ class Retry:
             return False
         self.retries[kind] = n + 1; self.total_wait_s += delay
         event('api_retry', label=self.label, kind=kind, delay_seconds=delay, attempts=self.attempts)
-        self._say(f'{kind} retry {n + 1}/{RATE_LIMIT_RETRIES if kind == "rate_limit" else TRANSIENT_RETRIES}: {reason}; waiting {delay:.1f}s'
+        self._say(f'{kind} retry {n + 1}/{self.rate_limit_retries if kind == "rate_limit" else TRANSIENT_RETRIES}: {reason}; waiting {delay:.1f}s'
                   f' ({"Retry-After " + str(retry_after) if ra is not None else "backoff"}; total wait {self.total_wait_s:.0f}s)')
         (self.sleep or time.sleep)(delay); return True
 

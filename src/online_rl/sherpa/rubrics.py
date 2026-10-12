@@ -6,6 +6,14 @@ import random
 import re
 import unicodedata
 
+ASSISTANT_BEHAVIOR_INSTRUCTION = (
+    "Each rubric must evaluate the assistant's observable behavior. The partner's "
+    "state may appear only as the condition (e.g., when the physician is uncertain "
+    "between two options, the assistant compares their supporting evidence). "
+    "Never score the partner's confidence, decision, agreement or change of mind "
+    "as the behavior, or require a particular partner response for success."
+)
+
 LEAKAGE_INSTRUCTION = (
     'Never mention or imply a specific diagnosis, medical answer, correct option, '
     'option letter or option text in any rubric. Rubrics must describe collaboration '

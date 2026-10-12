@@ -80,9 +80,12 @@ def responses_json(key: str, model: str, system: str, user: str, settings: dict,
 
     if not key or not key.strip():
         raise RuntimeError('OPENAI_API_KEY is missing for direct rubric API calls')
-    if model != 'gpt-6-luna':
-        raise ValueError('Direct rubric API requires model gpt-6-luna')
+    if model not in ('gpt-6-luna', 'gpt-4o-mini'):
+        raise ValueError('Direct API requires gpt-6-luna or gpt-4o-mini')
     effort = settings.get('reasoning_effort')
+    non_reasoning = model == 'gpt-4o-mini'
+    if non_reasoning and effort not in (None, 'none'):
+        raise ValueError('gpt-4o-mini does not support reasoning_effort')
     if effort not in (None, 'none', 'low', 'medium', 'high', 'xhigh', 'max'):
         raise ValueError(f'Unsupported gpt-6-luna reasoning effort: {effort}')
     payload = {
@@ -91,9 +94,9 @@ def responses_json(key: str, model: str, system: str, user: str, settings: dict,
         'max_output_tokens': settings['max_tokens'],
         'store': False,
     }
-    if effort is not None:
+    if effort is not None and not non_reasoning:
         payload['reasoning'] = {'effort': effort}
-    if effort == 'none' and settings.get('temperature') is not None:
+    if (non_reasoning or effort == 'none') and settings.get('temperature') is not None:
         payload['temperature'] = settings['temperature']
     if settings.get('response_format') == 'json_schema_strict':
         payload['text'] = {'format': {'type': 'json_schema', 'name': name,

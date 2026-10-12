@@ -17,9 +17,14 @@ def collect(case, cfg, policy, cache, step, *, behavior=True, branching=32, seed
     from src.online_rl.integrated.grpo import behavior_logprobs
     seed = (derive_seed(cfg['schedule']['seed'], case['case_id'], 'rollout_step', step)
             if seed_override is None else seed_override)
-    policy_hash = adapter_sha256(policy.model)
     protocol = sha256_json({'rollout': cfg['rollout'], 'doctor': policy.doctor.protocol,
                            'base_model': cfg['policy']['base_model'], 'sampling_step': step})
+    if getattr(policy, 'original_base_only', False):
+        if behavior:
+            raise ValueError('Base-only vLLM policy cannot supply GRPO behavior log probabilities')
+        policy_hash = base_cache_policy_hash(cache, case['case_id'], protocol, cfg['policy']['base_model'])
+    else:
+        policy_hash = adapter_sha256(policy.model)
     def old(traces):
         # Raw log-probabilities are already captured by the per-row sampler.
         values = [trace.get('old_policy_logprobs') for trace in traces]
@@ -46,6 +51,24 @@ def collect(case, cfg, policy, cache, step, *, behavior=True, branching=32, seed
     if len(trajectories) != branching:
         raise RuntimeError('Every opening reply must produce exactly one trajectory')
     return tree, trajectories
+
+
+def base_cache_policy_hash(cache, case_id, protocol, base_model):
+    """Keep the legacy cache namespace only for validated original-base evidence.
+
+    The disabled adapter hash was formerly included even though it did not affect
+    inference. collect_base verifies the manifest before accessing these calls.
+    Engine provenance lives in each new trace, not in the preserved cache key.
+    """
+    hashes = set()
+    for record in cache.store.values():
+        identity = record['identity']
+        if identity.get('case') != case_id or identity.get('protocol') != protocol:
+            raise RuntimeError('Base cache case/protocol mismatch; refusing engine migration')
+        hashes.add(identity['policy'])
+    if len(hashes) > 1:
+        raise RuntimeError('Multiple policy identities in base cache; refusing engine migration')
+    return next(iter(hashes)) if hashes else sha256_json({'original_base': base_model, 'adapter': 'disabled'})
 
 
 def schedule(cfg, cases, root):

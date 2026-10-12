@@ -173,8 +173,10 @@ class OpenAIDoctor:
     def __init__(self, backend: dict, halting: Optional[dict], system: str, max_tokens: int):
         for k in ('engine', 'model', 'options'):
             if not backend.get(k): raise ValueError(f'rollout.doctor_backend.{k} is required')
-        if backend['engine'] != 'openai_direct' or backend['model'] != 'gpt-6-luna':
-            raise ValueError('Doctor requires OpenAI direct gpt-6-luna')
+        if backend['engine'] != 'openai_direct' or backend['model'] not in ('gpt-6-luna', 'gpt-4o-mini'):
+            raise ValueError('Doctor requires OpenAI direct gpt-6-luna or gpt-4o-mini')
+        if backend['model'] == 'gpt-4o-mini' and backend.get('reasoning_effort') not in (None, 'none'):
+            raise ValueError('gpt-4o-mini does not support reasoning_effort; use null')
         self.backend, self.system, self.max_tokens = backend, system, max_tokens
         self.private_state_protocol = backend.get('private_state_protocol')
         if self.private_state_protocol not in (None, PRIVATE_STATE_PROTOCOL):

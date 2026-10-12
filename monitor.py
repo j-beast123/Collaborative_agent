@@ -422,11 +422,41 @@ def main():
     parser.add_argument('--once',action='store_true')
     parser.add_argument('--json',action='store_true',help='한 번 JSON 상태 출력')
     parser.add_argument('--details',action='store_true',help='순위·검증 결과와 내부 작업명도 표시')
+    parser.add_argument('--mode',choices=('auto','optimization','training'),default='auto',
+                        help='prompt optimization 또는 학습 모니터 선택')
     args=parser.parse_args()
     if args.interval<=0:parser.error('--interval must be positive')
     from src.online_rl.tree.experiment import load_config
     cfg=load_config(args.config)
     out=args.output or ROOT/cfg['output_dir']
+    prompt_out=ROOT/cfg.get('prompt_optimization',{}).get('output_dir','outputs/sherpa_prompt_auc_v1')
+    prompt_artifacts=('base_manifest.json','optimization_split.json','optimization_calls.jsonl','history.json')
+    optimization=(args.mode=='optimization' or (args.mode=='auto' and 'prompt_optimization' in cfg and (
+        (args.output is not None and (out.resolve()==prompt_out.resolve() or any((out/name).exists() for name in prompt_artifacts)))
+        or (args.output is None and (prompt_out.exists() or not out.exists())))))
+    if optimization:
+        from src.online_rl.sherpa.prompt_monitor import OptimizationMonitor, render as prompt_render
+        reader=OptimizationMonitor()
+        out=args.output or prompt_out
+        cfg={**cfg,'_root':str(ROOT)}
+        fullscreen=sys.stdout.isatty() and not args.once and not args.json and os.environ.get('TERM')!='dumb'
+        if fullscreen:
+            sys.stdout.write('\033[?1049h\033[?25l');sys.stdout.flush()
+        try:
+            while True:
+                data=reader.snapshot(out,cfg,gpu_stats=not args.json)
+                if args.json:print(json.dumps(data,ensure_ascii=False,indent=2));return
+                screen=prompt_render(data,details=args.details)
+                if fullscreen:sys.stdout.write('\033[2J\033[H')
+                print(screen,flush=True)
+                if args.once:return
+                time.sleep(args.interval)
+        except KeyboardInterrupt:
+            return
+        finally:
+            if fullscreen:
+                sys.stdout.write('\033[?25h\033[?1049l');sys.stdout.flush()
+        return
     if cfg.get('pipeline_protocol') == 'sherpa_trajectory_checklist_v1':
         from src.online_rl.sherpa.monitor import snapshot as trajectory_snapshot, render as trajectory_render
         try:

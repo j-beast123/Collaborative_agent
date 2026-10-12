@@ -5,14 +5,20 @@ import argparse
 import fcntl
 import json
 import os
+import signal
 import sys
+from contextlib import ExitStack
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 
 def main(argv=None):
+    def terminate(signum, frame):
+        raise SystemExit(128 + signum)
+    signal.signal(signal.SIGTERM, terminate)
     from src.online_rl.tree.experiment import load_config
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='configs/sherpa.json')
@@ -45,12 +51,21 @@ def main(argv=None):
     problems = config_problems(cfg, ROOT)
     if problems:
         parser.error('; '.join(problems))
-    os.environ['SHERPA_AGENT_REPLICAS'] = '1'
-    os.environ['SHERPA_AGENT_BATCH_SIZE'] = str(cfg['five_gpu']['agent_batch_size'])
+    search = cfg['prompt_optimization']
+    if args.phase in ('base-rollouts', 'optimize-prompt'):
+        os.environ['SHERPA_RATE_LIMIT_RETRIES'] = str(search.get('rate_limit_retries', 0))
+    replicas = search.get('rollout_replicas', 1) if args.phase == 'base-rollouts' else 1
+    os.environ['SHERPA_AGENT_REPLICAS'] = str(replicas)
+    os.environ['SHERPA_AGENT_BATCH_SIZE'] = str(
+        search.get('rollout_batch_size', 4) if args.phase == 'base-rollouts' else cfg['five_gpu']['agent_batch_size'])
+    if args.phase == 'base-rollouts':
+        os.environ['SHERPA_AGENT_MAX_INFLIGHT'] = str(search.get('assistant_max_inflight', 4))
+        cfg['execution']['agent_workers'] = max(cfg['execution']['agent_workers'],
+                                                int(os.environ['SHERPA_AGENT_MAX_INFLIGHT']))
     if cfg['method'] == 'sherpa' and args.phase == 'train':
         from src.online_rl.sherpa.prompt_search import frozen_prompt
         frozen_prompt(cfg, ROOT)
-    home = ROOT / cfg['output_dir']
+    home = ROOT / (search['output_dir'] if args.phase in ('base-rollouts', 'optimize-prompt') else cfg['output_dir'])
     home.mkdir(parents=True, exist_ok=True)
     os.environ['API_USAGE_LOG'] = str(home / f'api_usage_{args.phase}.jsonl')
     os.environ['API_EVENT_LOG'] = str(home / f'api_events_{args.phase}.jsonl')
@@ -63,14 +78,35 @@ def main(argv=None):
     lock = (home / 'runner.lock').open('a')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        device_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0').split(',')[0]
-        device_lock = Path(f'/tmp/sherpa_tree_physical_gpu{device_id}.lock').open('a')
-        try:
-            fcntl.flock(device_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with ExitStack() as resources:
             from scripts.online_rl.run_tree import load_key
-            from src.online_rl.runtime import SharedPolicy
             from src.online_rl.cases import load_cases
-            policy = SharedPolicy(cfg, load_key({'api_provider': 'openai_direct'}))
+            if args.phase == 'optimize-prompt':
+                # Scoring cached dialogues needs only the remote Doctor and
+                # generator/judge clients; no local model or GPU reservation.
+                from src.online_rl.doctor import make_doctor
+                system = (ROOT / cfg['rollout']['doctor_system_prompt_file']).read_text()
+                policy = SimpleNamespace(doctor=make_doctor(cfg['rollout'], system))
+            else:
+                import torch
+                devices = os.environ.get('CUDA_VISIBLE_DEVICES', ','.join(map(str, range(torch.cuda.device_count())))).split(',')
+                if torch.cuda.device_count() < replicas:
+                    raise RuntimeError(f'Need {replicas} visible GPUs for {args.phase}')
+                for device_id in devices[:replicas]:
+                    device_lock = resources.enter_context(Path(f'/tmp/sherpa_tree_physical_gpu{device_id}.lock').open('a'))
+                    fcntl.flock(device_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if args.phase == 'base-rollouts' and search.get('inference_engine') == 'vllm':
+                    from src.online_rl.vllm_policy import VLLMPolicy
+                    policy = VLLMPolicy(cfg, ROOT)
+                    resources.callback(policy.close)
+                else:
+                    from src.online_rl.runtime import SharedPolicy
+                    policy = SharedPolicy(cfg, load_key({'api_provider': 'openai_direct'}))
+                policy.collect_training_traces = args.phase != 'base-rollouts'
+                def close_batcher():
+                    if hasattr(policy, '_batcher'):
+                        policy._batcher.close()
+                resources.callback(close_batcher)
             if args.phase in ('evaluate', 'evaluate-base'):
                 from src.online_rl.sherpa.evaluation import evaluate
                 result = evaluate(cfg, policy, ROOT, base_only=args.phase == 'evaluate-base')
@@ -82,6 +118,8 @@ def main(argv=None):
                 else:
                     from src.online_rl.sherpa.backend import ChecklistBackend
                     backend = ChecklistBackend(cfg, policy, ROOT) if cfg['method'] == 'sherpa' else None
+                    if backend is not None:
+                        resources.callback(backend.close)
                     if args.phase == 'optimize-prompt':
                         if backend is None:
                             parser.error('Prompt optimization belongs to SHERPA')
@@ -93,8 +131,6 @@ def main(argv=None):
             from src.online_rl.integrated.records import atomic_write_json
             atomic_write_json(home / f'{args.phase}_result.json', result)
             print(json.dumps({'phase': args.phase, 'output_dir': str(home), 'status': 'returned'}, ensure_ascii=False))
-        finally:
-            device_lock.close()
     finally:
         lock.close()
 

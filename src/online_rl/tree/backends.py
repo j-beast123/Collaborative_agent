@@ -46,6 +46,9 @@ class PolicyAgent:
                 'sampling_logprobs', 'sampling_temperature', 'sampling_top_p', 'sampling_top_k',
                 'logprob_semantics', 'batch_sampling_protocol',
                 'segments', 'state_prompt_hash', 'private_assessment', 'agent_protocol')        # last four: precommit_v1 joint action
+        if not getattr(self.policy, 'collect_training_traces', True):
+            keep = ('completion_text', 'completion_ids', 'seed', 'sampling_temperature',
+                    'sampling_top_p', 'sampling_top_k', 'batch_sampling_protocol')
         return {k: tr[k] for k in keep if k in tr}
 
 

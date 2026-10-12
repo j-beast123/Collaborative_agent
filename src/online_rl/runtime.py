@@ -35,11 +35,12 @@ class SharedPolicy:
         from src.online_rl import environment as ST
         self.ST = ST
         self.torch, self.cfg, self.key = torch, cfg, key; p = cfg['policy']
-        self.tok = AutoTokenizer.from_pretrained(p['base_model'], trust_remote_code=True)
+        model_source = p.get('local_model_path') or p['base_model']
+        self.tok = AutoTokenizer.from_pretrained(model_source, trust_remote_code=True)
         if self.tok.pad_token is None: self.tok.pad_token = self.tok.eos_token
         # Transformers 4.53 forwards `dtype` to remote-code model constructors;
         # use the compatible `torch_dtype` keyword to avoid passing it to Qwen3.
-        base = AutoModelForCausalLM.from_pretrained(p['base_model'], torch_dtype=torch.bfloat16, trust_remote_code=True)
+        base = AutoModelForCausalLM.from_pretrained(model_source, torch_dtype=torch.bfloat16, trust_remote_code=True)
         lc = p['lora']
         if p.get('init_adapter'): self.model = PeftModel.from_pretrained(base, p['init_adapter'], is_trainable=True)
         elif lc.get('init_seed') is not None: self.model = seeded_lora(base, lc)
@@ -57,7 +58,7 @@ class SharedPolicy:
         import threading; self.gen_lock = threading.RLock()            # one generation at a time on the shared model
         self.precommit = ro.get('agent_protocol') == 'precommit_v1'
         if ro.get('agent_protocol') not in (None, 'precommit_v1'): raise ValueError(f"unknown rollout.agent_protocol {ro['agent_protocol']!r}")
-        self._init_replicas(base_model=p['base_model'], lc=lc, init_adapter=p.get('init_adapter'))
+        self._init_replicas(base_model=model_source, lc=lc, init_adapter=p.get('init_adapter'))
 
     # ---------- execution only: Agent replicas (SHERPA_AGENT_REPLICAS, default 1 = the single shared model) ----------
     # Replica i is the same base model + LoRA on cuda:i (cuda:0 = the trained primary). Every logical generation is still ONE
@@ -248,7 +249,8 @@ class SharedPolicy:
                     if not hasattr(self,'_batcher'):
                         capacity=int(os.environ.get('SHERPA_AGENT_BATCH_SIZE',self.cfg.get('five_gpu',{}).get('agent_batch_size',1)))
                         if capacity not in (1,2,4,8):raise ValueError('Agent batch size must be 1, 2, 4 or 8')
-                        self._batcher=Batcher(self,capacity)
+                        limit=os.environ.get('SHERPA_AGENT_MAX_INFLIGHT')
+                        self._batcher=Batcher(self,capacity,max_inflight=int(limit) if limit is not None else None)
             return self._batcher.submit(prompt,max_new_tokens,seed)
         if self._procs is not None: return self._generate_process(prompt, max_new_tokens, seed, segment)
         if self.n_replicas == 1:

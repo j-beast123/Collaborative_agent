@@ -11,7 +11,8 @@ from src.online_rl.integrated.continuation import derive_seed
 from src.online_rl.integrated.records import sha256_json, sha256_text
 from src.online_rl.tree.backends import _generator_json, with_role
 from src.online_rl.sherpa.rubrics import (
-    SET_SCHEMA, LEAKAGE_INSTRUCTION, checklist_schema, filter_leakage, parse_rubrics,
+    SET_SCHEMA, LEAKAGE_INSTRUCTION, ASSISTANT_BEHAVIOR_INSTRUCTION,
+    checklist_schema, filter_leakage, parse_rubrics,
 )
 
 
@@ -44,12 +45,17 @@ class ChecklistBackend:
         self.judge_key = load_key({'api_provider': self.judge_settings['api_provider']})
         self.judge_prompt = (self.root / cfg['rubric_pipeline']['judge_prompt_file']).read_text()
         self.reflection_prompt = (self.root / cfg['rubric_pipeline']['reflection_prompt_file']).read_text()
+        self._judge_pool = ThreadPoolExecutor(cfg['execution']['judge_workers'], thread_name_prefix='trajectory-judge')
+
+    def close(self):
+        self._judge_pool.shutdown(wait=True, cancel_futures=True)
 
     def identity(self):
         return {'generator': self.generator, 'generation': self.settings,
                 'judge': self.judge_model, 'judge_settings': self.judge_settings,
                 'judge_prompt': sha256_text(self.judge_prompt),
                 'reflection_prompt': sha256_text(self.reflection_prompt),
+                'assistant_behavior_instruction': sha256_text(ASSISTANT_BEHAVIOR_INSTRUCTION),
                 'doctor': self.policy.doctor.protocol}
 
     def reflect(self, case, trajectory, seed):
@@ -70,6 +76,7 @@ class ChecklistBackend:
         attempts, format_retries, leakage_retries = [], 0, 0
         generated_count = removed_count = 0
         system = prompt if self.cfg.get('method') == 'rar' else prompt + '\n\n' + LEAKAGE_INSTRUCTION
+        system += '\n\n' + ASSISTANT_BEHAVIOR_INSTRUCTION
         while True:
             effective = dict(request)
             if attempts:
@@ -149,5 +156,6 @@ class ChecklistBackend:
                      'backend': self.identity()}
             with usage.case(case['case_id']):
                 return cache.call('trajectory_score', ident, lambda: self.score(case, trajectory, rubrics))
-        with ThreadPoolExecutor(self.cfg['execution']['judge_workers']) as pool:
-            return list(pool.map(one, trajectories))
+        # Share workers across concurrent candidate/case evaluations rather than
+        # creating a judge pool for each case. API rate slots remain run-wide.
+        return list(self._judge_pool.map(one, trajectories))

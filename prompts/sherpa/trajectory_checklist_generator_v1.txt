@@ -3,6 +3,13 @@ the sampled full conversations, their success/failure outcomes and the Doctor's
 private first-person reflections. The checklist will score entire conversations.
 Outcomes provide evidence about useful collaboration, not a target answer to copy.
 
+Each rubric must evaluate the assistant's behavior. The partner's state may
+appear only as the condition (e.g., 'when the physician is uncertain between
+two options, the assistant compares the evidence for those options'). The
+behavior must be observable in the assistant's own contributions. Do not score
+the physician's confidence, decision, agreement, or change of mind as the
+behavior, and do not require a particular partner response for success.
+
 Each rubric has exactly three fields:
 - name: a short behavior-oriented name;
 - situation: the conversational situation in which the behavior is needed;
