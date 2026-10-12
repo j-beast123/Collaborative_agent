@@ -72,6 +72,8 @@ def test_four_groups_one_update_and_resume(tmp_path, monkeypatch):
     monkeypatch.setattr(training, 'load_checkpoint', load)
     first = training.train(cfg, policy, None, cases, tmp_path, max_steps=2)
     assert first['completed_steps'] == 2 and len(updates) == 2 and len(calls) == 8
+    # Evaluation scope can change without replaying committed training steps.
+    cfg['evaluation'] = {'test_cases': 622, 'checkpoint_steps': [30, 60, 90]}
     resumed = training.train(cfg, policy, None, cases, tmp_path, max_steps=1)
     assert resumed['completed_steps'] == 3 and len(updates) == 3 and len(calls) == 12
     assert synced == ['0','1','2']

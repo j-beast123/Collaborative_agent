@@ -1,4 +1,4 @@
-"""Fixed 600-case final/base evaluation and fixed 200-case learning curves."""
+"""Full-source base and iteration-end checkpoint evaluation."""
 from __future__ import annotations
 
 import json
@@ -21,14 +21,18 @@ def evaluation_cases(cfg, root):
     spec = cfg['evaluation']
     cases = load_cases(Path(root) / spec['file'])
     manifest = read_json(Path(root) / spec['split_manifest'])
-    if file_sha256(Path(root) / spec['file']) != manifest['source_sha256']:
+    source_sha256 = file_sha256(Path(root) / spec['file'])
+    if (source_sha256 != manifest['source_sha256']
+            or source_sha256 != spec['source_sha256']):
         raise RuntimeError('Evaluation source file differs from the fixed split manifest')
     by_id = {case['case_id']: case for case in cases}
-    test_ids, curve_ids = manifest['test_case_ids'], manifest['curve_case_ids']
-    if (len(test_ids) != 600 or len(set(test_ids)) != 600 or len(curve_ids) != 200
-            or len(set(curve_ids)) != 200 or not set(curve_ids) <= set(test_ids)):
-        raise ValueError('Evaluation needs fixed 600-case test and nested 200-case curve splits')
-    return [by_id[key] for key in test_ids], [by_id[key] for key in curve_ids], manifest
+    test_ids = manifest['test_case_ids']
+    if (len(by_id) != len(cases) or len(test_ids) != len(cases)
+            or len(test_ids) != spec['test_cases'] or set(test_ids) != set(by_id)):
+        raise ValueError('Evaluation test split must contain every source case exactly once')
+    if spec['checkpoint_steps'] != [30, 60, 90]:
+        raise ValueError('Evaluation checkpoints must be the iteration ends: steps 30, 60 and 90')
+    return [by_id[key] for key in test_ids], manifest
 
 
 def solo(policy, case, seed):
@@ -84,7 +88,7 @@ def evaluate_job(cfg, policy, cases, folder, identity):
 
 def evaluate(cfg, policy, root, *, base_only=False):
     home = Path(root) / cfg['output_dir']
-    test, curve, manifest = evaluation_cases(cfg, root)
+    test, manifest = evaluation_cases(cfg, root)
     common = {'doctor_protocol': policy.doctor.protocol, 'rollout': cfg['rollout'],
               'evaluation_seed': cfg['evaluation']['seed'], 'split': sha256_json(manifest),
               'model': cfg['policy']['base_model']}
@@ -94,24 +98,24 @@ def evaluate(cfg, policy, root, *, base_only=False):
     if base_only:
         return {'base': base}
     state = read_json(home / 'run_state.json')
-    curves = []
-    for step in range(10, min(state['completed_steps'], 90) + 1, 10):
-        checkpoint = home / 'checkpoints' / f'checkpoint_{step:06d}'
-        receipt = read_json(checkpoint / 'COMPLETE.json')
-        with evaluation_adapter(policy, checkpoint):
-            result = evaluate_job(cfg, policy, curve, home / 'evaluation' / f'curve_{step:06d}',
-                                  {**common, 'step': step, 'policy': receipt['policy_sha256'],
-                                   'method': cfg['method'], 'case_ids': [case['case_id'] for case in curve]})
-        curves.append(result)
+    iterations = []
     final = None
-    if state.get('complete') and state['completed_steps'] == 90:
-        checkpoint = Path(state['final_checkpoint'])
+    for step in cfg['evaluation']['checkpoint_steps']:
+        if step > state['completed_steps'] or (step == 90 and not state.get('complete')):
+            continue
+        checkpoint = home / 'checkpoints' / f'checkpoint_{step:06d}'
+        if step == 90:
+            checkpoint = Path(state['final_checkpoint'])
         receipt = read_json(checkpoint / 'COMPLETE.json')
         with evaluation_adapter(policy, checkpoint):
-            final = evaluate_job(cfg, policy, test, home / 'evaluation' / 'final',
-                                 {**common, 'step': 90, 'policy': receipt['policy_sha256'],
-                                  'method': cfg['method'], 'case_ids': [case['case_id'] for case in test]})
-    results = {'base': base, 'learning_curve': curves, 'main_result': final,
+            folder = home / 'evaluation' / ('final' if step == 90 else f'iteration_{step // 30}')
+            result = evaluate_job(cfg, policy, test, folder,
+                                  {**common, 'step': step, 'policy': receipt['policy_sha256'],
+                                   'method': cfg['method'], 'case_ids': [case['case_id'] for case in test]})
+        iterations.append({'iteration': step // 30, 'step': step, **result})
+        if step == 90:
+            final = result
+    results = {'base': base, 'iteration_results': iterations, 'main_result': final,
                'main_checkpoint_selection': 'last_step_90', 'test_selects_checkpoint': False}
     atomic_write_json(home / 'evaluation' / 'summary.json', results)
     return results

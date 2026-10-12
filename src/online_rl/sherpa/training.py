@@ -22,6 +22,22 @@ from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.five_gpu import load_checkpoint, save_checkpoint
 
 
+def resume_fingerprint(identity, state, manifest_path):
+    """Keep cached training steps when only the evaluation configuration changes."""
+    fingerprint = sha256_json(identity)
+    if state['fingerprint'] == fingerprint:
+        return fingerprint
+    previous = read_json(manifest_path)
+    def without_evaluation(value):
+        return {**value, 'config': {key: setting for key, setting in value['config'].items()
+                                  if key != 'evaluation'}}
+    if (sha256_json(previous) != state['fingerprint']
+            or without_evaluation(previous) != without_evaluation(identity)):
+        raise RuntimeError('Training protocol/config changed; start a fresh run')
+    # Existing receipts and cached case records retain this authenticated identity.
+    return state['fingerprint']
+
+
 def train(cfg, policy, backend, cases, root, *, max_steps=None):
     home = Path(root) / cfg['output_dir']
     home.mkdir(parents=True, exist_ok=True)
@@ -39,8 +55,7 @@ def train(cfg, policy, backend, cases, root, *, max_steps=None):
     updater = make_updater(policy, cfg)
     if state_path.exists():
         state = read_json(state_path)
-        if state['fingerprint'] != fingerprint:
-            raise RuntimeError('Training protocol/config changed; start a fresh run')
+        fingerprint = resume_fingerprint(identity, state, home / 'run_manifest.json')
         load_checkpoint(updater, state['recovery_checkpoint'])
         if adapter_sha256(policy.model) != state['policy_sha256']:
             raise RuntimeError('Recovery adapter identity differs')

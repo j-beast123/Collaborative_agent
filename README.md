@@ -186,6 +186,19 @@ bash run_ours.sh --launch                 # resume/run to step 90
 bash monitor.sh --config configs/ours.json --mode training
 ```
 
+Evaluation uses all 622 English CasiMedicos cases for the original base model
+and each iteration-end checkpoint (steps 30, 60 and 90). There is no 200-case
+subset evaluation. Step 90 remains the main result. Run the evaluation phase
+with GPUs free; it evaluates available completed iteration checkpoints and
+resumes saved evaluation calls on subsequent launches:
+
+```bash
+.venv/bin/python scripts/online_rl/run_sherpa.py --config configs/ours.json --phase evaluate --launch
+```
+
+Evaluation runs separately from training. Changing only the `evaluation`
+configuration preserves the existing training recovery identity and cached steps.
+
 Launch requires the completed optimization artifact
 `outputs/sherpa_prompt_auc_qwen3_doctor_256_compact_luna_v4/final_prompt.json`; it never falls back
 to an initial/intermediate prompt. Its hash and generator/judge/Doctor identity

@@ -177,10 +177,10 @@
   "evaluation": {
     "file": "data/interim/casimedicos/all_en_622.jsonl",
     "source_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
-    "split_manifest": "data/splits/casimedicos_arg600_curve200_v1.json",
+    "split_manifest": "data/splits/casimedicos_arg622_v1.json",
     "seed": 0,
-    "test_cases": 600,
-    "curve_cases": 200,
+    "test_cases": 622,
+    "checkpoint_steps": [30, 60, 90],
     "main_checkpoint": "last_step_90"
   },
   "doctor_execution": {
