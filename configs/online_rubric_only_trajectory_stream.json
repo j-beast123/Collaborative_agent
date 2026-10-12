@@ -1,0 +1,26 @@
+{
+  "extends": "configs/online_rubric_only_openai20.json",
+  "rubric": {
+    "cumulative_bank": {
+      "trajectory_streaming": true
+    }
+  },
+  "experiment": {
+    "output_root": "outputs/train120_online_rubric_only_trajectory_stream_reference13",
+    "run_label": "doctor_v2_rubric_stream8"
+  },
+  "five_gpu": {
+    "doctor_urls": [
+      "http://127.0.0.1:11975",
+      "http://127.0.0.1:11977"
+    ],
+    "doctor_replica_urls": [
+      [
+        "http://127.0.0.1:11976"
+      ],
+      [
+        "http://127.0.0.1:11978"
+      ]
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+ "version": "prompt_opt_rubric_validator_v1",
+ "note": "Frozen Jev gate questions for a generated candidate rubric. The judge sees the visible question, choices, pre-action dialogue and the candidate rubric; never the gold answer, an Agent reply, later turns or the outcome.",
+ "questions": {
+  "observable": {"type": "choice",
+   "instructions": "Judge only the candidate rubric. Can each of its three score levels (0, 1, 2) be decided from the text of a single Agent reply together with the visible question, choices and dialogue, without knowing the correct answer, later turns or the final outcome? Choose N if any level depends on hidden information, on correctness, on future events, on the Agent's private beliefs, or is too vague to apply consistently.",
+   "criteria": {"Y": "Every score level is observable in a single reply plus the visible dialogue.", "N": "At least one level is unobservable, correctness-dependent, future-dependent or too vague to apply."}},
+  "answer_presupposition": {"type": "choice",
+   "instructions": "Judge only the candidate rubric. Does it reveal, favor, presuppose or steer toward a particular answer option, option letter, option text, diagnosis or decisive fact as correct or incorrect (for example requiring the Agent to endorse, reject, rule in or rule out a specific option, or treating one option's premise as established), or reward agreeing or disagreeing with the physician as such? Choose Y if it does; choose N if a good reply could satisfy every level whichever option is correct.",
+   "criteria": {"Y": "The rubric presupposes or steers toward a specific answer, option or decisive fact, or rewards agreement/disagreement as such.", "N": "The rubric is answer-neutral and could be satisfied whichever option is correct."}}
+ }
+}

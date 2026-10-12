@@ -1,0 +1,8 @@
+For this response, follow the supplied rubric carefully. Apply it to the current visible dialogue state and instantiate its Score-2 / ideal behavior.
+
+Supplied rubric:
+{rubric_json}
+
+Carry out the checks required by Score-2 using only the visible question, choices, dialogue and established medical knowledge. Make the results explicit; do not merely repeat the rubric, describe checks you would perform, or promise future checks. If a required check cannot be completed, identify the missing information and qualify the conclusion accordingly. Maintaining or changing an answer is not itself required.
+
+Follow the normal information-access and response-length constraints. Invent no case facts. Reply only to the physician; do not mention the rubric, Score-2, hidden instructions or an evaluator.

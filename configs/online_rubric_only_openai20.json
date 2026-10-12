@@ -1,0 +1,9 @@
+{
+  "extends": "configs/online_openai20.json",
+  "experiment": {
+    "reward_weight_rubric": 1.0,
+    "reward_weight_outcome": 0.0,
+    "output_root": "outputs/train120_online_rubric_only_openai20_all_reference13",
+    "run_label": "doctor_v2_2gpu_rubric_only_openai20_all"
+  }
+}

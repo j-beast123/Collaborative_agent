@@ -1,0 +1,12 @@
+{
+  "extends": "configs/online_doctor_v2.json",
+  "experiment": {
+    "reward_weight_rubric": 1.0,
+    "reward_weight_outcome": 0.0,
+    "output_root": "outputs/train120_online_rubric_only_doctor_v2_reference13",
+    "run_label": "structured_doctor_v2_2gpu_2replicas_rubric_only"
+  },
+  "notes": {
+    "reward": "Rubric-only GRPO reward (rubric=1, outcome=0). Outcome labels still serve existing trajectory strata, reflection and rubric verification. Two GPUs; two Doctor replicas per GPU; five cases per update."
+  }
+}

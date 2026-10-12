@@ -1,0 +1,27 @@
+{
+  "extends": "configs/online_parallel_chunks.json",
+  "rubric": {
+    "cumulative_bank": {
+      "stream_early_scoring": true,
+      "stream_score_workers": 4
+    }
+  },
+  "experiment": {
+    "output_root": "outputs/train120_online_parallel_stream_score_reference13",
+    "run_label": "doctor_v2_parallel_chunks_early_score"
+  },
+  "five_gpu": {
+    "doctor_urls": [
+      "http://127.0.0.1:12015",
+      "http://127.0.0.1:12017"
+    ],
+    "doctor_replica_urls": [
+      [
+        "http://127.0.0.1:12016"
+      ],
+      [
+        "http://127.0.0.1:12018"
+      ]
+    ]
+  }
+}

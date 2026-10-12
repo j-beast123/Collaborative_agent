@@ -1,0 +1,44 @@
+{
+  "extends": "configs/online_doctor_v2.json",
+  "judges": {
+    "api_provider": "openai_direct",
+    "gate_model": "gpt-6-luna",
+    "scorer_model": "gpt-6-luna",
+    "intervention_audit_model": "gpt-6-luna"
+  },
+  "five_gpu": {
+    "api_workers": 20,
+    "doctor_urls": [
+      "http://127.0.0.1:11965",
+      "http://127.0.0.1:11967"
+    ],
+    "doctor_replica_urls": [
+      [
+        "http://127.0.0.1:11966"
+      ],
+      [
+        "http://127.0.0.1:11968"
+      ]
+    ]
+  },
+  "execution": {
+    "api_limits": {
+      "gemini": 10,
+      "luna": 20
+    },
+    "chunk_workers": 8
+  },
+  "experiment": {
+    "output_root": "outputs/train120_online_openai20_all_reference13",
+    "run_label": "doctor_v2_2gpu_2replicas_openai20_all"
+  },
+  "notes": {
+    "api_concurrency": "Gemini remains on OpenRouter, Luna judges use OpenAI directly. Run-global shared limits Gemini10/Luna20; api_workers20/chunk_workers8. Bank order and chunk generation remain sequential; independent candidate verification runs concurrently. No inference launched.",
+    "discovery": "All eligible trajectories; no random-48 selection. Complete-case chunk8 pipeline remains; terminal streaming is not yet implemented."
+  },
+  "rubric": {
+    "cumulative_bank": {
+      "discovery_trajectory_cap": null
+    }
+  }
+}

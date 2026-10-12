@@ -1,0 +1,25 @@
+{
+  "extends": "configs/online_rubric_only_trajectory_stream.json",
+  "five_gpu": {
+    "overlap_rollout_with_bank": true,
+    "doctor_urls": [
+      "http://127.0.0.1:11985",
+      "http://127.0.0.1:11987"
+    ],
+    "doctor_replica_urls": [
+      [
+        "http://127.0.0.1:11986"
+      ],
+      [
+        "http://127.0.0.1:11988"
+      ]
+    ]
+  },
+  "judges": {
+    "execution_contract_repair": false
+  },
+  "experiment": {
+    "output_root": "outputs/train120_online_rubric_only_stream_overlap_reference13",
+    "run_label": "doctor_v2_rubric_overlap"
+  }
+}

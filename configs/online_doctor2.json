@@ -1,0 +1,13 @@
+{
+  "extends": "configs/online.json",
+  "five_gpu": {
+    "doctor_concurrency": 2
+  },
+  "experiment": {
+    "output_root": "outputs/train120_online_doctor2_reference13",
+    "run_label": "structured_doctor_2gpu_doctor2"
+  },
+  "notes": {
+    "throughput": "Optional fresh comparison: two concurrent Doctor requests per GPU, Agent batch stays four. Five cases per update and learning settings unchanged. Not launched."
+  }
+}

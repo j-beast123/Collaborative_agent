@@ -1,0 +1,26 @@
+{
+  "extends": "configs/online_parallel_bank.json",
+  "rubric": {
+    "cumulative_bank": {
+      "stream_chunk_workers": 8
+    }
+  },
+  "experiment": {
+    "output_root": "outputs/train120_online_parallel_chunks_reference13",
+    "run_label": "doctor_v2_online_parallel_chunks"
+  },
+  "five_gpu": {
+    "doctor_urls": [
+      "http://127.0.0.1:12005",
+      "http://127.0.0.1:12007"
+    ],
+    "doctor_replica_urls": [
+      [
+        "http://127.0.0.1:12006"
+      ],
+      [
+        "http://127.0.0.1:12008"
+      ]
+    ]
+  }
+}

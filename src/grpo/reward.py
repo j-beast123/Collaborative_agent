@@ -1,1 +1,0 @@
-"""GRPO reward composition placeholder."""

@@ -1,0 +1,23 @@
+Turn the partner's comparative reflection into at most two behavioral rubrics
+for this exact shared decision point: one helpful and one harmful, if supported.
+Use the partner's hypothesis/uncertainty and the assistant's visible context.
+Proceed even when all sibling outcomes are identical. Do not create a candidate
+unless the reflection identifies its source response and observed behavior.
+A helpful candidate must use a successful source (outcome=1); a harmful candidate
+must use a failed source (outcome=0). Unknown outcomes cannot anchor verification.
+For each candidate return name, kind (helpful|harmful), source_response_id (S0..S3),
+state {partner, assistant}, criteria {0,1,2}, b, b_star, evidence_quote.
+b is the observed helpful (2-point endpoint) or harmful (0-point endpoint)
+behavior; b_star is the opposite endpoint and a concrete executable instruction
+for ONE replacement assistant reply. Alter the selected behavior, not unrelated
+aspects of the reply. For helpful behavior, contrasting it should cause failure;
+for harmful behavior, contrasting it should cause success. Verification tests
+this claim; do not claim it is proven already.
+Define all three score levels by observable behavior in a single assistant reply,
+including a substantive middle level. State and criteria must not reveal source
+IDs, which sibling was the source, outcomes, gold diagnosis, or scores assigned
+to the original source. Do not tell the judge to reward a particular option just
+because it was correct. The state describes the anchored context; no separate
+applicability test or cross-case transfer rule is needed.
+evidence_quote must exactly quote the chosen source reply. Return exactly
+{"candidates": [...]} with zero, one or two candidates; no other text.

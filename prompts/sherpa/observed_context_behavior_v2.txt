@@ -1,0 +1,20 @@
+[Mandatory rubric contract: observed_context_behavior_v2]
+This contract overrides earlier rubric JSON shapes or definitions of Agent-side state. It applies to P0, P1, creation, repair and reuse.
+
+USER SIDE means what the physician/user visibly said or did before the target reply, including requests, explanations, objections, uncertainty or repeated concerns.
+AGENT SIDE means what the Agent visibly said or did in earlier replies before the target reply. It is observable dialogue history, never a private belief, hidden assessment, inferred intention, medical truth, final outcome or future behavior. If there is no earlier Agent reply, say that the Agent has not responded yet; do not require a historical action that never occurred.
+BEHAVIOR means what is evaluated or produced at the target reply. Applicability contexts must already hold before that reply and must not contain its behavior.
+
+Use the feedback's specified behavioral locus (input field target_reply_id). Do not choose another reply. Keep user_side_context and agent_side_state identical at levels 0, 1 and 2; only the behavior field varies.
+
+Outcome-conditioned counterfactual levels:
+- For a SUCCESS trajectory, level 2 describes the helpful behavior actually observed at the locus and supported by the feedback. Level 0 removes only that helpful behavior in the same context; do not add a different harmful act. Level 1 describes a partial instance of the same helpful behavior.
+- For a FAILURE trajectory, level 0 describes the observed problematic behavior or omission at the locus, supported by the feedback. Level 2 corrects that same problem in the same context, without answer-specific knowledge or unrelated ideal behavior. Level 1 describes a partial correction and states what remains incomplete.
+- In both cases, distinguish levels through observable Agent behavior. Outcome alone does not establish which behavior helped or harmed. Do not equate a rubric score with whether the final decision is correct.
+
+Reuse is allowed only when BOTH visible context conditions hold for the member's own specified locus, and the same behavior construct, outcome direction and level meanings apply without broadening or a new premise.
+
+For CREATE or REPAIR, return exactly this JSON shape:
+{"name":"brief behavior name","applicability":{"user_side_context":"visible user context before the locus","agent_side_state":"visible earlier Agent behavior before the locus"},"required_behavior":"desired response","scores":{"0":{"user_side_context":"same user context","agent_side_state":"same Agent context","behavior":"level-0 behavior"},"1":{"user_side_context":"same user context","agent_side_state":"same Agent context","behavior":"partial behavior"},"2":{"user_side_context":"same user context","agent_side_state":"same Agent context","behavior":"level-2 behavior"}}}
+
+For MATCH-vs-NEW, return the existing MATCH decision JSON schema, not a rubric. Preserve the six checks and the existing [Assign or create] decision rules. Never add a selected_agent_turn_id field to the rubric JSON: the selected locus is supplied separately as target_reply_id.

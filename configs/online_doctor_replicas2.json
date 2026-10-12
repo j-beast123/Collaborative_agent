@@ -1,0 +1,25 @@
+{
+  "extends": "configs/online.json",
+  "five_gpu": {
+    "doctor_urls": [
+      "http://127.0.0.1:11955",
+      "http://127.0.0.1:11957"
+    ],
+    "doctor_replica_urls": [
+      [
+        "http://127.0.0.1:11956"
+      ],
+      [
+        "http://127.0.0.1:11958"
+      ]
+    ],
+    "doctor_concurrency": 2
+  },
+  "experiment": {
+    "output_root": "outputs/train120_online_doctor_replicas2_reference13",
+    "run_label": "structured_doctor_2gpu_2replicas"
+  },
+  "notes": {
+    "throughput": "Two independent single-request Ollama Doctor replicas on each GPU (four total), Agent4 and five cases per update unchanged. Not launched."
+  }
+}
