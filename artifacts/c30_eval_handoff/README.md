@@ -12,6 +12,7 @@ This bundle contains the artifacts needed to reproduce the saved C30 evaluation 
 - Evaluation set: CasiMedicos `all_en_622`, SHA-256 `e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56`
 - Protocol: maximum four Agent turns; early stopping only after at least two Agent turns
 - Saved result: 442/622 = 71.0609%
+- Per-case predictions and correctness: `saved_evaluation/case_results.jsonl` and `case_results.csv`
 
 The original run did not record a Git commit. `d7b9556` is the closest repository anchor on the active branch after this run and contains the matching portable five-GPU pipeline. Artifact and prompt hashes in `SHA256SUMS` are the authoritative identities.
 
