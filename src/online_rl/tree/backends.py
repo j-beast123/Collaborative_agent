@@ -458,8 +458,10 @@ def _openrouter_json(key: str, model: str, system: str, user: str, settings: dic
         return with_role(role, lambda: H.doctor_call(key, model, system, user, settings['max_tokens'], settings['temperature'])), meta
     raw = with_role(role, lambda: H.doctor_call(key, model, system, user, settings['max_tokens'], settings['temperature'], extra=extra, meta=meta))
     if meta.get('finish_reason') not in (None, 'stop'):
-        raise RubricOutputIncomplete(f"{model} stopped with finish_reason={meta.get('finish_reason')} "
-                                     f"(native {meta.get('native_finish_reason')}, usage {meta.get('usage')}) before a complete {name}")
+        error = RubricOutputIncomplete(f"{model} stopped with finish_reason={meta.get('finish_reason')} "
+                                      f"(native {meta.get('native_finish_reason')}, usage {meta.get('usage')}) before a complete {name}")
+        error.audit = {'api_provider': 'openrouter', **meta}
+        raise error
     return raw, meta
 
 

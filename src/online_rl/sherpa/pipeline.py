@@ -8,7 +8,7 @@ from src.common import usage
 from src.online_rl.integrated.continuation import derive_seed
 from src.online_rl.integrated.metrics import advantages
 from src.online_rl.integrated.records import sha256_json
-from src.online_rl.sherpa.rubrics import auc, select_reflections
+from src.online_rl.sherpa.rubrics import auc, select_reflections, parse_rubrics, filter_leakage
 
 
 def reflections(case, trajectories, backend, cache, seed):
@@ -32,6 +32,22 @@ def assess(case, trajectories, examples, prompt, backend, cache, identity):
     with usage.case(case['case_id']):
         generation = cache.call('rubric_set', generation_id,
                                 lambda: backend.generate(case, examples, prompt))
+    if not generation['valid']:
+        # Revalidate immutable raw evidence after a validator bug fix. Do not
+        # overwrite its cached audit or accept partially leaking checklists.
+        for attempt in reversed(generation.get('attempts', [])):
+            try:
+                parsed = parse_rubrics(attempt['raw'])
+                safe, removed = filter_leakage(case, parsed, method=backend.cfg.get('method', 'sherpa'))
+            except (ValueError, TypeError, KeyError):
+                continue
+            if not removed and len(safe) >= 5:
+                generation = {**generation, 'valid': True, 'rubrics': safe,
+                              'removed_count': 0, 'generated_count': len(parsed), 'removed_fraction': 0.0,
+                              'validation_recovery': {'source': 'stored_raw_generation',
+                                                      'previous_removed_count': generation.get('removed_count'),
+                                                      'previous_removed_fraction': generation.get('removed_fraction')}}
+                break
     if not generation['valid']:
         return {'valid': False, 'generation': generation, 'scores': [], 'auc': None}
     scores = backend.score_all(case, trajectories, generation['rubrics'], cache, identity)

@@ -21,7 +21,9 @@ def test_tied_auc(outcomes, rewards, expected):
 
 
 @pytest.mark.parametrize('duplicate', [False, True])
-def test_confirmation_uses_fresh_scope_and_does_not_reselect(tmp_path, monkeypatch, duplicate):
+@pytest.mark.parametrize('mixed_cases', [20, 24])
+@pytest.mark.parametrize('selection_repeats', [0, 2])
+def test_confirmation_uses_fresh_scope_and_does_not_reselect(tmp_path, monkeypatch, duplicate, mixed_cases, selection_repeats):
     home = tmp_path / 'search'
     home.mkdir()
     cases = [{'case_id': str(i)} for i in range(120)]
@@ -42,8 +44,10 @@ def test_confirmation_uses_fresh_scope_and_does_not_reselect(tmp_path, monkeypat
         calls.append((prompt, ident['scope'], case['case_id']))
         if prompt == 'initial' and ident['scope'] == 'offline_prompt':
             initial_cases.wait(timeout=5)  # One candidate must overlap four cases.
-        confirming = ident['scope'] != 'offline_prompt'
+        confirming = ident['scope'].startswith('offline_prompt_confirmation_')
         value = (0.9 if prompt == 'initial' else 0.1) if confirming else (0.5 if prompt == 'initial' else 0.8)
+        if selection_repeats and not duplicate and prompt == 'candidate-1-0' and not confirming:
+            value = 0.95 if ident['scope'] == 'offline_prompt' else 0.2
         return {'valid': True, 'auc': value, 'generation': {'rubrics': []}}
 
     monkeypatch.setattr(search, 'assess', assess)
@@ -52,18 +56,22 @@ def test_confirmation_uses_fresh_scope_and_does_not_reselect(tmp_path, monkeypat
                               {'text': 'candidate-1-0' if duplicate else f'candidate-{iteration}-{index}'})
     cfg = {'schedule': {'seed': 0}, 'prompt_optimization': {
         'output_dir': 'search', 'initial_prompt_file': 'initial.txt',
-        'iterations': 3, 'candidates_per_iteration': 4, 'confirmation_repeats': 1,
+        'iterations': 3, 'candidates_per_iteration': 4, 'confirmation_repeats': 1, 'mixed_cases': mixed_cases,
+        'selection_repeats': selection_repeats,
         'candidate_workers': 4, 'case_workers': 4,
         'final_artifact': 'search/final_prompt.json'}}
     final = search.optimize(cfg, None, backend, cases, tmp_path)
-    assert (home / 'final_prompt.txt').read_text() == 'candidate-1-0'
+    expected = 'candidate-1-1' if selection_repeats and not duplicate else 'candidate-1-0'
+    assert (home / 'final_prompt.txt').read_text() == expected
     assert final['mean_auc'] == pytest.approx(0.8)
     assert [row['case_id'] for row in final['case_scores']] == json.loads((home / 'optimization_split.json').read_text())['case_ids']
     report = json.loads((home / 'confirmation.json').read_text())
     assert report['used_for_selection'] is False
     assert report['held_out'] is False
     assert report['repeats'][0]['delta_mean_auc'] == pytest.approx(-0.8)
-    assert len(calls) == ((2 if duplicate else 13) + 2) * 24
+    extra = (2 if duplicate else 7) * selection_repeats
+    assert len(calls) == ((2 if duplicate else 13) + extra + 2) * mixed_cases
+    assert len(final['selection_mean_aucs']) == selection_repeats + 1
     calls.clear()
     search.optimize(cfg, None, backend, cases, tmp_path)
     assert calls == []  # Interrupted/repeated runs reuse the saved evidence.

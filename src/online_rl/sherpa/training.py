@@ -47,8 +47,20 @@ def train(cfg, policy, backend, cases, root, *, max_steps=None):
     else:
         state = {'fingerprint': fingerprint, 'completed_steps': 0, 'policy_sha256': adapter_sha256(policy.model)}
         atomic_write_json(home / 'run_manifest.json', identity)
+    if prompt_artifact:
+        # Only after resume identity validation; never replace another run's prompt.
+        (home / 'frozen_generator_prompt.txt').write_text(prompt)
+        atomic_write_json(home / 'frozen_generator_prompt.json', prompt_artifact)
     if len(batches) != 90:
         raise RuntimeError('Expected exactly 90 scheduled steps')
+    from src.common.checkpoint_hub import enqueue_safely
+    # Catch up an enqueue interrupted after a durable ten-step commit.
+    if cfg.get('checkpoint_upload', {}).get('enabled'):
+        for step in range(10, state['completed_steps'] + 1, 10):
+            checkpoint = home / 'checkpoints' / f'checkpoint_{step:06d}'
+            receipt = read_json(checkpoint / 'COMPLETE.json')
+            enqueue_safely(cfg, home, {**state, 'completed_steps': step,
+                           'policy_sha256': receipt['policy_sha256'], 'last_curve_checkpoint': str(checkpoint)})
 
     def commit(step, receipt, recovery):
         nonlocal state
@@ -64,6 +76,8 @@ def train(cfg, policy, backend, cases, root, *, max_steps=None):
             if step == 90:
                 state['final_checkpoint'] = checkpoint
         atomic_write_json(state_path, state)
+        if step % 10 == 0:
+            enqueue_safely(cfg, home, state)
         if old_recovery and old_recovery != recovery:
             old_path = Path(old_recovery)
             if old_path.parent.resolve() == (home / 'recovery').resolve():
@@ -94,8 +108,14 @@ def train(cfg, policy, backend, cases, root, *, max_steps=None):
                 break
             continue
         policy.model.eval()
+        # The batched sampler does not automatically synchronize replicas.
+        # Barrier before any case threads: every rollout uses this step's adapter.
+        sync = getattr(policy, 'sync_replicas', None)
+        replica_state = sync(expected_sha256=expected) if sync is not None else None
         step_dir = home / 'steps' / f'step_{step:06d}'
         step_dir.mkdir(parents=True, exist_ok=True)
+        if replica_state is not None:
+            atomic_write_json(step_dir / 'rollout_policy.json', replica_state)
         emit({'stage': 'rollout', 'batch': step, 'step': step, 'iteration': iteration, 'cases': 4, 'trajectories': 128})
 
         def one(case):
@@ -138,7 +158,8 @@ def train(cfg, policy, backend, cases, root, *, max_steps=None):
                 return record
 
         # Policy weights remain frozen until all 128 trajectories are completely scored.
-        with ThreadPoolExecutor(4, thread_name_prefix='training-case') as pool:
+        with ThreadPoolExecutor(cfg.get('training_execution', {}).get('case_workers', 4),
+                                thread_name_prefix='training-case') as pool:
             records = list(pool.map(one, batches[step - 1]))
         if adapter_sha256(policy.model) != expected:
             raise RuntimeError('Policy changed during the rollout/scoring barrier')

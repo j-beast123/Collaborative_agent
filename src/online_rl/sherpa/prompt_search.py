@@ -39,7 +39,7 @@ def collect_base(cfg, policy, cases, root, *, max_cases=None):
         folder = home / 'base_rollouts' / case['case_id']
         folder.mkdir(parents=True, exist_ok=True)
         saved = folder / 'rollouts.json'
-        if saved.exists():
+        if cfg['prompt_optimization'].get('cache_enabled', True) and saved.exists():
             row = read_json(saved)
             if row['identity'] != identity or row['case_id'] != case['case_id']:
                 raise RuntimeError('Base rollout identity mismatch')
@@ -82,10 +82,13 @@ def optimize(cfg, policy, backend, cases, root):
     observations = {key: read_json(home / 'base_rollouts' / key / 'rollouts.json') for key in train_ids}
     mixed = [key for key in train_ids if observations[key]['mixed']]
     mixed.sort(key=lambda key: derive_seed(cfg['schedule']['seed'], key, 'prompt_case_selection', 0))
-    if len(mixed) < 24:
-        atomic_write_json(home / 'optimization_split.json', {'mixed_cases': mixed, 'required': 24, 'complete': False})
-        raise RuntimeError(f'Need 24 mixed-outcome training cases; found {len(mixed)}')
-    selected = mixed[:24]
+    required = cfg['prompt_optimization'].get('mixed_cases', 24)
+    if type(required) is not int or not 1 <= required <= 120:
+        raise ValueError('mixed_cases must be an integer from 1 to 120')
+    if len(mixed) < required:
+        atomic_write_json(home / 'optimization_split.json', {'mixed_cases': mixed, 'required': required, 'complete': False})
+        raise RuntimeError(f'Need {required} mixed-outcome training cases; found {len(mixed)}')
+    selected = mixed[:required]
     split = {'case_ids': selected, 'all_mixed_case_ids': mixed, 'complete': True,
              'base_identity': manifest['identity'], 'test_used': False}
     split_path = home / 'optimization_split.json'
@@ -106,35 +109,38 @@ def optimize(cfg, policy, backend, cases, root):
     evaluation_locks = {}
     evaluation_guard = threading.Lock()
 
-    def evaluate(text, candidate_id, *, confirmation_repeat=None):
+    def evaluate(text, candidate_id, *, confirmation_repeat=None, selection_repeat=None):
         # Duplicate proposals share one immutable evidence directory. Serialize
         # only identical prompts; distinct candidates are evaluated concurrently.
-        key = (sha256_text(text), confirmation_repeat)
+        key = (sha256_text(text), confirmation_repeat, selection_repeat)
         with evaluation_guard:
             lock = evaluation_locks.setdefault(key, threading.Lock())
         with lock:
-            return evaluate_locked(text, candidate_id, confirmation_repeat=confirmation_repeat)
+            return evaluate_locked(text, candidate_id, confirmation_repeat=confirmation_repeat, selection_repeat=selection_repeat)
 
-    def evaluate_locked(text, candidate_id, *, confirmation_repeat=None):
+    def evaluate_locked(text, candidate_id, *, confirmation_repeat=None, selection_repeat=None):
         digest = sha256_text(text)
         scope = ('offline_prompt' if confirmation_repeat is None
                  else f'offline_prompt_confirmation_{confirmation_repeat}')
         folder = (home / 'candidates' / digest if confirmation_repeat is None else
                   home / 'confirmation' / f'repeat_{confirmation_repeat}' / digest)
+        if selection_repeat is not None:
+            scope = f'offline_prompt_selection_{selection_repeat}'
+            folder = home / 'selection' / f'repeat_{selection_repeat}' / digest
         folder.mkdir(parents=True, exist_ok=True)
         (folder / 'prompt.txt').write_text(text)
         identity = {'base': manifest['identity'], 'case_ids': selected, 'prompt': digest,
                     'backend': backend.identity(), 'scope': scope}
         def evaluate_case(key):
             path = folder / 'cases' / f'{key}.json'
-            if path.exists():
+            if cfg['prompt_optimization'].get('cache_enabled', True) and path.exists():
                 result = read_json(path)
                 if result['identity'] != identity:
                     raise RuntimeError('Prompt candidate evidence identity mismatch')
             else:
                 result = assess(by_id[key], observations[key]['trajectories'], examples[key], text,
                                 backend, cache, {'scope': scope, 'candidate': digest})
-                # Invalid sets earn zero fitness; the fixed 24-case denominator never shrinks.
+                # Invalid sets earn zero fitness; the fixed case denominator never shrinks.
                 result.update(case_id=key, identity=identity, fitness_auc=result['auc'] if result['valid'] else 0.0)
                 atomic_write_json(path, result)
             if result['fitness_auc'] is None:
@@ -152,15 +158,28 @@ def optimize(cfg, policy, backend, cases, root):
                     future.cancel()
                 raise
         evaluated = {'candidate_id': candidate_id, 'prompt_sha256': digest, 'text': text,
-                     'case_scores': scores, 'mean_auc': sum(row['fitness_auc'] for row in scores) / 24,
+                     'case_scores': scores, 'mean_auc': sum(row['fitness_auc'] for row in scores) / len(selected),
                      'identity': identity}
         atomic_write_json(folder / 'score.json', evaluated)
         print(f'Prompt {candidate_id}: mean AUC={evaluated["mean_auc"]:.4f} scope={scope}', flush=True)
         return evaluated
 
     spec = cfg['prompt_optimization']
+    selection_results = {}
+    def stabilize(candidate):
+        digest = candidate['prompt_sha256']
+        if digest not in selection_results:
+            runs = [candidate] + [evaluate(candidate['text'], candidate['candidate_id'], selection_repeat=repeat)
+                                  for repeat in range(1, spec.get('selection_repeats', 0) + 1)]
+            result = dict(candidate)
+            result['mean_auc'] = sum(run['mean_auc'] for run in runs) / len(runs)
+            result['selection_mean_aucs'] = [run['mean_auc'] for run in runs]
+            result['case_scores'] = [{**row, 'fitness_auc': sum(run['case_scores'][index]['fitness_auc'] for run in runs) / len(runs)}
+                                     for index, row in enumerate(candidate['case_scores'])]
+            selection_results[digest] = result
+        return selection_results[digest]
     initial = (Path(root) / spec['initial_prompt_file']).read_text()
-    winner = evaluate(initial, 'initial')
+    winner = stabilize(evaluate(initial, 'initial'))
     initial_result = winner
     history = [winner]
     started = time.perf_counter()
@@ -169,9 +188,14 @@ def optimize(cfg, policy, backend, cases, root):
         raise ValueError('Prompt search requires two or three iterations, four candidates each')
     for iteration in range(1, iterations + 1):
         low = sorted(winner['case_scores'], key=lambda row: (row['fitness_auc'], row['case_id']))[:2]
-        evidence = [{'case': {key: by_id[row['case_id']].get(key) for key in ('question', 'scenario', 'options')},
-                     'auc': row['fitness_auc'], 'rubrics': row['rubrics'],
-                     'examples': examples[row['case_id']]} for row in low]
+        from src.online_rl.sherpa.prompt_feedback import discrimination_feedback
+        evidence = []
+        for row in low:
+            key = row['case_id']
+            assessment = read_json(home / 'candidates' / winner['prompt_sha256'] / 'cases' / f'{key}.json')
+            evidence.append({'case': {field: by_id[key].get(field) for field in ('question', 'scenario', 'options')},
+                             'auc': row['fitness_auc'], 'rubrics': row['rubrics'], 'examples': examples[key],
+                             'scoring_feedback': discrimination_feedback(observations[key]['trajectories'], assessment)})
         def propose_and_evaluate(index):
             proposal = cache.call('prompt_proposal', {'parent': winner['prompt_sha256'], 'iteration': iteration,
                                  'index': index, 'evidence': sha256_json(evidence), 'backend': backend.identity()},
@@ -181,9 +205,12 @@ def optimize(cfg, policy, backend, cases, root):
         with ThreadPoolExecutor(spec.get('candidate_workers', 1)) as pool:
             candidates = list(pool.map(propose_and_evaluate, range(4)))
         # Deterministic ties keep the parent; no test or checkpoint selection enters fitness.
-        winner = max([winner, *candidates], key=lambda candidate: candidate['mean_auc'])
+        finalists = sorted(candidates, key=lambda candidate: candidate['mean_auc'], reverse=True)[:2]
+        contenders = [winner, *[stabilize(candidate) for candidate in finalists]] if spec.get('selection_repeats', 0) else [winner, *candidates]
+        winner = max(contenders, key=lambda candidate: candidate['mean_auc'])
         history.extend(candidates)
         atomic_write_json(home / 'history.json', {'candidates': history, 'winner': winner['prompt_sha256'],
+                                                 'selection': list(selection_results.values()),
                                                  'completed_iterations': iteration})
         print(f'Prompt search iteration {iteration}: mean AUC={winner["mean_auc"]:.4f}', flush=True)
         if iteration >= 2 and spec.get('max_seconds') is not None and time.perf_counter() - started >= spec['max_seconds']:
@@ -216,6 +243,7 @@ def optimize(cfg, policy, backend, cases, root):
     final = {'schema': 'sherpa_auc_prompt_v1', 'prompt_file': str(prompt_path.resolve()),
              'prompt_sha256': winner['prompt_sha256'], 'mean_auc': winner['mean_auc'],
              'case_scores': winner['case_scores'], 'optimization_case_ids': selected,
+             'selection_mean_aucs': winner.get('selection_mean_aucs', [winner['mean_auc']]),
              'base_identity': manifest['identity'], 'backend': backend.identity(), 'test_used': False,
              'history_file': str((home / 'history.json').resolve())}
     atomic_write_json(Path(root) / spec['final_artifact'], final)

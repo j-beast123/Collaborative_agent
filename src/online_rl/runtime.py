@@ -248,7 +248,7 @@ class SharedPolicy:
                 with self.gen_lock:
                     if not hasattr(self,'_batcher'):
                         capacity=int(os.environ.get('SHERPA_AGENT_BATCH_SIZE',self.cfg.get('five_gpu',{}).get('agent_batch_size',1)))
-                        if capacity not in (1,2,4,8):raise ValueError('Agent batch size must be 1, 2, 4 or 8')
+                        if capacity not in (1,2,4,8,16,32,64):raise ValueError('Agent batch size must be a power of two from 1 to 64')
                         limit=os.environ.get('SHERPA_AGENT_MAX_INFLIGHT')
                         self._batcher=Batcher(self,capacity,max_inflight=int(limit) if limit is not None else None)
             return self._batcher.submit(prompt,max_new_tokens,seed)

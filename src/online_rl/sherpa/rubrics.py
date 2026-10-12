@@ -89,7 +89,16 @@ def leakage_matches(case, rubric):
         if not isinstance(phrase, str):
             continue
         needle = ' '.join(re.findall(r'\w+', normalize(phrase)))
-        if needle and re.search(r'(?<!\w)' + re.escape(needle) + r'(?!\w)', canonical):
+        if len(needle) == 1 and needle.isalpha():
+            # Image-label choices such as "A" are not the English article "a".
+            # Retain exact standalone labels and explicit case-insensitive
+            # option references; do not normalize a single letter into prose.
+            matched = (re.search(r'(?<!\w)' + re.escape(phrase.strip()) + r'(?!\w)', text)
+                       or re.search(r'\b(?:option|choice|answer|label)\s*[:(\-]?\s*'
+                                    + re.escape(phrase.strip()) + r'(?!\w)', text, re.I))
+        else:
+            matched = needle and re.search(r'(?<!\w)' + re.escape(needle) + r'(?!\w)', canonical)
+        if matched:
             matches.append({'kind': 'option_or_diagnosis_text', 'value': phrase})
     return matches
 

@@ -22,6 +22,7 @@ def main(argv=None):
     from src.online_rl.tree.experiment import load_config
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='configs/sherpa.json')
+    parser.add_argument('--no-cache', action='store_true', help='Isolated uncached base rollout / prompt optimization run')
     parser.add_argument('--launch', action='store_true')
     parser.add_argument('--phase', choices=('base-rollouts', 'optimize-prompt', 'train', 'evaluate', 'evaluate-base'), default='train')
     parser.add_argument('--method', choices=('sherpa', 'outcome'))
@@ -35,6 +36,8 @@ def main(argv=None):
         cfg['output_dir'] = 'outputs/sherpa_trajectory_v1/' + args.method
     if args.eval_only:
         args.phase = 'evaluate'
+    if args.no_cache and args.phase not in ('base-rollouts', 'optimize-prompt'):
+        parser.error('--no-cache is supported for base-rollouts and optimize-prompt')
     if args.max_steps is not None and args.max_steps < 1:
         parser.error('--max-steps must be positive')
     if args.max_cases is not None and args.max_cases < 1:
@@ -44,20 +47,34 @@ def main(argv=None):
         print(json.dumps({'config': args.config, 'phase': args.phase, 'method': cfg['method'],
                           'doctor': cfg['rollout']['doctor_model'], 'assistant': cfg['policy']['base_model'],
                           'schedule': cfg['schedule'], 'rollouts_per_case': 32,
+                          'cache_enabled': not args.no_cache and cfg['prompt_optimization'].get('cache_enabled', True),
                           'checkpoint_every_steps': 10, 'launch': False}, ensure_ascii=False, indent=2))
         return
     os.chdir(ROOT)
+    if args.no_cache:
+        from src.online_rl.sherpa.cache_options import fresh_prompt_run
+        cfg, config_path = fresh_prompt_run(cfg, ROOT, args.phase)
+        print(f'Cache disabled; isolated run config: {config_path}', flush=True)
+    os.environ['SHERPA_CALL_CACHE'] = '0' if cfg['prompt_optimization'].get('cache_enabled') is False else '1'
     from src.online_rl.sherpa.config import config_problems
     problems = config_problems(cfg, ROOT)
     if problems:
         parser.error('; '.join(problems))
     search = cfg['prompt_optimization']
+    training = cfg.get('training_execution', {}) if args.phase == 'train' else {}
+    if training:
+        os.environ['SHERPA_RATE_LIMIT_RETRIES'] = str(training.get('rate_limit_retries', 0))
     if args.phase in ('base-rollouts', 'optimize-prompt'):
         os.environ['SHERPA_RATE_LIMIT_RETRIES'] = str(search.get('rate_limit_retries', 0))
-    replicas = search.get('rollout_replicas', 1) if args.phase == 'base-rollouts' else 1
+    replicas = (search.get('rollout_replicas', 1) if args.phase == 'base-rollouts'
+                else training.get('rollout_replicas', 1))
     os.environ['SHERPA_AGENT_REPLICAS'] = str(replicas)
     os.environ['SHERPA_AGENT_BATCH_SIZE'] = str(
-        search.get('rollout_batch_size', 4) if args.phase == 'base-rollouts' else cfg['five_gpu']['agent_batch_size'])
+        search.get('rollout_batch_size', 4) if args.phase == 'base-rollouts'
+        else training.get('rollout_batch_size', cfg['five_gpu']['agent_batch_size']))
+    if training:
+        os.environ['SHERPA_AGENT_MAX_INFLIGHT'] = str(training['assistant_max_inflight'])
+        cfg['execution']['agent_workers'] = training['assistant_max_inflight']
     if args.phase == 'base-rollouts':
         os.environ['SHERPA_AGENT_MAX_INFLIGHT'] = str(search.get('assistant_max_inflight', 4))
         cfg['execution']['agent_workers'] = max(cfg['execution']['agent_workers'],
@@ -81,9 +98,19 @@ def main(argv=None):
         with ExitStack() as resources:
             from scripts.online_rl.run_tree import load_key
             from src.online_rl.cases import load_cases
+            local_doctor = cfg['rollout']['doctor_backend']['engine'] == 'vllm'
+            if local_doctor:
+                import torch
+                devices = os.environ.get('CUDA_VISIBLE_DEVICES', ','.join(map(str, range(torch.cuda.device_count())))).split(',')
+                doctor_index = cfg['doctor_execution']['visible_gpu_index']
+                if torch.cuda.device_count() <= doctor_index:
+                    raise RuntimeError('Local Doctor requires two visible GPUs')
+                doctor_device = devices[doctor_index]
+                doctor_lock = resources.enter_context(Path(f'/tmp/sherpa_tree_physical_gpu{doctor_device}.lock').open('a'))
+                fcntl.flock(doctor_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             if args.phase == 'optimize-prompt':
-                # Scoring cached dialogues needs only the remote Doctor and
-                # generator/judge clients; no local model or GPU reservation.
+                # Scoring cached dialogues needs no assistant model. A local
+                # Doctor still owns its reserved GPU for reflection generation.
                 from src.online_rl.doctor import make_doctor
                 system = (ROOT / cfg['rollout']['doctor_system_prompt_file']).read_text()
                 policy = SimpleNamespace(doctor=make_doctor(cfg['rollout'], system))
@@ -107,6 +134,10 @@ def main(argv=None):
                     if hasattr(policy, '_batcher'):
                         policy._batcher.close()
                 resources.callback(close_batcher)
+            if local_doctor:
+                from src.online_rl.local_doctor import start_server
+                server = start_server(cfg, ROOT, home, policy.doctor, doctor_device)
+                resources.callback(server.close)
             if args.phase in ('evaluate', 'evaluate-base'):
                 from src.online_rl.sherpa.evaluation import evaluate
                 result = evaluate(cfg, policy, ROOT, base_only=args.phase == 'evaluate-base')

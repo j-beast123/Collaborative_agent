@@ -112,6 +112,34 @@ def behavior_logprobs(model, traces: list[dict], token_chunk_size: int) -> list[
             for t in traces]
 
 
+def teacher_forced_behavior_records(model, records, token_chunk_size):
+    """Align pi_old and pi_theta numerically while retaining actual sampling evidence.
+
+    BF16 cached batched decoding and full-sequence scoring use different kernels.
+    Re-score the unchanged rollout policy before the update, never pi_ref or an
+    already-updated adapter. Original sampled logprobs remain in the source traces.
+    """
+    import torch
+    aligned, gaps, ratio_gaps = [], [], []
+    for record in records:
+        old = behavior_logprobs(model, record['agent_traces'], token_chunk_size)
+        traces = []
+        for trace, canonical in zip(record['agent_traces'], old):
+            recorded = trace['behavior_logprobs']
+            if len(recorded) != len(canonical):
+                raise RuntimeError('Teacher-forced behavior token alignment changed')
+            delta = torch.tensor(canonical, dtype=torch.float32) - torch.tensor(recorded, dtype=torch.float32)
+            gaps.extend(delta.abs().tolist())
+            ratio_gaps.extend((delta.exp() - 1).abs().tolist())
+            traces.append({**trace, 'behavior_logprobs': canonical})
+        aligned.append({**record, 'agent_traces': traces})
+    return aligned, {'tokens': len(gaps), 'mean_abs_logprob_gap': sum(gaps) / len(gaps) if gaps else 0,
+                     'max_abs_logprob_gap': max(gaps, default=0),
+                     'max_abs_ratio_gap': max(ratio_gaps, default=0),
+                     'source': 'unchanged_rollout_adapter_teacher_forced',
+                     'sampling_evidence_preserved': True}
+
+
 def grpo_loss(model, records: list[dict], adv: list[float], beta: float, clip_epsilon: float, token_chunk_size: int) -> dict:
     """Average over trajectories, then over all assistant tokens in each trajectory.
 
@@ -143,8 +171,8 @@ def grpo_loss(model, records: list[dict], adv: list[float], beta: float, clip_ep
             loss = (-surrogate.sum() + beta * kl_t.sum()) / total / n      # = the per-action token mean, split by segment
             if not torch.isfinite(loss).item(): raise RuntimeError(f"non-finite loss at {rec['trajectory_id']}")
             loss.backward()
-            pol_i += float(-surrogate.sum()) / total; kl_i += float(kl_t.sum()) / total
-            ratios += ratio.detach().float().cpu().tolist(); dev_ref = max(dev_ref, float((cur - ref).abs().max()))
+            pol_i += float(-surrogate.detach().sum()) / total; kl_i += float(kl_t.detach().sum()) / total
+            ratios += ratio.detach().float().cpu().tolist(); dev_ref = max(dev_ref, float((cur.detach() - ref).abs().max()))
         pol += pol_i / n; kl += kl_i / n
     return {'loss': pol + beta * kl, 'policy_loss': pol, 'kl_loss': kl, 'ratio': {
         'count': len(ratios), 'mean': sum(ratios) / len(ratios), 'min': min(ratios), 'max': max(ratios),
@@ -227,6 +255,10 @@ class IntegratedGRPOUpdater(GRPOUpdater):
         if not usable:
             return {**telemetry, 'optimizer_step': False,
                     'skip_reason': skipped[0] if len(groups) == 1 else 'no_group_with_nonzero_advantage'}
+        if require_raw:
+            usable, alignment = teacher_forced_behavior_records(m, usable, self.o['logprob_token_chunk_size'])
+            telemetry['behavior_alignment'] = alignment
+            telemetry['sampling_policy_alignment'] = 'raw_sampling_verified_teacher_forced_ratio'
         m.train()
         for mod in m.modules():
             if isinstance(mod, torch.nn.Dropout): mod.eval()

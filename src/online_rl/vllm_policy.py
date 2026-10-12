@@ -58,7 +58,7 @@ class VLLMPolicy:
 
     def _start(self, spec):
         python = self.root / spec['vllm']['python']
-        devices = os.environ['CUDA_VISIBLE_DEVICES'].split(',')
+        devices = spec.get('device_ids') or os.environ['CUDA_VISIBLE_DEVICES'].split(',')
         deadline = time.monotonic() + spec['vllm'].get('startup_timeout_seconds', 900)
         for index in range(spec['rollout_replicas']):
             with socket.socket() as sock:
@@ -151,9 +151,12 @@ class VLLMPolicy:
 
 def server_command(python, model_path, port, spec):
     v = spec['vllm']
-    return [str(python), '-m', 'vllm.entrypoints.openai.api_server',
+    command = [str(python), '-m', 'vllm.entrypoints.openai.api_server',
             '--model', str(model_path), '--served-model-name', 'sherpa-base',
             '--host', '127.0.0.1', '--port', str(port), '--tensor-parallel-size', '1',
             '--dtype', 'bfloat16', '--gpu-memory-utilization', str(v['gpu_memory_utilization']),
             '--max-model-len', str(v['max_model_len']), '--max-num-seqs', str(v['max_num_seqs']),
             '--generation-config', 'vllm', '--no-enable-log-requests']
+    if v.get('structured_outputs'):
+        command += ['--structured-outputs-config', json.dumps(v['structured_outputs'])]
+    return command

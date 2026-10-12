@@ -458,12 +458,15 @@ def main():
                 sys.stdout.write('\033[?25h\033[?1049l');sys.stdout.flush()
         return
     if cfg.get('pipeline_protocol') == 'sherpa_trajectory_checklist_v1':
-        from src.online_rl.sherpa.monitor import snapshot as trajectory_snapshot, render as trajectory_render
+        from src.online_rl.sherpa.monitor import TrainingMonitor, render as trajectory_render
+        trajectory_reader = TrainingMonitor()
+        fullscreen = sys.stdout.isatty() and not args.once and not args.json and os.environ.get('TERM') != 'dumb'
+        if fullscreen: sys.stdout.write('\033[?1049h\033[?25l'); sys.stdout.flush()
         try:
             while True:
-                data = trajectory_snapshot(out)
+                data = trajectory_reader.snapshot(out, gpu_stats=not args.json)
                 screen = json.dumps(data, ensure_ascii=False, indent=2) if args.json else trajectory_render(data)
-                if sys.stdout.isatty() and not args.once and not args.json:
+                if fullscreen:
                     sys.stdout.write('\x1b[2J\x1b[H')
                 print(screen, flush=True)
                 if args.once or args.json:
@@ -471,6 +474,8 @@ def main():
                 time.sleep(args.interval)
         except KeyboardInterrupt:
             return
+        finally:
+            if fullscreen: sys.stdout.write('\033[?25h\033[?1049l'); sys.stdout.flush()
     saved_cfg=read(out/'run_manifest.json').get('config') or cfg
     fullscreen=sys.stdout.isatty() and not args.once and not args.json and os.environ.get('TERM')!='dumb'
     if fullscreen:

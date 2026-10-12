@@ -49,15 +49,18 @@ def preflight(cfg, *, phase='all', require_keys=False):
     except Exception as exc:
         errors.append(f'Local model validation failed ({type(exc).__name__})')
     devices = []
-    if phase != 'optimize-prompt' and 'torch' in packages:
+    local_doctor = ro['doctor_backend']['engine'] == 'vllm'
+    if (phase != 'optimize-prompt' or local_doctor) and 'torch' in packages:
         import torch
         replicas = cfg['prompt_optimization']['rollout_replicas']
+        if local_doctor:
+            replicas = max(replicas, cfg['doctor_execution']['visible_gpu_index'] + 1)
         if torch.cuda.device_count() < replicas:
             errors.append(f'Need {replicas} visible CUDA GPUs')
         devices = [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
     credentials = {}
-    if phase != 'optimize-prompt' and cfg['prompt_optimization'].get('inference_engine') == 'vllm':
-        python = ROOT / cfg['prompt_optimization']['vllm']['python']
+    if local_doctor or (phase != 'optimize-prompt' and cfg['prompt_optimization'].get('inference_engine') == 'vllm'):
+        python = ROOT / (cfg['doctor_execution']['vllm']['python'] if local_doctor else cfg['prompt_optimization']['vllm']['python'])
         try:
             result = subprocess.run([str(python), '-c',
                                      'import vllm; print(vllm.__version__)'],
@@ -65,7 +68,12 @@ def preflight(cfg, *, phase='all', require_keys=False):
             packages['vllm_server'] = result.stdout.strip()
         except (OSError, subprocess.SubprocessError):
             errors.append('vLLM environment unavailable; install requirements-vllm.txt in .venv-vllm')
-    for provider in ('openai_direct', 'openrouter'):
+    required_providers = {
+        cfg['rubric']['generation'].get('api_provider', 'openrouter'),
+        cfg['judges'].get('api_provider', 'openrouter')}
+    if not local_doctor:
+        required_providers.add(ro['doctor_backend']['engine'])
+    for provider in sorted(required_providers):
         try:
             credentials[provider] = bool(load_key({'api_provider': provider}).strip())
         except Exception:
@@ -74,6 +82,8 @@ def preflight(cfg, *, phase='all', require_keys=False):
             errors.append(f'Missing {provider} API key; fill .env')
     report = {'python': sys.executable, 'packages': packages, 'model_path': str(model),
               'doctor_model': ro['doctor_model'],
+              'doctor_engine': ro['doctor_backend']['engine'],
+              'doctor_gpu': cfg.get('doctor_execution', {}).get('visible_gpu_index'),
               'doctor_reasoning_effort': ro['doctor_backend'].get('reasoning_effort'),
               'output_dir': cfg['prompt_optimization']['output_dir'],
               'gpus': devices, 'credentials_present': credentials,
@@ -96,6 +106,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--launch', action='store_true', help='Explicitly start paid API work after preflight')
     parser.add_argument('--config', default='configs/sherpa.json')
+    parser.add_argument('--no-cache', action='store_true', help='Fresh run; bypass inference caches and saved candidate results')
     parser.add_argument('--phase', choices=('all', 'base-rollouts', 'optimize-prompt'), default='all')
     parser.add_argument('--max-cases', type=int, help='Smoke run limit; only with --phase base-rollouts')
     args = parser.parse_args()
@@ -109,8 +120,15 @@ def main():
     if not preflight(cfg, phase=args.phase, require_keys=args.launch):
         raise SystemExit(1)
     if not args.launch:
+        if args.no_cache:
+            print('On launch: use an isolated output directory and bypass inference caches.')
         print('Preflight only. No models loaded and no API requests sent. Add --launch to run.')
         return
+    if args.no_cache:
+        from src.online_rl.sherpa.cache_options import fresh_prompt_run
+        cfg, config_path = fresh_prompt_run(cfg, ROOT, args.phase)
+        args.config = str(config_path)
+        print(f'Cache disabled; isolated run config: {config_path}', flush=True)
     home = ROOT / cfg['prompt_optimization']['output_dir']
     home.mkdir(parents=True, exist_ok=True)
     with (home / 'workflow.lock').open('a') as lock:

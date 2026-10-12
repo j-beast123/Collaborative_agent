@@ -24,7 +24,7 @@ def credentials():
     if path.is_file():
         for line in path.read_text().splitlines():
             key, sep, value = line.strip().removeprefix('export ').partition('=')
-            if sep and SECRET_KEY.search(key.strip()):
+            if sep and (SECRET_KEY.search(key.strip()) or key.strip() == 'HF_REPO_ID'):
                 if not values.get(key.strip()):
                     values[key.strip()] = value.strip().strip('"\'')
     return values
@@ -115,17 +115,25 @@ def enqueue_checkpoint(cfg, out, state):
     if not spec.get('enabled'):
         return None
     out = Path(out).resolve()
-    checkpoint = Path(state['checkpoint']).resolve()
+    trajectory_run = 'completed_steps' in state
+    checkpoint = Path(state['last_curve_checkpoint'] if trajectory_run else state['checkpoint']).resolve()
     if checkpoint.parent != out/'checkpoints':
         raise ValueError('Checkpoint is outside this run')
     for required in ('COMPLETE.json', 'trainer_state.pt', 'adapter/adapter_config.json', 'adapter/adapter_model.safetensors'):
         if not (checkpoint/required).is_file():
             raise ValueError(f'Incomplete checkpoint: missing {required}')
     receipt = json.loads((checkpoint/'COMPLETE.json').read_text())
-    if (receipt['completed_cases'] != state['case_cursor'] or receipt['policy_sha256'] != state['policy_sha256']
-            or receipt['protocol_sha256'] != state['protocol_sha256']):
+    mismatch = ((receipt['step'] != state['completed_steps'] or receipt['fingerprint'] != state['fingerprint'])
+                if trajectory_run else (receipt['completed_cases'] != state['case_cursor'] or
+                                        receipt['protocol_sha256'] != state['protocol_sha256']))
+    if mismatch or receipt['policy_sha256'] != state['policy_sha256']:
         raise ValueError('Checkpoint and committed run state disagree')
-    label = f"batch_{state['batch_cursor']:06d}"
+    cursor = state['completed_steps'] if trajectory_run else state['batch_cursor']
+    completed_cases = cursor * 4 if trajectory_run else state['case_cursor']
+    label = f"{'step' if trajectory_run else 'batch'}_{cursor:06d}"
+    repo_id = spec.get('repo_id') or credentials().get('HF_REPO_ID')
+    if not repo_id:
+        raise ValueError('HF_REPO_ID is required for checkpoint uploads')
     queue = out/'hf_uploads'
     job_path = queue/'jobs'/f'{label}.json'
     if job_path.exists():
@@ -160,13 +168,17 @@ def enqueue_checkpoint(cfg, out, state):
             raise ValueError('Unexpected prompt artifact')
         destination = pending/'artifacts'/relative
         destination.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(source, destination)
+    if trajectory_run:
+        destination = pending/'artifacts/prompts/frozen_generator_prompt.txt'
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(out/'frozen_generator_prompt.txt', destination)
     # A unique immutable snapshot path means retries never overwrite newer progress.
     prefix = spec.get('path_prefix', 'sherpa-ckpt/sherpa_main').strip('/')
     if not prefix or any(part in ('.', '..') for part in prefix.split('/')):
         raise ValueError('Invalid checkpoint upload prefix')
-    job = {'status': 'queued', 'repo_id': spec['repo_id'], 'repo_type': 'model',
+    job = {'status': 'queued', 'repo_id': repo_id, 'repo_type': 'model',
            'path_in_repo': f'{prefix}/{out.name}/{label}', 'payload': str(payload),
-           'batch': state['batch_cursor'], 'completed_cases': state['case_cursor'], 'checkpoint_name': checkpoint.name,
+           'batch': cursor, 'completed_cases': completed_cases, 'checkpoint_name': checkpoint.name,
            'queued_at': time.time(), 'attempts': 0}
     pending.rename(payload)
     atomic_write_json(job_path, job)
@@ -231,7 +243,8 @@ def enqueue_safely(cfg, out, state):
     except Exception as exc:
         # Queue failures must not abort a committed optimizer update.
         atomic_write_json(Path(out)/'hf_uploads/enqueue_error.json',
-                          {'batch': state['batch_cursor'], 'error_type': type(exc).__name__, 'time': time.time()})
+                          {'batch': state.get('completed_steps', state.get('batch_cursor')),
+                           'error_type': type(exc).__name__, 'time': time.time()})
         return None
 
 

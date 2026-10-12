@@ -1,0 +1,209 @@
+{
+  "pipeline_protocol": "sherpa_trajectory_checklist_v1",
+  "method": "sherpa",
+  "output_dir": "outputs/ours_qwen3_doctor_256_compact_luna_rubric_v4",
+  "policy": {
+    "base_model": "Qwen/Qwen3-8B",
+    "local_model_path": "../vllm/qwen3",
+    "init_adapter": null,
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.0,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "use_rslora": true,
+      "init_seed": 20261006
+    }
+  },
+  "data": {
+    "train": "data/interim/medmcqa/five_gpu_train120_seed20261008/train120_excluding_calibration_seed20261008.jsonl",
+    "train_sha256": "3d34929094925c822062d03839b49de8f6fb43afba71fb573de409471bb5b8ab",
+    "train_manifest": "data/interim/medmcqa/five_gpu_train500/train500_excluding_calibration.manifest.json",
+    "excluded_calibration_case_ids": [
+      "medmcqa_1b8e64f8-bbec-496b-8460-3359bd24d326",
+      "medmcqa_1d184378-ee3b-46c9-8391-3557e141e653",
+      "medmcqa_2335f0d1-c480-409a-a022-b7c84eca71ca",
+      "medmcqa_507feb54-647f-46c5-906b-4b2233c59ddf",
+      "medmcqa_52673829-5fed-493c-9c73-7f998842e442",
+      "medmcqa_5855dbc9-15c4-4305-8c7c-8cfd659b4f7b",
+      "medmcqa_78a5e288-2c7d-44a0-9e9b-816dfaa7f0f7",
+      "medmcqa_858f875a-344d-45da-bf0a-7f2b7fc93bac",
+      "medmcqa_899e79e3-37f6-46e1-ab3c-d585647f4d96",
+      "medmcqa_9422d9f9-0e8d-4aee-a4b1-93d09b399bb2",
+      "medmcqa_dfe8b671-5d53-4cf8-832a-c5bae5fb36c7",
+      "medmcqa_ecb57f7e-806c-414c-af8a-a90078b796fa",
+      "medmcqa_eda5f31a-9eac-42a8-8ce3-5b233cb3eb90"
+    ]
+  },
+  "rollout": {
+    "branching": 32,
+    "rounds": 4,
+    "budget": "initial_fanout",
+    "doctor_model": "Qwen/Qwen3-8B",
+    "max_tokens_doctor": 256,
+    "max_completion_length": 400,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 0,
+    "doctor_backend": {
+      "final_response": {
+        "mode": "label_only_v1",
+        "max_tokens": 32
+      },
+      "discussion_prompt_profile": "structured_clinician_v1",
+      "private_state_protocol": "hypothesis_confidence_v1",
+      "discussion_response_format": "private_turn_json_v2",
+      "engine": "vllm",
+      "model": "Qwen/Qwen3-8B",
+      "reasoning_effort": null,
+      "options": {
+        "temperature": 0.4
+      },
+      "local_model_path": "../vllm/qwen3"
+    },
+    "halting": {
+      "enabled": true,
+      "min_agent_turns": 2,
+      "repeat_agent_reply_after_turns": 4,
+      "allow_mutual_conclusion": false,
+      "require_agent_doctor_agreement": true
+    },
+    "doctor_system_prompt_file": "prompts/doctor_structured_v2.txt",
+    "doctor_system_prompt_sha256": "6c8e856fbbd407be0d2df283f2359d176d53680a493dd2fc5b0121a3f17d6dfa",
+    "agent_protocol": null,
+    "agent_sampling_protocol": "per_row_rng_batch_v1"
+  },
+  "optimizer": {
+    "learning_rate": 1e-05,
+    "beta": 0.04,
+    "clip_epsilon": 0.2,
+    "grad_clip": 1.0,
+    "logprob_token_chunk_size": 16,
+    "pre_update_ratio_tolerance": 0.001,
+    "require_raw_on_policy_sampling": true
+  },
+  "advantage_normalization": {
+    "mode": "group_zscore"
+  },
+  "schedule": {
+    "seed": 0,
+    "cases": 120,
+    "batch_cases": 4,
+    "iterations": 3,
+    "steps_per_iteration": 30,
+    "order_file": "data/interim/medmcqa/five_gpu_train120_seed20261008/train120_order_seed20261008.json",
+    "order_sha256": "edf23262be5430d10a0d02dde3da80710bf9a91bd941d83234e9c98372752c41"
+  },
+  "checkpoint_every_steps": 10,
+  "rubric": {
+    "enabled": true,
+    "generator_model": "gpt-6-luna",
+    "generation": {
+      "api_provider": "openai_direct",
+      "max_tokens": 6144,
+      "temperature": 0.2,
+      "reasoning_effort": "low",
+      "response_format": "json_schema_strict"
+    }
+  },
+  "judges": {
+    "scorer_model": "gpt-6-luna",
+    "scorer_max_tokens": 16384,
+    "api_provider": "openai_direct",
+    "execution_retry_attempts": 1,
+    "scorer_protocol": "trajectory_binary_checklist_v1"
+  },
+  "rubric_pipeline": {
+    "reflection_prompt_file": "prompts/sherpa/trajectory_doctor_reflection_v1.txt",
+    "reflection_max_tokens": 1536,
+    "judge_prompt_file": "prompts/sherpa/trajectory_checklist_judge_v1.txt",
+    "min_rubrics": 5,
+    "max_rubrics": 6,
+    "format_regenerations": 1,
+    "leakage_regenerations": 1,
+    "reflection_success_count": 4,
+    "reflection_failure_count": 4
+  },
+  "prompt_optimization": {
+    "initial_prompt_file": "prompts/sherpa/trajectory_checklist_generator_v2.txt",
+    "proposal_prompt_file": "prompts/sherpa/auc_prompt_proposal_v2.txt",
+    "output_dir": "outputs/sherpa_prompt_auc_qwen3_doctor_256_compact_luna_v4",
+    "final_artifact": "outputs/sherpa_prompt_auc_qwen3_doctor_256_compact_luna_v4/final_prompt.json",
+    "mixed_cases": 20,
+    "iterations": 3,
+    "candidates_per_iteration": 4,
+    "confirmation_repeats": 3,
+    "rollout_replicas": 1,
+    "rollout_case_workers": 4,
+    "rollout_batch_size": 2,
+    "assistant_max_inflight": 128,
+    "inference_engine": "vllm",
+    "vllm": {
+      "python": ".venv-vllm/bin/python",
+      "gpu_memory_utilization": 0.9,
+      "max_model_len": 16384,
+      "max_num_seqs": 128,
+      "startup_timeout_seconds": 900
+    },
+    "rate_limit_retries": 0,
+    "candidate_workers": 4,
+    "case_workers": 4,
+    "max_seconds": null,
+    "selection_repeats": 2
+  },
+  "five_gpu": {
+    "rollout_gpus": [
+      0
+    ],
+    "update_gpu": 0,
+    "agent_batch_size": 4,
+    "doctor_concurrency": 128
+  },
+  "execution": {
+    "doctor_workers": 128,
+    "agent_workers": 128,
+    "judge_workers": 100,
+    "api_limits": {
+      "gemini": 10,
+      "luna": 100,
+      "doctor": 128
+    }
+  },
+  "evaluation": {
+    "file": "data/interim/casimedicos/all_en_622.jsonl",
+    "source_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+    "split_manifest": "data/splits/casimedicos_arg600_curve200_v1.json",
+    "seed": 0,
+    "test_cases": 600,
+    "curve_cases": 200,
+    "main_checkpoint": "last_step_90"
+  },
+  "training_execution": {
+    "inference_engine": "transformers",
+    "rollout_replicas": 1,
+    "rollout_batch_size": 64,
+    "assistant_max_inflight": 128,
+    "case_workers": 4,
+    "rate_limit_retries": 0
+  },
+  "checkpoint_upload": {
+    "enabled": true,
+    "repo_id": "zzu819/SHERPA",
+    "path_prefix": "ours"
+  },
+  "doctor_execution": {
+    "visible_gpu_index": 1,
+    "vllm": {
+      "python": ".venv-vllm/bin/python",
+      "gpu_memory_utilization": 0.9,
+      "max_model_len": 16384,
+      "max_num_seqs": 128,
+      "startup_timeout_seconds": 900
+    }
+  }
+}

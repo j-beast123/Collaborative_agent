@@ -118,6 +118,106 @@ uv pip install --python .venv/bin/python --no-deps -r requirements-prompt.txt
 bash run_prompt_optimization.sh
 ```
 
+## Ours: optimized-rubric GRPO
+
+The independent `configs/ours.json` now uses a frozen **Qwen/Qwen3-8B Doctor**.
+GPU 0 runs the trainable assistant (Transformers/LoRA, batches up to 64 replies,
+global queued/executing assistant request limit 128); GPU 1 runs the separate
+original-base Doctor through vLLM with memory utilization 0.9. Doctor thinking
+is disabled, temperature is 0.4, and discussion, FINAL and reflection all use
+this same frozen Doctor, with a global limit of 128 local Doctor requests. Its weights never receive assistant GRPO updates.
+The run writes to `outputs/ours_qwen3_doctor_256_compact_luna_rubric_v4`.
+
+Doctor changes require a matching new prompt optimization experiment. The
+existing GPT-4o-mini run/config/output is preserved. Start the Qwen experiment:
+
+```bash
+bash run_prompt_optimization.sh --config configs/sherpa_qwen_doctor.json --launch
+bash monitor.sh --config configs/sherpa_qwen_doctor.json --mode optimization
+```
+
+This collects new Qwen-Doctor rollouts into
+`outputs/sherpa_prompt_auc_qwen3_doctor_256_compact_luna_v4`, then optimizes the generator prompt.
+Add `--no-cache` to regenerate calls and completed results in a new sibling
+directory ending in `_nocache_<unique-id>`. Existing evidence is preserved.
+With `--phase optimize-prompt --no-cache`, only completed base rollout data is
+copied as search input; reflections, rubric generation, judging and proposals
+are generated again. Successful call caches are neither read nor written;
+failure audits and final result artifacts are still saved. The printed
+`run_config.json` path can be passed to `monitor.sh --config` and contains the
+new `final_artifact` path needed by any subsequent training config. This option
+does not change seeds, the minimum mixed-case requirement or retry settings.
+Both stages automatically start/stop the local Doctor server on GPU 1; even the
+prompt-search phase uses this GPU for Doctor reflections. The assistant's base
+rollouts use vLLM on GPU 0; GRPO uses the trainable Transformers model on GPU 0.
+Generator, prompt proposer and judge all use gpt-6-luna through the direct OpenAI Responses API, sharing a 100-request limit and a 100-worker judge pool.
+The v4 initial prompt derives case-specific binary collaboration items from
+success/failure examples and Doctor reflections. Proposal feedback includes
+misranked or tied conversation pairs and per-item outcome satisfaction rates.
+The current prompt and the top two proposals per iteration are compared by
+three evaluation passes; only finalists receive the two additional passes.
+Three independent confirmation passes report initial/final differences on the
+same 20 optimization cases without changing the selected winner. These are
+repeatability checks, not held-out evaluation. The existing 120 base cases are
+reused; v3 prompt scores are preserved in their original directory.
+
+Each scheduled step overlaps four cases. Each case generates one Doctor opening
+and branches into 32 assistant replies, then continues 32 conversations with the
+current policy. All assistant generations use temperature=1, top_p=1, top_k=0.
+The final optimized **generator prompt** is fixed for the entire run; each case
+still gets fresh reflections and 5–6 case-specific rubrics on its current rollouts.
+The reward is the mean of the binary rubric scores. The Doctor outcome is used
+for reflection/diagnostics, not added to the GRPO reward. Advantages are z-scores
+within each group of 32, and all four scored groups reach one update barrier.
+Only assistant tokens receive the trajectory advantage; the base policy supplies
+the KL reference. The trainable parameters are LoRA adapters, not the full base.
+
+The pinned 120-case order is repeated three times: 30 four-case steps per
+iteration, 90 scheduled steps total (11,520 trajectories). A batch with no reward
+variation in any group is recorded but skips the optimizer because no advantage
+signal exists. GPU replicas are explicitly synchronized before every step,
+including after restoring a checkpoint. Recovery checkpoints allow interrupted
+steps to reuse their saved calls without replaying a committed update.
+
+```bash
+bash run_ours.sh                          # preparation report, no GPU/API work
+bash run_ours.sh --launch --max-steps 1    # optional first real training step
+bash run_ours.sh --launch                 # resume/run to step 90
+bash monitor.sh --config configs/ours.json --mode training
+```
+
+Launch requires the completed optimization artifact
+`outputs/sherpa_prompt_auc_qwen3_doctor_256_compact_luna_v4/final_prompt.json`; it never falls back
+to an initial/intermediate prompt. Its hash and generator/judge/Doctor identity
+are validated, and the exact prompt is copied into the training output.
+Do not start the real run while prompt optimization is still writing its final
+artifact. The existing prompt optimization process is independent of this setup.
+
+Every 10 steps a local checkpoint is saved and an immutable full recovery bundle
+(LoRA adapter, optimizer/RNG state, metadata and frozen generator prompt) is queued
+for a detached Hugging Face uploader. Fill `HF_TOKEN` and `HF_REPO_ID` in `.env`;
+the target must be an existing model repository you can write to. The base model
+weights are not re-uploaded. Upload status and errors live under `hf_uploads/`;
+a committed training step is preserved even if an upload fails. Restart catches
+up pending ten-step checkpoints. To run locally without uploads, explicitly set
+`checkpoint_upload.enabled=false` in `configs/ours.json` before the first launch.
+
+Local-only assistant test of 128 short synthetic replies and one GRPO update:
+
+```bash
+.venv/bin/python scripts/online_rl/smoke_ours.py
+```
+
+For a local-only test of structured Doctor turns, FINAL and reflection:
+
+```bash
+.venv/bin/python scripts/online_rl/smoke_local_doctor.py
+```
+
+The assistant test acquires its GPU locks and makes no Doctor/generator/judge calls. It
+checks one optimizer step and configured replica synchronization; it is not a full dialogue
+benchmark or a peak-memory test for maximum-length generations.
+
 ## Earlier anchored-group workflow notes
 
 The notes below describe the earlier anchored-group experiments. The current

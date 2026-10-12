@@ -126,7 +126,13 @@ class OptimizationMonitor:
                                'judged_trajectories': len(counts['judged']), **score})
         candidates.sort(key=lambda row: (row['labels'][0] != 'initial', row['labels'][0]))
         history = self.summary(out / 'history.json', lambda r: {
-            'completed_iterations': r.get('completed_iterations', 0), 'winner': r.get('winner')})
+            'completed_iterations': r.get('completed_iterations', 0), 'winner': r.get('winner'),
+            'selection_means': {row['prompt_sha256']: row['mean_auc'] for row in r.get('selection', [])}})
+        for row in candidates:
+            average = history.get('selection_means', {}).get(row['prompt_sha256'])
+            if average is not None:
+                row['single_mean_auc'] = row.get('mean_auc')
+                row['mean_auc'] = average
         final = self.summary(out / 'final_prompt.json', lambda r: {
             'complete': r.get('schema') == 'sherpa_auc_prompt_v1', 'mean_auc': r.get('mean_auc')})
         confirmation = read(out / 'confirmation.json')
@@ -134,6 +140,10 @@ class OptimizationMonitor:
                        'rubric_cases': len(counts['rubric_cases']), 'judged_trajectories': len(counts['judged'])}
                       for (scope, digest), counts in self.groups.items()
                       if scope and scope.startswith('offline_prompt_confirmation_')]
+        selection_progress = [{'scope': scope, 'prompt_sha256': digest,
+                               'rubric_cases': len(counts['rubric_cases']), 'judged_trajectories': len(counts['judged'])}
+                              for (scope, digest), counts in self.groups.items()
+                              if scope and scope.startswith('offline_prompt_selection_')]
         live = [read(path) for path in (out / 'live').glob('gpu*.json')]
         running = any(type(row.get('pid')) is int and Path(f'/proc/{row["pid"]}').exists() for row in live)
         active = Counter()
@@ -175,6 +185,7 @@ class OptimizationMonitor:
                 'active_cases': [row for row in rows if not row.get('done')], 'reflections': len(self.reflections),
                 'candidates': candidates, 'history': history, 'iterations': spec['iterations'],
                 'confirmation': confirmation, 'confirmation_progress': confirming, 'final': final,
+                'selection_progress': selection_progress,
                 'activity': dict(active), 'api_usage': dict(usage), 'gpu_rows': gpu_rows,
                 'last_errors': [row['last_error'] for row in live if row.get('last_error')]}
 
@@ -195,6 +206,8 @@ def render(state, *, details=False):
         lines.append(f'  {", ".join(row["labels"])}{winner} | {row["completed_cases"]}/{state["required_mixed_cases"]} | {row["rubric_cases"]} | {row["judged_trajectories"]} | {auc}')
     for row in state['confirmation_progress']:
         lines.append(f'재평가 {row["scope"].rsplit("_", 1)[-1]} {row["prompt_sha256"][:10]}: rubric {row["rubric_cases"]} | 채점 {row["judged_trajectories"]}')
+    for row in state.get('selection_progress', []):
+        lines.append(f'후보 선택 반복 #{row["scope"].rsplit("_", 1)[-1]} {row["prompt_sha256"][:10]}: rubric {row["rubric_cases"]} | 채점 {row["judged_trajectories"]}')
     for row in state['confirmation'].get('repeats', []):
         lines.append(f'재평가 #{row["repeat"]}: initial {row["initial_mean_auc"]:.4f} → final {row["final_mean_auc"]:.4f} | ΔAUC {row["delta_mean_auc"]:+.4f}')
     usage = state['api_usage']

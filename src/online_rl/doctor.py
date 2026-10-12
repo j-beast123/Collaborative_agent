@@ -173,8 +173,9 @@ class OpenAIDoctor:
     def __init__(self, backend: dict, halting: Optional[dict], system: str, max_tokens: int):
         for k in ('engine', 'model', 'options'):
             if not backend.get(k): raise ValueError(f'rollout.doctor_backend.{k} is required')
-        if backend['engine'] != 'openai_direct' or backend['model'] not in ('gpt-6-luna', 'gpt-4o-mini'):
-            raise ValueError('Doctor requires OpenAI direct gpt-6-luna or gpt-4o-mini')
+        local = backend['engine'] == 'vllm' and backend['model'] == 'Qwen/Qwen3-8B'
+        if not local and (backend['engine'] != 'openai_direct' or backend['model'] not in ('gpt-6-luna', 'gpt-4o-mini')):
+            raise ValueError('Unsupported Doctor engine/model pair')
         if backend['model'] == 'gpt-4o-mini' and backend.get('reasoning_effort') not in (None, 'none'):
             raise ValueError('gpt-4o-mini does not support reasoning_effort; use null')
         self.backend, self.system, self.max_tokens = backend, system, max_tokens
@@ -239,11 +240,20 @@ class OpenAIDoctor:
             if self.discussion_response_format == JSON_TURN_PROTOCOL:
                 self.identity['structured_turn']['confidence_resolution'] = 0.01
         self.model = backend['model']
+        if local:
+            self.identity.update(engine='vllm', api='local_chat_completions',
+                                 enable_thinking=False, reasoning_effort=None,
+                                 structured_outputs={'backend': 'xgrammar', 'disable_any_whitespace': True},
+                                 seed_policy='per-request provider seed and cache identity',
+                                 sampling={'temperature': self.options['temperature'], 'top_p': 1.0, 'top_k': -1})
         self.protocol = sha256_json(self.identity)
 
     def halts(self) -> bool: return bool(self.halting.get('enabled'))
 
     def _chat(self, user, seed, max_tokens=None, system_override=None, format_schema=None):
+        if self.backend['engine'] == 'vllm':
+            from src.online_rl.local_doctor import chat
+            return chat(self, user, seed, max_tokens, system_override, format_schema)
         from src.common.api_slots import lease
         from src.common.usage import event
         import time
@@ -269,7 +279,7 @@ class OpenAIDoctor:
         return raw
 
     def verify(self, require_loaded=False):
-        return {'problems': [], 'engine': 'openai_direct', 'model': self.model}
+        return {'problems': [], 'engine': self.backend['engine'], 'model': self.model}
 
 
     def turn(self, case: dict, dialogue: list[dict], round_: int, rounds: int, seed: int) -> dict:
