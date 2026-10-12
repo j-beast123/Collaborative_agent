@@ -1,0 +1,19 @@
+{
+  "extends": "configs/experiments/fixed_t2/base_t2.json",
+  "rollout": {
+    "rounds": 4
+  },
+  "agent_reward": {
+    "credit": "separated"
+  },
+  "notes": "T4 credit-aligned backup (frozen 2026-10-12): the MAIN 120 E3-private 5:5 arm (main120/e3_private_5_5.json at f76be1a: credit-separated, decision reward = private option correctness, 0.5 L_D + 0.5 L_C) with exactly two changes: Thinking OFF (rollout.agent_thinking absent) and at most four Agent turns (rollout.rounds 4). Everything else is that arm: fresh theta0, original train order, first 120 cases, 5-case batches, lr 1e-5, G4, P0_FIXED, Sonnet 4.6 behavior feedback, scorer cache, Agent generation batch size 1, checkpoints every 30 cases. No CasiMedicos evaluation during training; one checkpoint is selected on the historical DEV procedure (highest DEV accuracy, earlier checkpoint on a tie).",
+  "experiment": {
+    "reward_weight_rubric": 0.5,
+    "reward_weight_outcome": 0.5,
+    "output_root": "outputs/e3priv_t4_off_120",
+    "variant": "t4off_e3priv"
+  },
+  "five_gpu": {
+    "agent_batch_size": 1
+  }
+}
