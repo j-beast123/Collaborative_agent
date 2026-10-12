@@ -35,9 +35,10 @@ class SharedPolicy:
         from src.online_rl import environment as ST
         self.ST = ST
         self.torch, self.cfg, self.key = torch, cfg, key; p = cfg['policy']
-        self.tok = AutoTokenizer.from_pretrained(p['base_model'], trust_remote_code=True)
+        revision = p.get('base_revision')
+        self.tok = AutoTokenizer.from_pretrained(p['base_model'], revision=revision, trust_remote_code=True)
         if self.tok.pad_token is None: self.tok.pad_token = self.tok.eos_token
-        base = AutoModelForCausalLM.from_pretrained(p['base_model'], dtype=torch.bfloat16, trust_remote_code=True)
+        base = AutoModelForCausalLM.from_pretrained(p['base_model'], revision=revision, dtype=torch.bfloat16, trust_remote_code=True)
         lc = p['lora']
         if p.get('init_adapter'): self.model = PeftModel.from_pretrained(base, p['init_adapter'], is_trainable=True)
         elif lc.get('init_seed') is not None: self.model = seeded_lora(base, lc)

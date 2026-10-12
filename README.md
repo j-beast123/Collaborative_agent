@@ -178,7 +178,7 @@ rubric-only arm. GPU0–4 each hold one frozen HF Agent and one pinned Ollama Do
 coordinate one case each, and help other cases through a shared ready-work pool.
 The five cases trigger one GPU4 GRPO update after all rollout/rerun/scoring work
 finishes. Idle evaluation is disabled. This launcher starts a new run in
-`outputs/sherpa_tree_v21_five_gpu/run500_ckpt30_min2_shared5_finalshort_20261008`.
+the configured run output directory.
 
 Each five-case batch uses one common generator prompt P0. Once its five P0
 assessments finish, reflection/refinement proposes exactly one common P1. P1 uses
@@ -221,6 +221,10 @@ credentials file, Ollama executable/model directory or config. The launcher uses
 from the activated environment by default. The Doctor tag, digest and Ollama version remain
 pinned; missing or different models fail validation. Existing servers on these ports are
 accepted only when their owned PID and GPU assignment match.
+
+## Paper artifact
+
+The frozen reported checkpoint LoRA, exact evaluation set, per-case predictions, pinned model identities, a read-only evaluator and the training reproduction configuration are available on the `collaborative-agent-20261013` branch. See [`docs/reproducibility.md`](docs/reproducibility.md).
 CUDA must expose physical GPUs 0–4 in that order. The shared v7 pipeline has been
 launched on the five-A100 host; another server must pass the same data/model and
 Doctor-identity preflight before it can run.
@@ -241,7 +245,7 @@ Doctor and update the same Agent model. The other GPUs wait for the next adapter
 No evaluation jobs are registered or drained. The old four-case configurations
 still support their separate resumable evaluation queue when explicitly selected.
 
-Permanent snapshots are saved at 30, 60, …, 480 and 500 completed problems,
+Permanent snapshots are saved at the configured checkpoint interval and at the final completed problem,
 plus the initial adapter. Five-case batches give 100 update opportunities; six
 batches reach each regular snapshot boundary. A recovery checkpoint with optimizer
 and CPU/CUDA RNG states is also committed after each batch. Receipts prevent a
@@ -331,7 +335,7 @@ controller `scripts/diagnostics/after_batch_halt4.py`; `--dry-run` is read-only.
 Migration preserves optimizer/RNG, policy, winning prompt and prior evidence in
 a fresh run directory with `protocol_transition.json`; incomplete old-protocol
 batches are retained only in the source. The schedule stays 500 cases, five per
-update, with permanent snapshots every 30 cases and recovery every batch.
+update, with permanent snapshots at the configured interval and recovery every batch.
 
 Ready API work overlaps GPU work in this shared pipeline. Each completed FINAL
 queues its leaf's feedback immediately, before the rest of that case's tree

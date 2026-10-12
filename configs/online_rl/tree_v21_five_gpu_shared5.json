@@ -77,7 +77,7 @@
       "enabled": true,
       "min_agent_turns": 2
     },
-    "doctor_system_prompt_file": "prompts/user_simulator_v4_final_label.txt",
+    "doctor_system_prompt_file": "prompts/user_simulator_v4_label.txt",
     "doctor_system_prompt_sha256": "026f3771659f97b16f7d8985169478bd0b9eb5c141316a982eb49f3f60cff3a2",
     "agent_protocol": "precommit_v1",
     "agent_sampling_protocol": "per_row_rng_batch_v1"

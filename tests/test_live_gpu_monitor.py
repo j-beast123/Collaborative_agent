@@ -254,7 +254,7 @@ def test_partial_eval_accuracy_estimate_shows_wilson_interval():
         'api':{},'gpus':[],
         'checkpoint_evaluation':{'checkpoint_cases':30,'evaluated':50,'total':622,
             'status':'pending','accuracy':.78,'correct':39,'accuracy_ci95':(low,high)}})
-    assert '622 eval C30 · 50/622 · running · est 78.0%' in dashboard
+    assert '622 eval checkpoint · 50/622 · running · est 78.0%' in dashboard
     assert 'Wilson95 64.8–87.2%' in dashboard
 
 
