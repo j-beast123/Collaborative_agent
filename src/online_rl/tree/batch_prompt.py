@@ -203,7 +203,7 @@ def score_union(trainer,parent,candidate,candidate_prompt):
 
 
 def batch_reflection_view(records,max_examples=24):
-    """All-unit summaries plus bounded examples; full trees can contain 4096 leaves.
+    """All-unit summaries plus bounded examples; each case has 32 independent continuations.
 
     Only reflection context is bounded, never the scoring mask or rerun evidence.
     Round-robin across case/outcome buckets, alternating low/high effects.

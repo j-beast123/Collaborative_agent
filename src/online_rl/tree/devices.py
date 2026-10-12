@@ -23,11 +23,11 @@ def physical_gpus(env=None, *, count=LOGICAL_GPUS) -> list[str]:
 
 
 def record_runtime(out: Path, cfg: dict) -> dict:
-    """Append launch provenance (devices, host, CUDA, Ollama) to runtime_provenance.jsonl."""
+    """Append launch provenance (devices, host, CUDA, Doctor API) to runtime_provenance.jsonl."""
     import torch
     fg = cfg['five_gpu']
     rec = {'time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'host': socket.gethostname(),
            'logical_to_physical_gpu': dict(enumerate(physical_gpus(count=gpu_count(cfg)))), 'torch': torch.__version__, 'cuda': torch.version.cuda,
-           'ollama_binary': os.environ.get('SHERPA_OLLAMA_BINARY', fg.get('ollama_binary')), 'doctor_urls': fg['doctor_urls']}
+           'doctor_provider': 'openai_direct', 'doctor_model': cfg['rollout']['doctor_model']}
     with (Path(out) / 'runtime_provenance.jsonl').open('a') as f: f.write(json.dumps(rec) + '\n')
     return rec

@@ -1,3 +1,10 @@
 {
-  "extends": "configs/group_shared.json"
+  "extends": "configs/sherpa.json",
+  "output_dir": "outputs/sherpa_trajectory_v1/group_b200",
+  "judges": {
+    "scorer_model": "gpt-6-luna",
+    "scorer_max_tokens": 16384,
+    "api_provider": "openai_direct",
+    "execution_retry_attempts": 1
+  }
 }

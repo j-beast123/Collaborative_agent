@@ -1,4 +1,4 @@
-Rank the four assistant responses jointly from best to worst using only the
+Rank the 32 assistant responses jointly from best to worst using only the
 supplied anchored rubrics, their state, and their 0/1/2 behavior criteria.
 The rubrics apply to this shared decision point; there is no applicability check.
 Compare how concretely and completely each response performs the preferred
@@ -15,6 +15,6 @@ Response order is randomized; identifiers carry no source or outcome information
 Return ranking groups in best-to-worst order. Each group contains response_ids
 and a short reason grounded in the supplied rubric. Normally each group has one
 response. Tied responses belong in the same group; explain why the rubric cannot
-distinguish them. Include A0, A1, A2 and A3 exactly once across all groups.
+distinguish them. Include every supplied response ID (A0 through A31) exactly once across all groups.
 Return exactly {"ranking": [{"response_ids": ["A2"], "reason": "..."}, ...]}.
 Do not return scores, numeric ranks, rewards, or text outside the JSON object.

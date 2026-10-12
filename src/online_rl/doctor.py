@@ -1,28 +1,10 @@
-"""Local Doctor protocol v2: the Doctor served by Ollama (rollout.doctor_backend), the v2 discussion prompt, a hidden
-per-turn status and adaptive halting (rollout.halting). One implementation for every Doctor-Agent conversation: the
-training tree, intervention reruns, milestone / RQ evaluation episodes and the halting calibration.
-
-- Visible dialogue: the v2 discussion prompt asks the Doctor to address the collaborator's latest reasoning and, when the
-  discussion already supports a stable choice, to summarise the decisive reason instead of inventing another question.
-- Hidden status: from Doctor turn 2 on, the Doctor appends one STATUS line (current option, open issue, unresolved
-  collaborator objection, whether another exchange could change the choice). It is cut from the reply before the reply
-  enters the dialogue, so the Agent, later Doctor turns, feedback, rubric generation, judges and evaluators never see it.
-- Halting (halt_reason): at Doctor turn r >= min_agent_turns + 1 the branch ends ('doctor_halt') only if the status
-  parses, no issue / objection / decision-changing exchange remains, the option is valid and unchanged since the previous
-  Doctor turn, and the latest Agent reply does not name a different option. Anything else continues. T_max is unchanged;
-  the normal FINAL prompt then records the answer. Halting sees only the visible dialogue state and the Doctor's status:
-  never gold, outcome, rubrics, rewards, other branches or the arm.
-- Optional stable_choice_no_objection_after_turns: from that Agent turn, stable valid choices with no collaborator
-  objection or contrary Agent option may also halt while open_issue / more_info remain. Absent by default, recorded
-  in the halting/protocol identity, and shared by training, reruns and evaluation.
-- Seeds: every Doctor call gets derive_seed(...) of its call identity (doctor_seed); the seed is sent to Ollama and is
-  part of the cache identity. Same seed rule for every arm. Results are reproducible only for the same Ollama version,
-  model digest, options and GPU execution; the call cache remains the record."""
+"""OpenAI Doctor discussion, private state, adaptive halting and final decisions.
+Seeds identify cached observations; OpenAI calls do not use a provider seed.
+"""
 from __future__ import annotations
-import json, os, queue, re, time, urllib.error, urllib.request
+import json, os, re, threading
 from typing import Callable, Optional
-from src.common import usage
-from src.common.retry import Retry
+_DOCTOR_API_CAPACITY = threading.BoundedSemaphore(50)
 from src.online_rl.integrated.continuation import derive_seed
 from src.online_rl.integrated.records import sha256_json, sha256_text
 
@@ -174,32 +156,26 @@ def halt_reason(*, agent_turns: int, status: Optional[dict], prev_status: Option
 
 
 def doctor_seed(base_seed: int, key: str, role: str, index: int) -> int:
-    """Per-call Doctor seed from the existing rule derive_seed(run_seed, key, role, index), in Ollama's int range."""
+    """Per-call Doctor seed from the existing rule derive_seed(run_seed, key, role, index), in the cache identity range."""
     return derive_seed(base_seed, key, role, index) % SEED_MOD
 
 
-def http_json(url: str, payload: Optional[dict], timeout: float) -> dict:
-    req = urllib.request.Request(url, data=None if payload is None else json.dumps(payload).encode(), method='GET' if payload is None else 'POST',
-                                 headers={'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=timeout) as r: return json.loads(r.read().decode())
-
-
 class DoctorUnavailable(RuntimeError):
-    """The local Doctor endpoint failed after its retry budget, or a reply would exceed the pinned context. The run stops
+    """The Doctor API failed or returned an invalid reply. The run stops
     and resumes from its caches."""
 
 
-class OllamaDoctor:
-    """Doctor protocol v2 on a local Ollama server. turn(...) -> {'raw', 'visible', 'status', 'status_error', 'seed'};
+class OpenAIDoctor:
+    """Doctor protocol v2 on OpenAI Responses. turn(...) -> {'raw', 'visible', 'status', 'status_error', 'seed'};
     final(...) -> text. .model / .protocol identify it in every cache key; .identity goes to the run manifest."""
     status_protocol = True
 
-    def __init__(self, backend: dict, halting: Optional[dict], system: str, max_tokens: int, http: Callable = http_json,
-                 sleep: Optional[Callable] = None, timeout_s: float = 600.0):
-        for k in ('engine', 'endpoint', 'model', 'model_digest', 'quantization', 'ollama_version', 'options'):
+    def __init__(self, backend: dict, halting: Optional[dict], system: str, max_tokens: int):
+        for k in ('engine', 'model', 'options'):
             if not backend.get(k): raise ValueError(f'rollout.doctor_backend.{k} is required')
-        if backend['engine'] != 'ollama': raise ValueError(f"unsupported Doctor engine {backend['engine']!r}")
-        self.backend, self.system, self.max_tokens, self.http, self.sleep, self.timeout_s = backend, system, max_tokens, http, sleep, timeout_s
+        if backend['engine'] != 'openai_direct' or backend['model'] != 'gpt-6-luna':
+            raise ValueError('Doctor requires OpenAI direct gpt-6-luna')
+        self.backend, self.system, self.max_tokens = backend, system, max_tokens
         self.private_state_protocol = backend.get('private_state_protocol')
         if self.private_state_protocol not in (None, PRIVATE_STATE_PROTOCOL):
             raise ValueError('Unknown Doctor private_state_protocol')
@@ -229,20 +205,20 @@ class OllamaDoctor:
         late = self.stable_choice_no_objection_after_turns
         if late is not None and (isinstance(late, bool) or not isinstance(late, int) or late < self.min_agent_turns):
             raise ValueError('stable_choice_no_objection_after_turns must be an integer >= min_agent_turns')
-        self.options = {**backend['options'], 'num_predict': max_tokens}
+        self.options = {**backend['options'], 'max_output_tokens': max_tokens}
         self.final_response = backend.get('final_response')
         if self.final_response is not None:
             if (self.final_response.get('mode') != 'label_only_v1' or
                 not isinstance(self.final_response.get('max_tokens'), int) or
                 isinstance(self.final_response['max_tokens'], bool) or self.final_response['max_tokens'] < 16):
                 raise ValueError('Doctor final_response needs label_only_v1 and an integer max_tokens >= 16')
-        # semantic identity: no endpoint / GPU (runtime provenance only, `self.endpoints`); identical workers share one protocol
-        self.identity = {'engine': 'ollama', 'api': 'ollama_native_chat', 'model': backend['model'],
-                         'model_digest': backend['model_digest'], 'quantization': backend['quantization'],
-                         'ollama_version': backend['ollama_version'], 'source_model': backend.get('source_model'), 'options': self.options,
-                         'seed_policy': 'derive_seed(base, key, role, index) mod 2^31-1', 'protocol_version': PROTOCOL_VERSION,
-                         'chat_format': 'single user turn: system + blank line + user (HF Gemma-3 template)',
-                         'system_sha256': sha256_text(system), 'turn_prompt_sha256': sha256_text(V2_OPENING + V2_TURN + FINAL_TURN + STATUS_INSTRUCTION),
+        # Semantic identity excludes runtime placement.
+        self.identity = {'engine': 'openai_direct', 'api': 'openai_responses',
+                         'model': backend['model'], 'options': self.options,
+                         'reasoning_effort': backend.get('reasoning_effort', 'none'),
+                         'seed_policy': 'cache identity only; no provider seed',
+                         'protocol_version': PROTOCOL_VERSION, 'system_sha256': sha256_text(system),
+                         'turn_prompt_sha256': sha256_text(V2_OPENING + V2_TURN + FINAL_TURN + STATUS_INSTRUCTION),
                          'halting': self.halting}
         if profile is not None:
             self.identity.update(discussion_prompt_profile=profile, turn_prompt_sha256=compact.prompt_sha256())
@@ -260,73 +236,39 @@ class OllamaDoctor:
                 'instruction_sha256': sha256_text(self.json_turn_instruction), 'format_error_retries': 1}
             if self.discussion_response_format == JSON_TURN_PROTOCOL:
                 self.identity['structured_turn']['confidence_resolution'] = 0.01
-        self.model = f"ollama/{backend['model']}@{backend['model_digest'][:12]}"
+        self.model = backend['model']
         self.protocol = sha256_json(self.identity)
-        env = os.environ.get('SHERPA_DOCTOR_ENDPOINTS')              # runtime pool of identical workers (comma-separated)
-        self.endpoints = [e.strip() for e in env.split(',') if e.strip()] if env else list(backend.get('runtime_endpoints') or [backend['endpoint']])
-        self._free: queue.Queue = queue.Queue()
-        for e in self.endpoints: self._free.put(e)
 
     def halts(self) -> bool: return bool(self.halting.get('enabled'))
 
-    def _chat(self, user: str, seed: int, max_tokens: Optional[int] = None, system_override: Optional[str] = None,
-              format_schema: Optional[dict] = None) -> str:
-        from src.common.live_gpu import activity
-        if system_override is not None and (not isinstance(system_override, str) or not system_override.strip()):
-            raise ValueError('Doctor system_override must be a non-empty string')
-        system = self.system if system_override is None else system_override
-        payload = {'model': self.backend['model'], 'stream': False, 'keep_alive': -1, 'options': {**self.options, 'seed': int(seed)},
-                   # Gemma has no system role: the HF chat template folds the system prompt into the first user turn as
-                   # system + blank line + user. Sending that single user message reproduces it (Ollama's own template would
-                   # render a system message as a separate user turn).
-                   'messages': [{'role': 'user', 'content': f'{system}\n\n{user}'}]}
-        if max_tokens is not None:
-            payload['options']['num_predict'] = max_tokens
-        # Per-call only: a reflection's schema never persists into discussion or FINAL.
-        if format_schema is not None:
-            payload['format'] = format_schema
-        retry = Retry(f"Ollama {self.backend['model']}", sleep=self.sleep)
-        started = None; request_seconds = 0.0; retry_wait_seconds = 0.0
-        request_started = None
-        while True:
-            try:
-                with activity('doctor_queue_wait'):
-                    endpoint = self._free.get()                              # one request per worker at a time
-                try:
-                    with activity('doctor_generate'):
-                        if started is None: started=time.monotonic()
-                        request_started=time.monotonic()
-                        body = self.http(endpoint.rstrip('/') + '/api/chat', payload, self.timeout_s)
-                        request_seconds += time.monotonic()-request_started
-                        request_started=None
-                finally: self._free.put(endpoint)
-                break
-            except urllib.error.HTTPError as e:
-                if request_started is not None:
-                    request_seconds += time.monotonic()-request_started;request_started=None
-                text = e.read().decode('utf-8', errors='replace') if e.fp is not None else ''
-                if e.code < 500:
-                    raise DoctorUnavailable(f"local Doctor HTTP {e.code}: {text[:300]}") from e
-                wait_started=time.monotonic();should_retry=retry.wait('transient', f'HTTP {e.code} {text[:300]}')
-                retry_wait_seconds += time.monotonic()-wait_started
-                if not should_retry: raise DoctorUnavailable(f"local Doctor HTTP {e.code}: {text[:300]}") from e
-            except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
-                if request_started is not None:
-                    request_seconds += time.monotonic()-request_started;request_started=None
-                wait_started=time.monotonic();should_retry=retry.wait('transient', f'{type(e).__name__}: {str(e)[:200]}')
-                retry_wait_seconds += time.monotonic()-wait_started
-                if not should_retry:
-                    raise DoctorUnavailable(f"local Doctor unreachable at {self.endpoints}: {e}") from e
-        if body.get('error'): raise DoctorUnavailable(f"local Doctor error: {str(body['error'])[:300]}")
-        n_in, n_out = body.get('prompt_eval_count') or 0, body.get('eval_count') or 0
-        if n_in + n_out >= self.options['num_ctx']:
-            raise DoctorUnavailable(f'Doctor context full ({n_in} + {n_out} >= num_ctx {self.options["num_ctx"]}): the reply may be truncated')
-        text = ((body.get('message') or {}).get('content') or '').strip()
-        if not text: raise DoctorUnavailable('local Doctor returned an empty reply')
-        usage.record('collaboration', self.model, {'prompt_tokens': n_in, 'completion_tokens': n_out, 'cost': 0.0}, retry.attempts,
-                     latency_seconds=time.monotonic()-(started or time.monotonic()), request_seconds=request_seconds,
-                     retry_wait_seconds=retry_wait_seconds)
-        retry.succeeded(); return text
+    def _chat(self, user, seed, max_tokens=None, system_override=None, format_schema=None):
+        from src.common.api_slots import lease
+        from src.common.usage import event
+        import time
+        from src.online_rl.tree.openai_direct import responses_json
+        key = os.environ.get('OPENAI_API_KEY', '')
+        if not key:
+            from scripts.online_rl.run_tree import load_key
+            key = load_key({'api_provider': 'openai_direct'})
+        settings = {'max_tokens': self.max_tokens if max_tokens is None else max_tokens,
+                    'temperature': self.options.get('temperature'),
+                    'reasoning_effort': self.backend.get('reasoning_effort', 'none'),
+                    'response_format': 'json_schema_strict' if format_schema is not None else None}
+        started = time.perf_counter()
+        try:
+            with _DOCTOR_API_CAPACITY, lease(self.model, slot_name='doctor'):
+                raw, _ = responses_json(key, self.model, self.system if system_override is None else system_override,
+                                        user, settings, format_schema, 'doctor_response', 'doctor')
+            event('api_call_completed', model=self.model, role='doctor', seconds=time.perf_counter() - started)
+        except Exception as exc:
+            event('api_call_failed', model=self.model, role='doctor', error_type=type(exc).__name__,
+                  seconds=time.perf_counter() - started)
+            raise
+        return raw
+
+    def verify(self, require_loaded=False):
+        return {'problems': [], 'engine': 'openai_direct', 'model': self.model}
+
 
     def turn(self, case: dict, dialogue: list[dict], round_: int, rounds: int, seed: int) -> dict:
         if self.discussion_response_format:
@@ -354,8 +296,7 @@ class OllamaDoctor:
         choice = {'type': 'string', 'enum': labels}
         confidence_schema = {'type': 'number', 'minimum': 0, 'maximum': 1}
         if self.discussion_response_format == JSON_TURN_PROTOCOL:
-            # Ollama grammar does not enforce numeric minimum/maximum. Enum
-            # constrains decoding itself; do not clamp or rescale reported belief.
+            # Enum constrains confidence to the configured resolution; do not clamp or rescale reported belief.
             confidence_schema['enum'] = [index / 100 for index in range(101)]
         private_schema = obj({'current_option': choice, 'hypothesis': {'type': 'string', 'minLength': 1},
                               'confidence': confidence_schema})
@@ -414,38 +355,6 @@ class OllamaDoctor:
                            min_agent_turns=self.min_agent_turns,
                            stable_choice_no_objection_after_turns=self.stable_choice_no_objection_after_turns)
 
-    def verify(self, require_loaded: bool = False) -> dict:
-        """Every worker endpoint: server version and model digest must equal the pinned ones; with require_loaded, the model
-        must be fully in VRAM."""
-        problems, out = [], {'endpoints': {}}
-        for base in (e.rstrip('/') for e in self.endpoints):
-            ver = self.http(base + '/api/version', None, 30).get('version')
-            m = {x['name']: x for x in self.http(base + '/api/tags', None, 30).get('models', [])}.get(self.backend['model'])
-            p = []
-            if ver != self.backend['ollama_version']: p.append(f"{base}: Ollama version {ver} != pinned {self.backend['ollama_version']}")
-            if m is None: p.append(f"{base}: model {self.backend['model']} is not present")
-            elif m.get('digest') != self.backend['model_digest']: p.append(f"{base}: model digest {m.get('digest')} != pinned {self.backend['model_digest']}")
-            info = {'version': ver, 'digest': m and m.get('digest')}
-            if require_loaded and not p:
-                ps = {x['name']: x for x in self.http(base + '/api/ps', None, 30).get('models', [])}.get(self.backend['model'])
-                if ps is None: p.append(f'{base}: model is not loaded')
-                elif ps.get('size_vram') != ps.get('size'): p.append(f"{base}: model partly on CPU: size_vram {ps.get('size_vram')} of {ps.get('size')}")
-                info['loaded'] = ps and {k: ps.get(k) for k in ('size', 'size_vram', 'context_length')}
-            out['endpoints'][base] = info; problems += p
-        first = next(iter(out['endpoints'].values()))
-        return {**out, 'version': first['version'], 'digest': first['digest'], 'loaded': first.get('loaded'), 'problems': problems}
-
-
 def make_doctor(rollout: dict, system: str):
-    """The protocol-v2 Doctor for a config with rollout.doctor_backend, else None (legacy OpenRouter Doctor)."""
-    b = rollout.get('doctor_backend')
-    return OllamaDoctor(b, rollout.get('halting'), system, rollout['max_tokens_doctor']) if b else None
-
-
-def wait_ready(doctor: OllamaDoctor, timeout_s: float = 120.0) -> dict:
-    t0 = time.time()
-    while True:
-        try: return doctor.verify()
-        except (urllib.error.URLError, OSError):
-            if time.time() - t0 > timeout_s: raise
-            time.sleep(2)
+    """Build the OpenAI Doctor shared by rollout, reruns and evaluation."""
+    return OpenAIDoctor(rollout['doctor_backend'], rollout.get('halting'), system, rollout['max_tokens_doctor'])

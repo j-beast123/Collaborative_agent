@@ -1,26 +1,10 @@
 {
-  "extends": "configs/online_rubric_only_openai20.json",
-  "rubric": {
-    "cumulative_bank": {
-      "trajectory_streaming": true
-    }
-  },
-  "experiment": {
-    "output_root": "outputs/train120_online_rubric_only_trajectory_stream_reference13",
-    "run_label": "doctor_v2_rubric_stream8"
-  },
-  "five_gpu": {
-    "doctor_urls": [
-      "http://127.0.0.1:11975",
-      "http://127.0.0.1:11977"
-    ],
-    "doctor_replica_urls": [
-      [
-        "http://127.0.0.1:11976"
-      ],
-      [
-        "http://127.0.0.1:11978"
-      ]
-    ]
+  "extends": "configs/sherpa.json",
+  "output_dir": "outputs/sherpa_trajectory_v1/online_rubric_only_trajectory_stream",
+  "judges": {
+    "scorer_model": "gpt-6-luna",
+    "scorer_max_tokens": 16384,
+    "api_provider": "openai_direct",
+    "execution_retry_attempts": 1
   }
 }

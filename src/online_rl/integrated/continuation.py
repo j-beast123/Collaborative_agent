@@ -32,36 +32,26 @@ def in_baseline(mode: str, fraction: float, run_seed: int, state_key: str) -> bo
 def protocol_sha256(cfg: dict, root: Path) -> str:
     from src.online_rl.tree.rollout import ROLLOUT_BUDGETS
     ro = cfg['rollout']
-    budget = ro.get('budget', 'full_tree')
+    budget = ro.get('budget', 'initial_fanout')
     if budget not in ROLLOUT_BUDGETS: raise ValueError(f'unknown rollout.budget {budget!r}')
     from src.online_rl.tree.group_learning import enabled as group_enabled, identity as group_identity
     if group_enabled(cfg):
-        from src.online_rl.doctor import OllamaDoctor
+        from src.online_rl.doctor import OpenAIDoctor
         if cfg.get('rollout_protocol_sha256_override') is not None:
             raise ValueError('Group SHERPA cannot import a legacy rollout protocol override')
         return sha256_json({'base_model': cfg['policy']['base_model'],
             'rollout': {key: ro.get(key) for key in ('rounds', 'budget', 'branching', 'max_tokens_doctor',
                 'max_completion_length', 'temperature', 'top_p', 'top_k', 'agent_protocol', 'agent_sampling_protocol', 'halting')},
             'agent_prompt': sha256_text((root / ro.get('agent_system_prompt_file', 'prompts/agent.txt')).read_text()),
-            'partner': OllamaDoctor(ro['doctor_backend'], ro['halting'],
+            'partner': OpenAIDoctor(ro['doctor_backend'], ro['halting'],
                 (root / ro['doctor_system_prompt_file']).read_text(), ro['max_tokens_doctor']).protocol,
             'group_learning': group_identity(cfg)})
-    # Explicitly approved pre-commit transitions can change post-rollout training
-    # protocols while retaining the identical frozen dialogue-tree cache identity.
-    # The full config hash still binds the run/checkpoint to the new protocol.
-    override=cfg.get('rollout_protocol_sha256_override')
-    if override is not None:
-        if not isinstance(override,str) or len(override)!=64 or any(c not in '0123456789abcdef' for c in override):
-            raise ValueError('rollout_protocol_sha256_override must be a lowercase SHA256 hex digest')
-        return (sha256_json({'base': override, 'rollout_budget': {'protocol': 'reference_spine_v1', 'branching': ro['branching']}})
-                if budget != 'full_tree' else override)
     from src.online_rl.tree.effectiveness import RERUN_OUTCOME_POLICY
     out = {'base_model': cfg['policy']['base_model'],
            'rollout': {k: ro[k] for k in ('rounds', 'doctor_model', 'max_tokens_doctor', 'max_completion_length', 'temperature', 'top_p', 'top_k')},
            'agent_prompt': sha256_text((root / ro.get('agent_system_prompt_file', 'prompts/agent.txt')).read_text()),
            'doctor_prompt': sha256_text(doctor_system := (root / ro.get('doctor_system_prompt_file', 'prompts/user_simulator.txt')).read_text())}
-    if budget != 'full_tree':
-        out['rollout_budget'] = {'protocol': 'reference_spine_v1', 'branching': ro['branching']}
+    out['rollout_budget'] = {'protocol': 'initial_fanout_v1', 'branching': ro['branching']}
     if cfg.get('rubric', {}).get('enabled', True):
         if cfg.get('rubric', {}).get('cumulative_bank') is not None:
             from src.online_rl.tree.cumulative_run import config_identity
@@ -93,8 +83,8 @@ def protocol_sha256(cfg: dict, root: Path) -> str:
         if ro['agent_sampling_protocol']!=PROTOCOL:raise ValueError('Unknown Agent batch sampling protocol')
         out['agent_sampling_protocol']=PROTOCOL
     if ro.get('doctor_backend'):                       # local Doctor protocol v2 (src/online_rl/doctor.py): backend, prompts, seeds, halting
-        from src.online_rl.doctor import OllamaDoctor
-        out['doctor'] = OllamaDoctor(ro['doctor_backend'], ro.get('halting'), doctor_system, ro['max_tokens_doctor']).protocol
+        from src.online_rl.doctor import OpenAIDoctor
+        out['doctor'] = OpenAIDoctor(ro['doctor_backend'], ro.get('halting'), doctor_system, ro['max_tokens_doctor']).protocol
     method = {k: v for k, v in (('verification', cfg.get('verification')),
                                 ('r_a_weighting', (cfg.get('agent_reward') or {}).get('r_a_weighting')),
                                 ('feedback_behavioral_locus', (cfg.get('feedback') or {}).get('behavioral_locus')),

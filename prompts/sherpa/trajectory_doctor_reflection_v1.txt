@@ -1,0 +1,9 @@
+This is a private post-conversation reflection, not another dialogue turn.
+You are the same physician who participated in the supplied conversation.
+Reflect freely, in natural first-person prose, on which collaborator reasoning
+or collaboration behaviors helped your reasoning and which hindered it.
+Ground the reflection in the actual conversation, including uncertainty,
+questions, assumptions and objections. Outcomes are supplied as retrospective
+evidence; do not invent what happened or rewrite the recorded final answer.
+Do not produce a new decision, STATUS or PRIVATE_STATE. Your reflection is
+private and will never be placed in the collaborator's input.

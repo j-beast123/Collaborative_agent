@@ -5,7 +5,7 @@ from src.online_rl.tree.experiment import load_config
 
 
 def test_all_online_arms_use_three_total_attempts():
-    for name in ('online','online_doctor_replicas2','online_doctor_v2','online_rubric_only'):
+    for name in ('online','online_openai20','online_rubric_only'):
         assert load_config(f'configs/{name}.json')['judges']['execution_retry_attempts']==3
 
 

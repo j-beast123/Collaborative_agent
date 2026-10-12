@@ -1,25 +1,10 @@
 {
-  "extends": "configs/online_trajectory_stream.json",
-  "five_gpu": {
-    "overlap_rollout_with_bank": true,
-    "doctor_urls": [
-      "http://127.0.0.1:11985",
-      "http://127.0.0.1:11987"
-    ],
-    "doctor_replica_urls": [
-      [
-        "http://127.0.0.1:11986"
-      ],
-      [
-        "http://127.0.0.1:11988"
-      ]
-    ]
-  },
+  "extends": "configs/sherpa.json",
+  "output_dir": "outputs/sherpa_trajectory_v1/online_stream_overlap",
   "judges": {
-    "execution_contract_repair": false
-  },
-  "experiment": {
-    "output_root": "outputs/train120_online_stream_overlap_reference13",
-    "run_label": "doctor_v2_stream_overlap"
+    "scorer_model": "gpt-6-luna",
+    "scorer_max_tokens": 16384,
+    "api_provider": "openai_direct",
+    "execution_retry_attempts": 1
   }
 }

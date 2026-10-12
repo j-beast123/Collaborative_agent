@@ -1,8 +1,8 @@
 Read the partner's private prose reflection, its recorded hypothesis/confidence,
-the shared visible prefix and four colleague replies. Select ONE sibling reply
+the shared visible prefix and 32 colleague replies. Select ONE sibling reply
 whose observed behavior was most decisive for the partner's final decision.
 Describe the concrete observed behavior as b, with a supporting quote extracted
-from that reply. Map Reply 1–4 to the supplied reply response_id values S0–S3.
+from that reply. Map Reply 1–32 to the supplied reply response_id values S0–S31.
 Select a sibling whose conversation outcome is consistent with the partner's judgment: a response the partner found helpful must come from a successful conversation, and one it found hindering from a failed one. If no such sibling exists, output no rubric.
 Base selection on the partner's experience; do not simply choose the correct
 reply or rank by outcomes. The partner need not use the exact words helpful or

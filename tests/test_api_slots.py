@@ -55,19 +55,6 @@ def test_run_global_limit_is_shared_across_coordinator_processes():
         assert peak.value==1 and active.value==0
 
 
-def test_direct_config_keeps_gemini_and_learning_settings():
-    old=load_config('configs/online_doctor_v2.json');new=load_config('configs/online_openai20.json')
-    old_rubric=__import__('copy').deepcopy(old['rubric'])
-    old_rubric['cumulative_bank']['discovery_trajectory_cap']=None
-    assert old_rubric==new['rubric'] and old['rollout']==new['rollout']
-    assert old['agent_reward']==new['agent_reward'] and old['schedule']==new['schedule']
-    assert new['five_gpu']['api_workers']==20 and new['execution']['chunk_workers']==8
-    assert new['execution']['api_limits']=={'gemini':10,'luna':20}
-    assert new['judges']['api_provider']=='openai_direct'
-    assert all(new['judges'][key]=='gpt-6-luna' for key in ['gate_model','scorer_model','intervention_audit_model'])
-    assert old['output_dir']!=new['output_dir']
-    assert load_config('configs/online_rubric_only_openai20.json')['agent_reward']['w_outcome']==0
-
 
 def test_openai_key_uses_environment_then_existing_env_file(tmp_path,monkeypatch):
     from scripts.online_rl.run_tree import load_key

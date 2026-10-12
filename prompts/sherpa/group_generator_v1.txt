@@ -5,7 +5,7 @@ Proceed even when all sibling outcomes are identical. Do not create a candidate
 unless the reflection identifies its source response and observed behavior.
 A helpful candidate must use a successful source (outcome=1); a harmful candidate
 must use a failed source (outcome=0). Unknown outcomes cannot anchor verification.
-For each candidate return name, kind (helpful|harmful), source_response_id (S0..S3),
+For each candidate return name, kind (helpful|harmful), source_response_id (S0..S31),
 state {partner, assistant}, criteria {0,1,2}, b, b_star, evidence_quote.
 b is the observed helpful (2-point endpoint) or harmful (0-point endpoint)
 behavior; b_star is the opposite endpoint and a concrete executable instruction

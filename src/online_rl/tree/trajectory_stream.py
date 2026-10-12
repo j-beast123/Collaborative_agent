@@ -358,7 +358,7 @@ class StreamingCase:
         nodes = {n.node_id: n for i in items for n in i[2]}
         ro = self.trainer.cfg['rollout']
         tree = Tree(self.case['case_id'], self.state.policy_sha256, ro['rounds'], ro['branching'], tuple(nodes.values()), leaves,
-                    ro.get('budget', 'full_tree'))
+                    ro.get('budget', 'initial_fanout'))
         tins = [freeze_trajectory_input(self.case, l, f, include_locus=self.trainer.source_consistency)
                 for l, f in zip(leaves, feedback)]
         input_identity = sha256_json({'case': self.plan_identity, 'tins': [to_dict(t) for t in tins],

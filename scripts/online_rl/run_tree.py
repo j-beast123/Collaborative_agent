@@ -105,9 +105,9 @@ def blockers(cfg: dict) -> list[str]:
             out.append('Visible-context rubric requires a checked behavioral locus')
     if cfg.get('feedback', {}).get('protocol') == 'physician_post_final_reflection_v1':
         backend = cfg.get('rollout', {}).get('doctor_backend') or {}
-        expected = f"ollama/{backend.get('model')}@{str(backend.get('model_digest', ''))[:12]}"
-        if backend.get('engine') != 'ollama' or cfg['feedback'].get('model') != expected:
-            out.append('Post-FINAL reflection must use the same pinned local Doctor as the dialogue')
+        expected = backend.get('model')
+        if backend.get('engine') != 'openai_direct' or cfg['feedback'].get('model') != expected:
+            out.append('Post-FINAL reflection must use the same OpenAI Doctor as the dialogue')
     return out + joint_protocol_problems(cfg) + gate_protocol_problems(cfg) + intervention_audit_problems(cfg) + public_criterion_problems(cfg)
 
 
@@ -415,15 +415,16 @@ def setup_problems(cfg: dict, config_path: str) -> list[str]:
         if not (cfg.get(sec) or {}).get(k): out.append(f'missing {sec}.{k}')
     ro = cfg.get('rollout') or {}
     from src.online_rl.tree.rollout import ROLLOUT_BUDGETS
-    if ro.get('budget', 'full_tree') not in ROLLOUT_BUDGETS:
+    if ro.get('budget', 'initial_fanout') not in ROLLOUT_BUDGETS:
         out.append(f'rollout.budget must be one of {ROLLOUT_BUDGETS}')
     if ro.get('doctor_system_prompt_file') and file_sha(ro['doctor_system_prompt_file']) != ro.get('doctor_system_prompt_sha256'):
         out.append('rollout.doctor_system_prompt_file differs from rollout.doctor_system_prompt_sha256')
     if ro.get('doctor_backend'):
         b = ro['doctor_backend']
-        for k in ('engine', 'endpoint', 'model', 'model_digest', 'quantization', 'ollama_version', 'source_model', 'options'):
+        for k in ('engine', 'model', 'options'):
             if not b.get(k): out.append(f'missing rollout.doctor_backend.{k}')
-        if not str(ro.get('doctor_model', '')).startswith('ollama/'): out.append('rollout.doctor_model must name the local Doctor (ollama/<tag>@<digest>)')
+        if b.get('engine') != 'openai_direct' or b.get('model') != 'gpt-6-luna' or ro.get('doctor_model') != 'gpt-6-luna':
+            out.append('Doctor requires OpenAI direct gpt-6-luna')
         if not isinstance((ro.get('halting') or {}).get('enabled'), bool) or (ro.get('halting') or {}).get('min_agent_turns') not in (1, 2, 3):
             out.append('rollout.halting needs enabled (true/false) and min_agent_turns = 1, 2, or 3')
     rb = cfg.get('rubric') or {}
@@ -741,15 +742,14 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
     """Bind the existing components to the TreeTrainer interfaces. Policy rounds / Doctor model come from cfg['rollout']."""
     from src.online_rl.tree.group_learning import enabled
     if enabled(cfg):
-        from src.online_rl.tree.group_backends import build as build_groups
-        return build_groups(cfg, policy=policy, cases=cases, defer_update=defer_update)
+        raise RuntimeError('Trajectory-level SHERPA is coordinated by scripts/online_rl/run_sherpa.py')
     from src.collaboration.generator import final_answer_option, stop_reason
     from src.online_rl.cases import load_cases
     from src.online_rl.environment import final_outcome
     from src.online_rl.integrated.continuation import adapter_sha256, protocol_sha256
     from src.online_rl.integrated.grpo import make_updater
     from src.online_rl.integrated.prompt_search import sol_backend
-    from src.online_rl.tree.backends import (ApiDoctor, api_behavior_feedback, PolicyAgent, PolicyInterventions, RoleDoctor, api_rubric_matcher, generation_settings,
+    from src.online_rl.tree.backends import (api_behavior_feedback, PolicyAgent, PolicyInterventions, RoleDoctor, api_rubric_matcher, generation_settings,
                                              two_stage_structured_scorer, api_feedback, api_rubric_generator, posthoc_gates,
                                              two_stage_hard_scorer, two_stage_scorer)
     from src.online_rl.tree.team import team_strategies
@@ -788,7 +788,7 @@ def build(cfg: dict, *, policy=None, cases=None, defer_update: bool = False):
                              intervention_instruction_template=text(cfg['intervention']['instruction_template_file']) if cfg['intervention'].get('instruction_template_file') else None,
                              guided_protocol=cfg['intervention'].get('guided_protocol'),
                              agent_system=text(cfg['intervention']['agent_system_prompt_file']) if cfg['intervention'].get('agent_system_prompt_file') else None)
-    doctor = RoleDoctor(policy.doctor) if ro.get('doctor_backend') else ApiDoctor(key, ro['doctor_model'], policy.doctor_system, ro['max_tokens_doctor'])
+    doctor = RoleDoctor(policy.doctor)
     bank_matcher = None
     if cfg['rubric'].get('cumulative_bank'):
         from src.online_rl.tree.cumulative_bank import api_bank_matcher
@@ -911,6 +911,15 @@ def launch(cfg: dict, phase, max_cases=None) -> dict:
 
 
 def main(argv=None):
+    # Current configuration entrypoints use the explicit offline/train/evaluate runner.
+    from src.online_rl.tree.experiment import load_config
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    config_path = 'configs/sherpa.json'
+    if '--config' in arguments:
+        config_path = arguments[arguments.index('--config') + 1]
+    if load_config(config_path).get('pipeline_protocol') == 'sherpa_trajectory_checklist_v1':
+        from scripts.online_rl.run_sherpa import main as trajectory_main
+        return trajectory_main(arguments)
     a = argparse.ArgumentParser(); a.add_argument('--config', default='configs/online_rl/tree_v1.json'); a.add_argument('--launch', action='store_true')
     a.add_argument('--phase', choices=['A', 'B']); a.add_argument('--condition', choices=['outcome_only', 'rubric_only', 'fixed', 'evolving'])
     a.add_argument('--max-cases', type=int, help='stop after this many more cases (a due milestone evaluation still runs first)'); x = a.parse_args(argv)

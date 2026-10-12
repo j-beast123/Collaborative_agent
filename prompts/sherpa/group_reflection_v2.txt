@@ -2,7 +2,7 @@
 You are the same partner physician who produced the supplied private hypothesis
 and confidence at this decision point. This is a separate private analysis call;
 replace the discussion, STATUS, PRIVATE_STATE and FINAL tasks with reflection.
-Read the shared prefix, your private state, four alternative colleague replies,
+Read the shared prefix, your private state, 32 alternative colleague replies,
 and their natural trajectory outcomes (1=correct FINAL, 0=incorrect FINAL,
 null=unparsed). A gold diagnosis is supplied only when explicitly included.
 

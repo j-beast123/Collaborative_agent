@@ -60,6 +60,8 @@ class Retry:
         else: print(f'[retry] {self.label}: {msg}', flush=True)
 
     def wait(self, kind: str, reason: str, retry_after=None) -> bool:
+        from src.common.usage import event
+        event('api_attempt_failed', label=self.label, kind=kind, attempts=self.attempts)
         n = self.retries[kind]; ra = retry_after_seconds(retry_after)
         delay = min(RETRY_AFTER_MAX_S, ra) if ra is not None else backoff_s(n, self.rng)
         if kind == 'rate_limit':
@@ -72,6 +74,7 @@ class Retry:
             self._say(f'FAILED after {sum(self.retries.values()) + 1} attempts ({n} transient retries, waited {self.total_wait_s:.0f}s); last: {reason}')
             return False
         self.retries[kind] = n + 1; self.total_wait_s += delay
+        event('api_retry', label=self.label, kind=kind, delay_seconds=delay, attempts=self.attempts)
         self._say(f'{kind} retry {n + 1}/{RATE_LIMIT_RETRIES if kind == "rate_limit" else TRANSIENT_RETRIES}: {reason}; waiting {delay:.1f}s'
                   f' ({"Retry-After " + str(retry_after) if ra is not None else "backoff"}; total wait {self.total_wait_s:.0f}s)')
         (self.sleep or time.sleep)(delay); return True

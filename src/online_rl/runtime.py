@@ -53,7 +53,7 @@ class SharedPolicy:
         self.agent_system = (ROOT / ro.get('agent_system_prompt_file', 'prompts/agent.txt')).read_text()
         self.doctor_system = (ROOT / ro.get('doctor_system_prompt_file', 'prompts/user_simulator.txt')).read_text()
         from src.online_rl.doctor import make_doctor
-        self.doctor = make_doctor(ro, self.doctor_system)              # None: legacy OpenRouter Doctor
+        self.doctor = make_doctor(ro, self.doctor_system)
         import threading; self.gen_lock = threading.RLock()            # one generation at a time on the shared model
         self.precommit = ro.get('agent_protocol') == 'precommit_v1'
         if ro.get('agent_protocol') not in (None, 'precommit_v1'): raise ValueError(f"unknown rollout.agent_protocol {ro['agent_protocol']!r}")

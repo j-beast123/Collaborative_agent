@@ -1,26 +1,10 @@
 {
-  "extends": "configs/online_rubric_only_stream_overlap.json",
-  "rubric": {
-    "cumulative_bank": {
-      "parallel_bank_processing": true
-    }
-  },
-  "experiment": {
-    "output_root": "outputs/train120_online_rubric_only_parallel_bank_reference13",
-    "run_label": "doctor_v2_rubric_parallelbank"
-  },
-  "five_gpu": {
-    "doctor_urls": [
-      "http://127.0.0.1:11995",
-      "http://127.0.0.1:11997"
-    ],
-    "doctor_replica_urls": [
-      [
-        "http://127.0.0.1:11996"
-      ],
-      [
-        "http://127.0.0.1:11998"
-      ]
-    ]
+  "extends": "configs/sherpa.json",
+  "output_dir": "outputs/sherpa_trajectory_v1/online_rubric_only_parallel_bank",
+  "judges": {
+    "scorer_model": "gpt-6-luna",
+    "scorer_max_tokens": 16384,
+    "api_provider": "openai_direct",
+    "execution_retry_attempts": 1
   }
 }

@@ -1,6 +1,5 @@
 """Check local assets and CUDA without loading model weights, calling APIs or starting servers."""
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -30,16 +29,7 @@ def check(cfg):
     index = snapshot/'model.safetensors.index.json'
     weights = set(json.loads(index.read_text())['weight_map'].values()) if index.exists() else {'model.safetensors'}
     assert all((snapshot/name).is_file() for name in weights), 'Model weight shards missing'
-    binary = Path(os.environ['SHERPA_OLLAMA_BINARY'])
-    assert binary.is_file() and os.access(binary, os.X_OK), 'Ollama executable missing'
-    backend = cfg['rollout']['doctor_backend']
-    model, tag = backend['model'].split(':', 1)
-    models = Path(os.environ['SHERPA_OLLAMA_MODELS'])
-    manifest = models/'manifests/registry.ollama.ai/library'/model/tag
-    assert hashlib.sha256(manifest.read_bytes()).hexdigest() == backend['model_digest'], 'Doctor model digest differs'
-    data = json.loads(manifest.read_text())
-    blobs = [data['config'], *data['layers']]
-    assert all((models/'blobs'/row['digest'].replace(':', '-')).is_file() for row in blobs), 'Doctor model blobs missing'
+    assert load_key({'api_provider': 'openai_direct'}).strip(), 'OpenAI credential is missing'
     return {'local_assets': 'ready', 'credential': 'present', 'visible_gpus': count,
             'torch': torch.__version__, 'transformers': transformers.__version__, 'peft': peft.__version__,
             'model_weights_loaded': False, 'api_requests': 0, 'servers_started': False}

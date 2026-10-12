@@ -27,7 +27,6 @@ def main():
     from src.online_rl.integrated.continuation import protocol_sha256
     from src.online_rl.tree import five_gpu_worker as worker
     from scripts.online_rl.run_tree import load_key
-    from scripts.online_rl.start_five_gpu_doctors import start as start_doctors
     from src.common.checkpoint_hub import file_digest
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='configs/group_shared.json')
@@ -65,11 +64,8 @@ def main():
         local = copy.deepcopy(cfg)
         local['output_dir'] = str(home)
         local['checkpoint_upload'] = {'enabled': False}
-        local['five_gpu']['doctor_urls'] = ['http://127.0.0.1:12125','http://127.0.0.1:12127']
-        local['five_gpu']['doctor_replica_urls'] = [['http://127.0.0.1:12126'],['http://127.0.0.1:12128']]
         if protocol_sha256(local, ROOT) != protocol_sha256(cfg, ROOT):
             raise RuntimeError('Remote placement changed the research protocol')
-        start_doctors(local)
         record_runtime(home, local)
         key = load_key(local)
         context = multiprocessing.get_context('spawn')

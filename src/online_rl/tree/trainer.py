@@ -42,8 +42,7 @@ def feedback_failure_policy(cfg: dict) -> Optional[str]:
 def model_roles(cfg: dict) -> dict:
     """Provider model id of every pipeline role (provenance)."""
     r, j, pu = cfg.get('rubric', {}), cfg.get('judges', {}), cfg.get('prompt_update', {})
-    b = cfg.get('rollout', {}).get('doctor_backend')
-    doctor = cfg.get('rollout', {}).get('doctor_model') if not b else f"{b['model']} ({b['engine']} {b['ollama_version']}, {b['quantization']}, digest {b['model_digest']}; source {b.get('source_model')})"
+    doctor = cfg.get('rollout', {}).get('doctor_model')
     roles = {'doctor': doctor, 'agent': f"{cfg.get('policy', {}).get('base_model')} + LoRA (local)",
             'feedback_generator': (cfg.get('feedback') or {}).get('model'), 'rubric_generator': r.get('generator_model'),
             'rubric_gate': j.get('gate_model'), 'rubric_scorer': j.get('scorer_model'),
@@ -319,7 +318,7 @@ class TreeTrainer:
                           protocol_sha256=self.protocol_sha, agent=e.agent, doctor=e.doctor, stop_rule=e.stop_rule, final_option=e.final_option,
                           outcome_fn=e.outcome_fn, cache=self.cache, behavior_logprobs=e.behavior_logprobs, workers=self.doctor_workers,
                           opening=getattr(e, 'opening', None), agent_workers=self.agent_workers,on_leaf=on_leaf,on_leaf_nodes=on_leaf_nodes,
-                          repeat_agent_reply_after_turns=ro.get('halting',{}).get('repeat_agent_reply_after_turns'), budget=ro.get('budget', 'full_tree'))
+                          repeat_agent_reply_after_turns=ro.get('halting',{}).get('repeat_agent_reply_after_turns'), budget=ro.get('budget', 'initial_fanout'))
             if self.rubric_on and rollout_only != 'no_feedback' and (cfg.get('five_gpu') or {}).get('execution_mode') == 'shared_ready_tasks_v1':
                 from concurrent.futures import ThreadPoolExecutor
                 from threading import Lock

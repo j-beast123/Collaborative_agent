@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 
@@ -68,7 +69,7 @@ def _output_text(body: dict) -> str:
 
 
 def responses_json(key: str, model: str, system: str, user: str, settings: dict,
-                   schema: dict, name: str, role: str) -> tuple[str, dict]:
+                   schema: dict | None, name: str, role: str) -> tuple[str, dict]:
     """Return raw output text and an auditable, secret-free request/response envelope.
 
     For reasoning effort other than ``none``, OpenAI does not accept temperature.
@@ -97,7 +98,7 @@ def responses_json(key: str, model: str, system: str, user: str, settings: dict,
     if settings.get('response_format') == 'json_schema_strict':
         payload['text'] = {'format': {'type': 'json_schema', 'name': name,
                                       'strict': True, 'schema': _provider_schema(schema)}}
-    else:
+    elif schema is not None:
         # The prompt itself asks for JSON. JSON mode preserves the legacy
         # locally-validated response shape when a provider schema is not pinned.
         payload['text'] = {'format': {'type': 'json_object'}}
@@ -106,6 +107,7 @@ def responses_json(key: str, model: str, system: str, user: str, settings: dict,
         headers={'Authorization': 'Bearer ' + key.strip(), 'Content-Type': 'application/json'},
         method='POST')
     retry = _retry.Retry(f'OpenAI {model} {role}')
+    started = time.perf_counter()
     while True:
         try:
             with urllib.request.urlopen(request, timeout=180) as response:
@@ -115,7 +117,9 @@ def responses_json(key: str, model: str, system: str, user: str, settings: dict,
             usage = body.get('usage') or {}
             ledger_usage = {'prompt_tokens': usage.get('input_tokens'),
                             'completion_tokens': usage.get('output_tokens')}
-            api_usage.record('collaboration', body.get('model', model), ledger_usage, retry.attempts)
+            api_usage.record('collaboration', body.get('model', model), ledger_usage, retry.attempts,
+                             latency_seconds=time.perf_counter() - started,
+                             retry_wait_seconds=retry.total_wait_s)
             meta = {'api_provider': 'openai_direct', 'endpoint': RESPONSES_URL,
                     'request': payload, 'response': body,
                     'response_id': body.get('id'), 'model': body.get('model'),

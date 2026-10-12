@@ -54,7 +54,7 @@ class Tree:
     branching: int
     nodes: tuple[AgentNode, ...]
     leaves: tuple[Leaf, ...]
-    rollout_budget: str = 'full_tree'
+    rollout_budget: str = 'initial_fanout'
 
 
 @dataclass(frozen=True)

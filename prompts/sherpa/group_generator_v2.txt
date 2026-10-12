@@ -1,5 +1,5 @@
 Read the partner's private comparative reflection, the shared visible prefix,
-the recorded hypothesis/confidence and four colleague replies. The reflection
+the recorded hypothesis/confidence and 32 colleague replies. The reflection
 is natural prose inside the reflection field. You own JSON structuring, mapping
 the partner's "Reply 1" through "Reply 4" labels to supplied source_response_id
 values, and extracting quotations from the actual replies. Reply labels are not
@@ -24,7 +24,7 @@ Proceed even when all sibling outcomes are identical. A helpful candidate must
 use a successful source (outcome=1); a harmful candidate must use a failed source
 (outcome=0). Unknown outcomes cannot anchor verification. Return no candidate
 if the partner did not describe a relevant observed behavior and usable source.
-Each candidate has name, kind (helpful|harmful), source_response_id (S0..S3),
+Each candidate has name, kind (helpful|harmful), source_response_id (S0..S31),
 state {partner, assistant}, criteria {0,1,2}, b, b_star, evidence_quote.
 State describes the partner's hypothesis and uncertainty at this point and the
 assistant's visible context. b is the observed helpful (2-point endpoint) or

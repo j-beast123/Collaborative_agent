@@ -6,8 +6,8 @@ _slots = {}
 
 
 def create(limits, manager=None):
-    if not isinstance(limits, dict) or set(limits) - {'gemini', 'luna'}:
-        raise ValueError('API limits must map gemini/luna to positive integer capacities')
+    if not isinstance(limits, dict) or set(limits) - {'gemini', 'luna', 'doctor'}:
+        raise ValueError('API limits must map gemini/luna/doctor to positive integer capacities')
     for name, capacity in limits.items():
         if type(capacity) is not int or capacity < 1:
             raise ValueError(f'Invalid API capacity for {name}')
@@ -28,8 +28,8 @@ def family(model):
 
 
 @contextmanager
-def lease(model):
-    name = family(model)
+def lease(model, *, slot_name=None):
+    name = slot_name or family(model)
     slot = _slots.get(name)
     if slot is None:
         yield

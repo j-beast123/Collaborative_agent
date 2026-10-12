@@ -19,7 +19,6 @@ def initialize(cfg, worker, key, pool_spec=None, existing_policy=None):
         from src.online_rl.tree.devices import physical_gpus, gpu_count
         os.environ['CUDA_VISIBLE_DEVICES'] = physical_gpus(count=gpu_count(cfg))[worker]
     os.environ['SHERPA_AGENT_REPLICAS'] = '1'
-    os.environ.pop('SHERPA_DOCTOR_ENDPOINTS', None)
     if cfg.get('api_provider') == 'openai_direct':
         os.environ['OPENAI_API_KEY'] = key
         os.environ.pop('OPENROUTER_API_KEY', None)
@@ -36,8 +35,6 @@ def initialize(cfg, worker, key, pool_spec=None, existing_policy=None):
     _CFG['output_dir'] = str((ROOT/cfg['output_dir']).resolve())
     from src.common.live_gpu import configure, activity, note
     configure(_CFG['output_dir'],worker)
-    from src.online_rl.tree.doctor_replicas import bind_backend, bind_queue
-    bind_backend(_CFG, worker)
     from src.online_rl.runtime import SharedPolicy
     from src.online_rl.tree.five_gpu import cache_openings
     if existing_policy is None:
@@ -51,10 +48,9 @@ def initialize(cfg, worker, key, pool_spec=None, existing_policy=None):
     _POLICY.seed_all = lambda seed: None
     # Execution-only request capacity is independent of the number of training cases.
     concurrency=int(os.environ.get('SHERPA_DOCTOR_CONCURRENCY',cfg['five_gpu'].get('doctor_concurrency',cfg['five_gpu']['lanes_per_gpu'])))
-    if concurrency not in (1,2,4,8):raise ValueError('Doctor concurrency must be 1, 2, 4 or 8')
+    if concurrency != 50: raise ValueError('Doctor concurrency must be 50')
     _CFG.setdefault('execution',{})['doctor_workers']=concurrency
     _CFG['execution']['agent_workers']=int(os.environ.get('SHERPA_AGENT_BATCH_SIZE',cfg['five_gpu'].get('agent_batch_size',1)))
-    bind_queue(_POLICY.doctor, _CFG, worker)
     cache_openings(_POLICY.doctor, Path(_CFG['output_dir'])/'openings'/f'train_gpu{worker}.jsonl',
                    cfg['five_gpu']['opening_identity'])
     if pool_spec is not None:

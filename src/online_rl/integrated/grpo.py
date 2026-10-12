@@ -113,10 +113,11 @@ def behavior_logprobs(model, traces: list[dict], token_chunk_size: int) -> list[
 
 
 def grpo_loss(model, records: list[dict], adv: list[float], beta: float, clip_epsilon: float, token_chunk_size: int) -> dict:
-    """Per action: -mean_t min(r_t A, clip(r_t) A) + beta * mean_t KL3(pi_ref || pi_theta) over ALL its sampled tokens (both
-    segments of a precommit_v1 action, each teacher-forced under its own prompt; one segment otherwise), averaged over
-    actions; r_t = pi_theta / pi_old. The sibling advantage A credits every token of the action. Backward per segment with
-    weight |segment| / |action| (the same gradient as one backward of the per-action mean)."""
+    """Average over trajectories, then over all assistant tokens in each trajectory.
+
+    One case-level advantage credits every assistant turn. Each turn retains
+    its own prompt and behavior log-probabilities; Doctor tokens are excluded.
+    """
     import torch
     if not records or len(records) != len(adv):
         raise ValueError('GRPO records and advantages must be nonempty and aligned')
@@ -124,8 +125,10 @@ def grpo_loss(model, records: list[dict], adv: list[float], beta: float, clip_ep
         raise ValueError('GRPO advantages must be finite')
     n = len(records); pol = kl = 0.0; ratios, dev_ref = [], 0.0
     for rec, a in zip(records, adv):
-        tr = rec['agent_traces'][0]; segs = segments(tr); total = sum(len(c) for _, c in segs)
-        old_all = torch.tensor(tr['behavior_logprobs'], dtype=torch.float32)
+        traces = rec['agent_traces']
+        segs = [segment for trace in traces for segment in segments(trace)]
+        total = sum(len(c) for _, c in segs)
+        old_all = torch.tensor([value for trace in traces for value in trace['behavior_logprobs']], dtype=torch.float32)
         if total == 0 or old_all.numel() != total: raise RuntimeError(f"logprob length mismatch at {rec['trajectory_id']}")
         offset = 0; pol_i = kl_i = 0.0
         for p, c in segs:                                           # same per-token terms over both segments; mean over the whole action
@@ -173,7 +176,7 @@ class IntegratedGRPOUpdater(GRPOUpdater):
         return self.update_groups([records])
 
     def update_groups(self, groups: list[list[dict]]) -> dict:
-        """One optimizer step over same-prompt groups sampled by the current adapter; advantages are computed inside each
+        """One optimizer step over same-case trajectory groups sampled by the current adapter; advantages are computed inside each
         group, and a group without two rewarded responses or with all-zero advantages contributes nothing."""
         torch, m = self.policy.torch, self.policy.model
         if {r['rollout_policy_sha256'] for g in groups for r in g} != {adapter_sha256(m)}:
@@ -182,10 +185,10 @@ class IntegratedGRPOUpdater(GRPOUpdater):
         if require_raw:
             for group in groups:
                 for record in group:
-                    trace = record['agent_traces'][0]
-                    for i, segment in enumerate(trace.get('segments') or [trace]):
-                        validate_raw_sampling(segment, recorded=True,
-                                              label=f"{record['trajectory_id']} segment {i}")
+                    for turn, trace in enumerate(record['agent_traces']):
+                        for i, segment in enumerate(trace.get('segments') or [trace]):
+                            validate_raw_sampling(segment, recorded=True,
+                                                  label=f"{record['trajectory_id']} turn {turn} segment {i}")
         usable, adv, skipped, group_details = [], [], [], []
         for g in groups:
             rewards = [r['reward'] for r in g]
@@ -206,7 +209,8 @@ class IntegratedGRPOUpdater(GRPOUpdater):
             'groups_total': len(groups), 'groups_used': len(groups) - len(skipped),
             'groups_skipped': len(skipped),
             'skip_counts': {reason: skipped.count(reason) for reason in sorted(set(skipped))},
-            'used_agent_completions': len(usable),
+            'used_trajectories': len(usable),
+            'used_agent_completions': sum(len(record['agent_traces']) for record in usable),
             'optimizer_steps': getattr(self, 'steps', 0),
             'kl_scope': 'used_nonzero_advantage_groups_only',
             'sampling_policy_alignment': ('raw_full_support_verified' if require_raw

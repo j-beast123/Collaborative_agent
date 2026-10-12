@@ -19,11 +19,12 @@ import uuid
 MODE = 'shared_ready_tasks_v1'
 
 
-def create_pool(manager, gpus, agent_capacity=4, doctor_capacity=1):
+def create_pool(manager, gpus, agent_capacity=4, doctor_capacity=50):
     directory = tempfile.mkdtemp(prefix='sherpa_pool_')
     os.chmod(directory, 0o700)
     spec = {'addresses': {g: str(Path(directory)/f'gpu{g}.sock') for g in gpus},
             'directory': directory, 'authkey': os.urandom(32),
+            'actor_workers': max(8, agent_capacity + doctor_capacity),
             'request_workers': {'agent_workers': len(gpus)*agent_capacity,
                                 'doctor_workers': len(gpus)*doctor_capacity},
             'lock': manager.RLock(), 'leases': manager.dict(),
@@ -87,7 +88,7 @@ class Actor:
         self.lock = threading.RLock()
         self.active = 0
         self.listener = Listener(spec['addresses'][gpu], family='AF_UNIX', authkey=spec['authkey'])
-        self.executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix=f'gpu{gpu}-actor')
+        self.executor = ThreadPoolExecutor(max_workers=spec.get('actor_workers', 8), thread_name_prefix=f'gpu{gpu}-actor')
         self.thread = threading.Thread(target=self._listen, daemon=True)
         self.thread.start()
 
@@ -195,7 +196,7 @@ def attach(policy, cfg, spec, gpu):
     policy.pool_behavior_logprobs = lambda traces: client.call('teacher', traces)
     policy.pool_actor, policy.pool_client = actor, client
     # Case submission windows span the whole pool; native per-GPU capacity stays
-    # Agent4 / Doctor1. These runtime fields never alter config/cache identity.
+    # Agent4 / Doctor50. These runtime fields never alter config/cache identity.
     policy.pool_execution = dict(spec['request_workers'])
     return actor
 

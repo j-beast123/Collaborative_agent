@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 from src.online_rl.clean.halting import halt_reason
-from src.online_rl.doctor import OllamaDoctor
+from src.online_rl.doctor import OpenAIDoctor
 from src.online_rl.tree.experiment import load_config
 
 ST = {'current_option': 'A', 'open_issue': False, 'collaborator_objection': False,
@@ -37,7 +37,7 @@ def test_active_online_doctor_ignores_agent_option_without_relaxing_flags():
     cfg = load_config('configs/online.json')
     ro = cfg['rollout']
     root = Path(__file__).resolve().parents[1]
-    doctor = OllamaDoctor(ro['doctor_backend'], ro['halting'],
+    doctor = OpenAIDoctor(ro['doctor_backend'], ro['halting'],
                           (root/ro['doctor_system_prompt_file']).read_text(), ro['max_tokens_doctor'])
     assert doctor.min_agent_turns == 2
     kw = dict(agent_turns=2, status=ST, prev_status=ST, last_agent='I choose option B.', options=['A','B'])

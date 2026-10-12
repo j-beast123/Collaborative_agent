@@ -108,72 +108,9 @@ def final_outcome(case: dict, option: str) -> float | None:
 
 def generate_trajectory(model: Any, tokenizer: Any, case: dict, doctor_system: str, agent_system: str,
                         key: str, args, doctor=None, seed: int | None = None, agent_text=None, opening=None) -> dict:
-    if opening is not None and doctor is None: raise ValueError('frozen openings need Doctor protocol v2')
-    if doctor is not None:
-        return generate_trajectory_v2(model, tokenizer, case, agent_system, args, doctor, seed, agent_text, opening)
-    dialogue: list[dict] = []
-    agent_traces: list[dict] = []
-    termination_reason = "max_agent_turns"
-    for round_index in range(1, args.rounds + 1):
-        doctor = doctor_call(
-            key,
-            args.doctor_model,
-            doctor_system,
-            discussion_prompt(case, dialogue, round_index, args.rounds),
-            args.max_tokens_doctor,
-        )
-        dialogue.append({"speaker": "doctor", "stage": f"D{round_index}", "text": doctor, "round": round_index})
-        if round_index == 1:
-            user_prompt = build_initial_agent_response_prompt(
-                scenario=case.get("scenario", ""), question=case["question"],
-                options=case["options"], clinician_message=doctor,
-            )
-        else:
-            user_prompt = build_plain_agent_response_prompt(
-                scenario=case.get("scenario", ""), question=case["question"],
-                options=case["options"], dialogue_history=dialogue_text(dialogue),
-                current_round=round_index, max_rounds=args.rounds,
-                is_final_round=round_index == args.rounds,
-            )
-        prompt = chat_prompt(tokenizer, agent_system, user_prompt)
-        trace = generate_with_trace(
-            model, tokenizer, prompt, args.max_completion_length,
-            args.generation_temperature, args.top_p, args.top_k,
-        )
-        agent_index = len(dialogue)
-        dialogue.append({
-            "speaker": "agent", "stage": f"A{round_index}",
-            "text": trace["completion_text"], "round": round_index,
-            "trace_index": len(agent_traces),
-        })
-        agent_traces.append({
-            "stage": f"A{round_index}",
-            "dialogue_index": agent_index,
-            "prompt_text": prompt,
-            **trace,
-        })
-        reason = stop_reason(round_index, doctor, trace["completion_text"])
-        if reason:
-            termination_reason = reason
-            break
-
-    final_text = doctor_call(
-        key,
-        args.doctor_model,
-        doctor_system,
-        final_decision_prompt(case, dialogue),
-        args.max_tokens_doctor,
-    )
-    dialogue.append({"speaker": "doctor", "stage": "FINAL", "text": final_text, "final": True})
-    return {
-        "dialogue": dialogue,
-        "agent_traces": agent_traces,
-        "final_decision_text": final_text,
-        "final_option": final_answer_option(final_text),
-        "num_discussion_rounds": len(agent_traces),
-        "max_discussion_rounds": args.rounds,
-        "termination_reason": termination_reason,
-    }
+    if doctor is None:
+        raise ValueError('A configured OpenAI Doctor is required')
+    return generate_trajectory_v2(model, tokenizer, case, agent_system, args, doctor, seed, agent_text, opening)
 
 
 def generate_trajectory_v2(model: Any, tokenizer: Any, case: dict, agent_system: str, args, doctor, seed: int | None, agent_text=None,

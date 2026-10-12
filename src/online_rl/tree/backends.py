@@ -15,22 +15,6 @@ def with_role(role: str, fn):
     finally: _stage.value = old
 
 
-class ApiDoctor:
-    """Doctor discussion turns and FINAL through the existing collaboration prompts (OpenRouter)."""
-
-    def __init__(self, key: str, model: str, system: str, max_tokens: int):
-        self.key, self.model, self.system, self.max_tokens = key, model, system, max_tokens
-
-    def turn(self, case: dict, dialogue: list[dict], round_: int, rounds: int) -> str:
-        from src.collaboration.generator import doctor_call
-        from src.online_rl.environment import discussion_prompt
-        return with_role('doctor', lambda: doctor_call(self.key, self.model, self.system, discussion_prompt(case, dialogue, round_, rounds), self.max_tokens))
-
-    def final(self, case: dict, dialogue: list[dict]) -> str:
-        from src.collaboration.generator import doctor_call, final_decision_prompt
-        return with_role('doctor', lambda: doctor_call(self.key, self.model, self.system, final_decision_prompt(case, dialogue), self.max_tokens))
-
-
 class RoleDoctor:
     """A protocol-v2 Doctor (src/online_rl/doctor.py) with its calls tagged in the usage ledger under `role`."""
     status_protocol = True
@@ -38,9 +22,15 @@ class RoleDoctor:
     def __init__(self, doctor, role: str = 'doctor'):
         self.doctor, self.role, self.model, self.protocol = doctor, role, doctor.model, doctor.protocol
 
-    def turn(self, case, dialogue, round_, rounds, seed): return with_role(self.role, lambda: self.doctor.turn(case, dialogue, round_, rounds, seed))
+    def turn(self, case, dialogue, round_, rounds, seed):
+        from src.common.usage import case as usage_case
+        with usage_case(case['case_id']):
+            return with_role(self.role, lambda: self.doctor.turn(case, dialogue, round_, rounds, seed))
 
-    def final(self, case, dialogue, seed): return with_role(self.role, lambda: self.doctor.final(case, dialogue, seed))
+    def final(self, case, dialogue, seed):
+        from src.common.usage import case as usage_case
+        with usage_case(case['case_id']):
+            return with_role(self.role, lambda: self.doctor.final(case, dialogue, seed))
 
     def halt(self, **kw): return self.doctor.halt(**kw)
 
@@ -474,8 +464,18 @@ def _generator_json(key: str, model: str, system: str, user: str, settings: dict
                     schema: dict, name: str, role: str) -> tuple[str, dict]:
     """Select the pinned provider without changing legacy OpenRouter requests."""
     from src.common.api_slots import lease
-    with lease(model):
-        return _generator_json_unlimited(key, model, system, user, settings, schema, name, role)
+    from src.common.usage import event
+    import time
+    started = time.perf_counter()
+    try:
+        with lease(model):
+            result = _generator_json_unlimited(key, model, system, user, settings, schema, name, role)
+        event('api_call_completed', model=model, role=role, seconds=time.perf_counter() - started)
+        return result
+    except Exception as exc:
+        event('api_call_failed', model=model, role=role, error_type=type(exc).__name__,
+              seconds=time.perf_counter() - started)
+        raise
 
 
 def _generator_json_unlimited(key, model, system, user, settings, schema, name, role):

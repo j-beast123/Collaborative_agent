@@ -303,6 +303,7 @@ def terminal_frame(screen, width, height):
 
 
 def operation_label(operation):
+    if 'verification_partner_state' in operation:return '즉시 선택지 검증'
     if 'group_verification' in operation:return '검증 이어가기'
     if 'group_contrast' in operation:return '대비 응답 생성'
     if 'group_reflection' in operation:return 'partner 회고'
@@ -336,6 +337,8 @@ def render_groups(s, *, details=False, width=110):
            '='*min(width,108),
            f"전체 [{'#'*filled}{'.'*(bar_size-filled)}]  {s['completed']}/{s['total']} 케이스 저장  |  배치 {s['batch']}/{s['batches']}",
            f"현재: {label}  |  이번 배치 {duration(s['batch_seconds'])}"]
+    if s.get('verification_mode') == 'next_partner_state_v1':
+        lines.append('검증 기준: 대비 직후 partner의 비밀 선택지 | 3회 중 2회 이상')
     timing=s.get('latest_timing') or {}
     if timing.get('batch_seconds') is not None:
         projected=timing.get('projected_full_run_seconds',timing.get('projected_24_batches_seconds',24*timing['batch_seconds']))
@@ -413,7 +416,7 @@ def render_groups(s, *, details=False, width=110):
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('--config',default='configs/group_online.json')
+    parser.add_argument('--config',default='configs/sherpa.json')
     parser.add_argument('--output',type=Path,help='실행 output 디렉터리 직접 지정')
     parser.add_argument('--interval',type=float,default=2)
     parser.add_argument('--once',action='store_true')
@@ -424,6 +427,20 @@ def main():
     from src.online_rl.tree.experiment import load_config
     cfg=load_config(args.config)
     out=args.output or ROOT/cfg['output_dir']
+    if cfg.get('pipeline_protocol') == 'sherpa_trajectory_checklist_v1':
+        from src.online_rl.sherpa.monitor import snapshot as trajectory_snapshot, render as trajectory_render
+        try:
+            while True:
+                data = trajectory_snapshot(out)
+                screen = json.dumps(data, ensure_ascii=False, indent=2) if args.json else trajectory_render(data)
+                if sys.stdout.isatty() and not args.once and not args.json:
+                    sys.stdout.write('\x1b[2J\x1b[H')
+                print(screen, flush=True)
+                if args.once or args.json:
+                    return
+                time.sleep(args.interval)
+        except KeyboardInterrupt:
+            return
     saved_cfg=read(out/'run_manifest.json').get('config') or cfg
     fullscreen=sys.stdout.isatty() and not args.once and not args.json and os.environ.get('TERM')!='dumb'
     if fullscreen:
@@ -433,6 +450,7 @@ def main():
             data=snapshot(out,saved_cfg['schedule']['cases'],saved_cfg['five_gpu']['batch_cases'],
                           discovery_cap=(cfg.get('rubric',{}).get('cumulative_bank') or {}).get('discovery_trajectory_cap',48),
                           group_mode=bool(cfg.get('group_learning')))
+            data['verification_mode'] = saved_cfg.get('group_learning', {}).get('verification_mode', 'final_outcome_v1')
             if args.json:print(json.dumps(data,ensure_ascii=False,indent=2));return
             size=shutil.get_terminal_size((110,40))
             screen=render(data,details=args.details,width=size.columns)

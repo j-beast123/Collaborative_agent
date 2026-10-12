@@ -1,15 +1,10 @@
 {
-  "extends": "configs/group_online.json",
-  "experiment": {
-    "output_root": "outputs/train120_group_shared_batch8",
-    "run_label": "anchored_rank_shared_batch8"
-  },
-  "shared_rollout": {
-    "enabled": true,
-    "local_cases": 4,
-    "remote_cases": 4
-  },
-  "checkpoint_upload": {
-    "path_prefix": "sherpa-ckpt/sherpa_main_shared_batch8"
+  "extends": "configs/sherpa.json",
+  "output_dir": "outputs/sherpa_trajectory_v1/group_shared",
+  "judges": {
+    "scorer_model": "gpt-6-luna",
+    "scorer_max_tokens": 16384,
+    "api_provider": "openai_direct",
+    "execution_retry_attempts": 1
   }
 }
