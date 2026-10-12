@@ -41,7 +41,7 @@ PY
 Expected artifact SHA-256:
 
 ```text
-9d52d94ba9060f126e5385e8a684723579839c1b4cc25f26c1e8f352891d4dea
+e7d6b2f878dfd4287aa533d0e73802192af0456d8aa0c41bf099980c9e95cc6b
 ```
 
 ## Admission before training
