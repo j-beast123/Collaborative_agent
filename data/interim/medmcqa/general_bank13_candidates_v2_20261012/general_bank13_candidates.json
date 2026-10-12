@@ -1,0 +1,430 @@
+{
+  "protocol": "manual_general_bank_candidates_v1",
+  "version": 1,
+  "status": "DRAFT_REQUIRES_SOURCE_GATE_AND_RERUN_WITNESS",
+  "parent_snapshot_sha256": "431721862e573837763b3487d87f97645deb5d9cfbbc168ab31144f6e6f32e9a",
+  "admission_requirements": [
+    "source_applicability_pass",
+    "public_mc_gate_v3_pass",
+    "independent_rerun_witness_keep"
+  ],
+  "candidates": [
+    {
+      "candidate_id": "general-a7810ad50ec0b3f8",
+      "content_sha256": "a7810ad50ec0b3f8810c845bbe506eeb589b69dbb72eee9d79dddfb9f3918d91",
+      "rubric": {
+        "name": "direct_request_fulfillment",
+        "required_behavior": "Address the Doctor's concrete request directly.",
+        "minimum_performance": "The reply answers the main request rather than only discussing adjacent facts.",
+        "completion_condition": "The request is fully answered with a clear, case-relevant response.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "The Doctor's latest turn contains a concrete clinical question or requested task.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The Doctor's latest turn contains a concrete clinical question or requested task.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply omits, evades, or contradicts the requested task."
+          },
+          "1": {
+            "user_side_context": "The Doctor's latest turn contains a concrete clinical question or requested task.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply addresses part of the request but leaves a material part unresolved or unclear."
+          },
+          "2": {
+            "user_side_context": "The Doctor's latest turn contains a concrete clinical question or requested task.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply directly and fully answers every material part of the request."
+          }
+        }
+      }
+    },
+    {
+      "candidate_id": "general-45ed9fb44911525e",
+      "content_sha256": "45ed9fb44911525ed02db9c6cfda299c607e83d571e62c309e5ba697bfba5ef0",
+      "rubric": {
+        "name": "evidence_grounded_clinical_reasoning",
+        "required_behavior": "Connect the assessment to decision-relevant facts actually present in the case or dialogue.",
+        "minimum_performance": "At least one relevant supplied fact is correctly linked to the assessment.",
+        "completion_condition": "The central assessment is supported by the most discriminating supplied facts without inventing evidence.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "The Doctor asks for or presents a clinical assessment that should be supported by the supplied case facts.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The Doctor asks for or presents a clinical assessment that should be supported by the supplied case facts.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The assessment is unsupported, rests on invented facts, or misuses the supplied evidence."
+          },
+          "1": {
+            "user_side_context": "The Doctor asks for or presents a clinical assessment that should be supported by the supplied case facts.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply cites a relevant fact, but the link is incomplete or misses a major conflicting fact."
+          },
+          "2": {
+            "user_side_context": "The Doctor asks for or presents a clinical assessment that should be supported by the supplied case facts.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply uses the decisive supplied facts coherently and accounts for material conflicting evidence."
+          }
+        }
+      }
+    },
+    {
+      "candidate_id": "general-00e1f930c1b7d73e",
+      "content_sha256": "00e1f930c1b7d73e55ea4839851c07020f5185bf4b32efcdda87cf1f168d7b86",
+      "rubric": {
+        "name": "candidate_comparison",
+        "required_behavior": "Compare the live candidates using discriminating evidence.",
+        "minimum_performance": "The reply states at least one relevant distinction between the live candidates.",
+        "completion_condition": "The reply explains which candidate is favored and why the alternatives are less consistent.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "The visible dialogue considers two or more diagnoses, mechanisms, tests, or management options.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The visible dialogue considers two or more diagnoses, mechanisms, tests, or management options.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply lists or selects candidates without a valid comparison, or uses a false distinction."
+          },
+          "1": {
+            "user_side_context": "The visible dialogue considers two or more diagnoses, mechanisms, tests, or management options.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply gives a valid distinction but incompletely weighs the main alternatives."
+          },
+          "2": {
+            "user_side_context": "The visible dialogue considers two or more diagnoses, mechanisms, tests, or management options.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply compares the main candidates on decisive features and reaches a supported preference."
+          }
+        }
+      }
+    },
+    {
+      "candidate_id": "general-e59bf5af18953fde",
+      "content_sha256": "e59bf5af18953fdef02021440d29fe89048ad40fbb27d0f1d4b313fed182f8a3",
+      "rubric": {
+        "name": "premise_error_correction",
+        "required_behavior": "Identify and correct the consequential premise before relying on it.",
+        "minimum_performance": "The reply clearly rejects or qualifies the faulty premise and supplies a correct replacement.",
+        "completion_condition": "The reply corrects the premise and explains how the correction changes the clinical conclusion.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "The Doctor's latest turn contains a clinically consequential premise that conflicts with the visible evidence or established medical knowledge.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The Doctor's latest turn contains a clinically consequential premise that conflicts with the visible evidence or established medical knowledge.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply accepts, repeats, or builds its conclusion on the faulty premise."
+          },
+          "1": {
+            "user_side_context": "The Doctor's latest turn contains a clinically consequential premise that conflicts with the visible evidence or established medical knowledge.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply signals doubt or gives a correction, but the replacement or consequence remains unclear."
+          },
+          "2": {
+            "user_side_context": "The Doctor's latest turn contains a clinically consequential premise that conflicts with the visible evidence or established medical knowledge.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply explicitly corrects the premise, supports the correction, and updates the conclusion accordingly."
+          }
+        }
+      }
+    },
+    {
+      "candidate_id": "general-d7dd69f5cc761e2c",
+      "content_sha256": "d7dd69f5cc761e2cec9b672fdd36d39c6f8c12d00a92d1afc4b3b46e38323274",
+      "rubric": {
+        "name": "uncertainty_calibration",
+        "required_behavior": "Express uncertainty in proportion to the evidence while still making the most useful supported judgment.",
+        "minimum_performance": "The reply distinguishes what is supported from what remains uncertain.",
+        "completion_condition": "The reply gives a calibrated leading judgment and identifies the specific uncertainty that could change it.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "The visible evidence leaves meaningful uncertainty, an unresolved differential, or a stated information gap.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The visible evidence leaves meaningful uncertainty, an unresolved differential, or a stated information gap.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply is unjustifiably certain, indiscriminately vague, or treats missing information as known."
+          },
+          "1": {
+            "user_side_context": "The visible evidence leaves meaningful uncertainty, an unresolved differential, or a stated information gap.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply acknowledges uncertainty but does not localize it or provide a useful supported judgment."
+          },
+          "2": {
+            "user_side_context": "The visible evidence leaves meaningful uncertainty, an unresolved differential, or a stated information gap.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply states the best-supported judgment, its confidence boundary, and the decisive unresolved issue."
+          }
+        }
+      }
+    },
+    {
+      "candidate_id": "general-302c47914d531fef",
+      "content_sha256": "302c47914d531fef12605d5c1b0c0314acf4693ddfd065cf57873c7e9454126b",
+      "rubric": {
+        "name": "no_invented_case_facts",
+        "required_behavior": "Do not assert unprovided patient findings, test results, history, or prior decisions as facts.",
+        "minimum_performance": "Any added statement is clearly framed as general knowledge, a possibility, or a proposed next step.",
+        "completion_condition": "Every case-specific assertion is traceable to the visible evidence and hypothetical additions are labeled.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "The clinical reply must remain grounded in the finite facts supplied in the case and visible dialogue.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The clinical reply must remain grounded in the finite facts supplied in the case and visible dialogue.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply presents one or more unprovided case-specific details as established facts."
+          },
+          "1": {
+            "user_side_context": "The clinical reply must remain grounded in the finite facts supplied in the case and visible dialogue.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply is mostly grounded but includes an ambiguous or weakly implied case-specific assertion."
+          },
+          "2": {
+            "user_side_context": "The clinical reply must remain grounded in the finite facts supplied in the case and visible dialogue.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply cleanly separates supplied case facts from general knowledge, hypotheses, and recommendations."
+          }
+        }
+      }
+    },
+    {
+      "candidate_id": "general-07beeaa78b5dcc6b",
+      "content_sha256": "07beeaa78b5dcc6b186484a251744b7cd487ef657d7b5189c8afffa654492166",
+      "rubric": {
+        "name": "mechanism_to_conclusion_link",
+        "required_behavior": "State a medically coherent causal link from the relevant mechanism to the conclusion.",
+        "minimum_performance": "The reply provides a correct mechanism that is relevant to the conclusion.",
+        "completion_condition": "The reply traces the key causal steps and shows why they favor the stated conclusion.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "The Doctor asks why a finding occurs or invokes a mechanism to support a clinical conclusion.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The Doctor asks why a finding occurs or invokes a mechanism to support a clinical conclusion.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The mechanism is absent, medically incorrect, or unrelated to the conclusion."
+          },
+          "1": {
+            "user_side_context": "The Doctor asks why a finding occurs or invokes a mechanism to support a clinical conclusion.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The mechanism is broadly correct but skips a key link or does not clearly support the conclusion."
+          },
+          "2": {
+            "user_side_context": "The Doctor asks why a finding occurs or invokes a mechanism to support a clinical conclusion.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply gives a concise, correct causal chain that directly supports the clinical conclusion."
+          }
+        }
+      }
+    },
+    {
+      "candidate_id": "general-92f5b63600c586d9",
+      "content_sha256": "92f5b63600c586d9d4542b6714a0fc5259368726e85ed9759eb4b1dbfda7e641",
+      "rubric": {
+        "name": "decision_relevant_constraint_use",
+        "required_behavior": "Use the supplied constraint when evaluating the clinical question.",
+        "minimum_performance": "The reply correctly incorporates at least one decisive supplied constraint.",
+        "completion_condition": "The reply uses all materially decisive constraints and explains their effect on the conclusion.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "The case supplies a decision-relevant constraint such as age, timing, anatomy, exposure, laboratory pattern, or treatment history.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The case supplies a decision-relevant constraint such as age, timing, anatomy, exposure, laboratory pattern, or treatment history.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply ignores or contradicts a decisive supplied constraint."
+          },
+          "1": {
+            "user_side_context": "The case supplies a decision-relevant constraint such as age, timing, anatomy, exposure, laboratory pattern, or treatment history.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply mentions a constraint but incompletely applies it or overlooks another decisive constraint."
+          },
+          "2": {
+            "user_side_context": "The case supplies a decision-relevant constraint such as age, timing, anatomy, exposure, laboratory pattern, or treatment history.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply integrates the material constraints and shows how they narrow or change the conclusion."
+          }
+        }
+      }
+    },
+    {
+      "candidate_id": "general-893182cbb8ffc870",
+      "content_sha256": "893182cbb8ffc870f9a10fce4e533607cf6fb50b86756c0669882553dad8dec1",
+      "rubric": {
+        "name": "evidence_responsive_position_update",
+        "required_behavior": "Reassess the prior position in light of the Doctor's new contribution.",
+        "minimum_performance": "The reply explicitly engages the new contribution and either revises or justifiably maintains the position.",
+        "completion_condition": "The reply updates the reasoning and conclusion to the exact extent warranted by the new contribution.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "The Agent previously expressed a position and the Doctor has since supplied a new reason, correction, or objection relevant to that position.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The Agent previously expressed a position and the Doctor has since supplied a new reason, correction, or objection relevant to that position.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply ignores the new contribution or repeats the prior position without addressing it."
+          },
+          "1": {
+            "user_side_context": "The Agent previously expressed a position and the Doctor has since supplied a new reason, correction, or objection relevant to that position.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply acknowledges the contribution but does not resolve its effect on the prior position."
+          },
+          "2": {
+            "user_side_context": "The Agent previously expressed a position and the Doctor has since supplied a new reason, correction, or objection relevant to that position.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply evaluates the contribution and makes a proportionate, clearly justified update or maintenance decision."
+          }
+        }
+      }
+    },
+    {
+      "candidate_id": "general-fb4b31ccfba08cbc",
+      "content_sha256": "fb4b31ccfba08cbc65717f76640a98dfad0b003c4be8c3772f2cdc053911c48a",
+      "rubric": {
+        "name": "objection_resolution",
+        "required_behavior": "Resolve the Doctor's specific objection with relevant reasoning.",
+        "minimum_performance": "The reply addresses the objection's central claim with a clinically relevant reason.",
+        "completion_condition": "The reply determines whether the objection succeeds and reconciles it with the final conclusion.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "The Doctor raises a specific objection, counterexample, or inconsistency concerning the Agent's clinical reasoning.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The Doctor raises a specific objection, counterexample, or inconsistency concerning the Agent's clinical reasoning.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply bypasses, misstates, or merely dismisses the objection."
+          },
+          "1": {
+            "user_side_context": "The Doctor raises a specific objection, counterexample, or inconsistency concerning the Agent's clinical reasoning.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply responds to the objection but leaves its central implication unresolved."
+          },
+          "2": {
+            "user_side_context": "The Doctor raises a specific objection, counterexample, or inconsistency concerning the Agent's clinical reasoning.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply accurately resolves the objection and clearly states its effect on the conclusion."
+          }
+        }
+      }
+    },
+    {
+      "candidate_id": "general-115cc6df1aab4643",
+      "content_sha256": "115cc6df1aab46432eaba2b4da07cdfcb47d0770a962a58b6e48f0dfc05df034",
+      "rubric": {
+        "name": "decision_focused_conciseness",
+        "required_behavior": "Keep the response focused on information that changes or supports the requested decision.",
+        "minimum_performance": "The main answer and its relevant support are easy to identify.",
+        "completion_condition": "Every substantive statement advances the requested decision, with no distracting detour.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "The Doctor's latest turn calls for a bounded clinical answer rather than an exhaustive review.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The Doctor's latest turn calls for a bounded clinical answer rather than an exhaustive review.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The main answer is obscured by irrelevant, repetitive, or contradictory material."
+          },
+          "1": {
+            "user_side_context": "The Doctor's latest turn calls for a bounded clinical answer rather than an exhaustive review.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The main answer is identifiable but contains avoidable detours or repetition."
+          },
+          "2": {
+            "user_side_context": "The Doctor's latest turn calls for a bounded clinical answer rather than an exhaustive review.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply is concise, coherent, and limited to the answer and decision-relevant support."
+          }
+        }
+      }
+    },
+    {
+      "candidate_id": "general-227e78316a703ae7",
+      "content_sha256": "227e78316a703ae7b7a9c30e999bb2277c5f71b2072edb828c00eea5994d0f34",
+      "rubric": {
+        "name": "explicit_supported_conclusion",
+        "required_behavior": "State the selected conclusion explicitly and support it with the decisive reason.",
+        "minimum_performance": "The reply makes an unambiguous selection and gives at least one relevant supporting reason.",
+        "completion_condition": "The selection follows from the decisive evidence and is consistent with the reply's reasoning.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "The dialogue has reached a decision point where the Agent should select, endorse, reject, or rank a clinical conclusion.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "The dialogue has reached a decision point where the Agent should select, endorse, reject, or rank a clinical conclusion.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply gives no clear selection, selects inconsistently, or supplies no relevant support."
+          },
+          "1": {
+            "user_side_context": "The dialogue has reached a decision point where the Agent should select, endorse, reject, or rank a clinical conclusion.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply makes a selection, but its support is incomplete, ambiguous, or partly inconsistent."
+          },
+          "2": {
+            "user_side_context": "The dialogue has reached a decision point where the Agent should select, endorse, reject, or rank a clinical conclusion.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply states one clear conclusion and justifies it with the decisive case evidence."
+          }
+        }
+      }
+    },
+    {
+      "candidate_id": "general-770d62c7c38600c5",
+      "content_sha256": "770d62c7c38600c55f34c44033b62ea372dd5c9acafe664730ffccfc2cb6b7a4",
+      "rubric": {
+        "name": "actionable_information_limit",
+        "required_behavior": "Name the missing information that would most change the decision and explain its directional value.",
+        "minimum_performance": "The reply identifies one decision-relevant missing datum or discriminating next step.",
+        "completion_condition": "The reply identifies the highest-value missing datum and explains how each plausible result would change the conclusion.",
+        "criterion_version": "public_behavior_mc_semantic_v3",
+        "applicability": {
+          "user_side_context": "A material ambiguity or missing datum prevents a fully reliable clinical conclusion and the Doctor asks how to proceed.",
+          "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue."
+        },
+        "scores": {
+          "0": {
+            "user_side_context": "A material ambiguity or missing datum prevents a fully reliable clinical conclusion and the Doctor asks how to proceed.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply claims unsupported certainty or requests information that would not resolve the material ambiguity."
+          },
+          "1": {
+            "user_side_context": "A material ambiguity or missing datum prevents a fully reliable clinical conclusion and the Doctor asks how to proceed.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply identifies relevant missing information but does not explain how it would affect the decision."
+          },
+          "2": {
+            "user_side_context": "A material ambiguity or missing datum prevents a fully reliable clinical conclusion and the Doctor asks how to proceed.",
+            "agent_side_state": "The Agent is composing its next clinical reply from the visible case and dialogue.",
+            "behavior": "The reply names the decisive information and states how its possible results would update the clinical judgment."
+          }
+        }
+      }
+    }
+  ],
+  "sha256": "9d52d94ba9060f126e5385e8a684723579839c1b4cc25f26c1e8f352891d4dea"
+}
