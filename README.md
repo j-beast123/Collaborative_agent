@@ -386,3 +386,61 @@ are declared in their configuration files. Protocol changes require a new run;
 previous cached rollouts and checkpoints are not imported as current observations.
 
 Tests, training and API verification have not been run for these changes.
+
+## Plan B: mixed-case MedMCQA training data
+
+`configs/plan_b.json` prepares an independent 2,000-case random **train-only**
+pool. It excludes the current 120 training questions, calibration IDs, protected
+evaluation IDs/questions, and duplicate questions. No GPU inference runs during
+`prepare`. The pool is already prepared at
+`outputs/plan_b_medmcqa_mixed_v1/pool.jsonl`.
+
+After the current GPU job finishes:
+
+```bash
+bash run_plan_b.sh --phase all --launch
+```
+
+Filtering uses the original Qwen3-8B base model **without LoRA** through vLLM on
+GPU 0 and the same frozen Doctor on GPU 1. It calls the shared training rollout
+function with the same prompts, temperature, final outcome and stopping rules,
+changing only the fanout to eight. The engine is vLLM rather than the training
+Transformers engine; identical seeds are not claimed to produce identical text.
+Both model queues are bounded at 128 requests. A sliding queue keeps up to 16
+cases active, replacing finished cases without waiting for a whole batch.
+Existing physical GPU locks are checked before either model is loaded, so an
+occupied GPU aborts filtering without stopping the active training process.
+
+The default accepts 2–6 successes out of eight and stops dispatching once the
+fixed randomized pool prefix contains 120 mixed cases. In-flight cases finish,
+and the first 120 eligible cases in pool order are selected, preventing a bias
+for fast-finishing conversations. `--selection random120` screens the entire
+pool and samples 120 eligible cases with a fixed seed instead. `--min-successes
+1` accepts 1–7 successes. Set these choices before screening; changing an
+already-cached screening protocol requires a fresh output directory. Pool size
+and case concurrency are configurable with `--pool-size` and `--case-workers`.
+
+Screening summaries store eight outcomes and the Doctor opening; shared call
+caches preserve resumable evidence. No rubric, judge call or optimizer is used
+in filtering. The script writes a new pinned `train120.jsonl`, case order,
+24 randomly selected prompt optimization IDs, and independent training/prompt
+configs. It then collects **32 additional trajectories only for those 24 cases**,
+reusing the screening Doctor opening but using fresh continuation seeds. The
+screening eight outcomes are never included in the AUC observations. The 24
+cases are fixed before this collection; undefined AUC is not fabricated or
+silently replaced with a selected favorable case.
+
+Phases can also be run separately, and completed calls/cases resume:
+
+```bash
+bash run_plan_b.sh --phase prepare --launch
+bash run_plan_b.sh --phase screen --launch
+bash run_plan_b.sh --phase auc32 --launch
+bash run_plan_b.sh --phase optimize --launch
+bash run_ours.sh --config outputs/plan_b_medmcqa_mixed_v1/ours_plan_b.json --launch
+bash monitor.sh --config outputs/plan_b_medmcqa_mixed_v1/ours_plan_b.json --mode training
+```
+
+The Plan B trainer reads its own optimized `final_prompt.json` and initializes
+fresh LoRA weights. Its output and HF checkpoint prefix are separate from the
+current experiment. Running without `--launch` only describes the planned phase.

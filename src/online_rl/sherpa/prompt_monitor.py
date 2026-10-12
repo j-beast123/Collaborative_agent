@@ -83,7 +83,7 @@ class OptimizationMonitor:
         out = Path(out)
         now = time.time() if now is None else now
         spec = cfg['prompt_optimization']
-        total = cfg['schedule']['cases']
+        total = spec['mixed_cases'] if spec.get('optimization_case_ids_file') else cfg['schedule']['cases']
         branches = cfg['rollout']['branching']
         rows = []
         for folder in sorted((out / 'base_rollouts').glob('*')):

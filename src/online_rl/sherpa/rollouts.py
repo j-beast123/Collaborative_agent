@@ -11,14 +11,17 @@ from src.online_rl.tree.records import to_dialogue
 from src.online_rl.tree.rollout import build_tree
 
 
-def collect(case, cfg, policy, cache, step, *, behavior=True, branching=32, seed_override=None):
+def collect(case, cfg, policy, cache, step, *, behavior=True, branching=32, seed_override=None, fixed_opening=None):
     from src.collaboration.generator import final_answer_option, stop_reason
     from src.online_rl.environment import final_outcome
     from src.online_rl.integrated.grpo import behavior_logprobs
     seed = (derive_seed(cfg['schedule']['seed'], case['case_id'], 'rollout_step', step)
             if seed_override is None else seed_override)
-    protocol = sha256_json({'rollout': cfg['rollout'], 'doctor': policy.doctor.protocol,
-                           'base_model': cfg['policy']['base_model'], 'sampling_step': step})
+    protocol_fields = {'rollout': cfg['rollout'], 'doctor': policy.doctor.protocol,
+                       'base_model': cfg['policy']['base_model'], 'sampling_step': step}
+    if fixed_opening is not None:
+        protocol_fields['fixed_opening'] = sha256_json(fixed_opening)
+    protocol = sha256_json(protocol_fields)
     if getattr(policy, 'original_base_only', False):
         if behavior:
             raise ValueError('Base-only vLLM policy cannot supply GRPO behavior log probabilities')
@@ -42,7 +45,8 @@ def collect(case, cfg, policy, cache, step, *, behavior=True, branching=32, seed
                       cache=cache, behavior_logprobs=old if behavior else None,
                       workers=cfg['execution']['doctor_workers'],
                       agent_workers=cfg['execution']['agent_workers'], budget='initial_fanout',
-                      repeat_agent_reply_after_turns=cfg['rollout']['halting'].get('repeat_agent_reply_after_turns'))
+                      repeat_agent_reply_after_turns=cfg['rollout']['halting'].get('repeat_agent_reply_after_turns'),
+                      **({'opening': lambda *_: fixed_opening} if fixed_opening is not None else {}))
     trajectories = [{'trajectory_id': leaf.leaf_id, 'case_id': case['case_id'],
                      'dialogue': to_dialogue(leaf.dialogue), 'outcome': int(leaf.outcome),
                      'final_option': leaf.final_option, 'final_parsed': leaf.final_option in case['options'],

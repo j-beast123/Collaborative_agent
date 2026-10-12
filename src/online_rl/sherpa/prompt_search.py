@@ -16,9 +16,28 @@ from src.online_rl.tree.cache import CallCache
 
 def base_identity(cfg, policy):
     from src.online_rl.cases import file_sha256
-    return {'base_model': cfg['policy']['base_model'], 'doctor': policy.doctor.protocol,
+    identity = {'base_model': cfg['policy']['base_model'], 'doctor': policy.doctor.protocol,
             'rollout': cfg['rollout'], 'seed': cfg['schedule']['seed'],
             'training_sha256': file_sha256(cfg['data']['train']), 'mode': 'original_base_no_adapter'}
+    if cfg['prompt_optimization'].get('base_collection_identity') is not None:
+        identity['base_collection'] = cfg['prompt_optimization']['base_collection_identity']
+    return identity
+
+
+def optimization_order(cfg, cases, root):
+    from src.online_rl.cases import file_sha256
+    order = [case for batch in schedule(cfg, cases, root)[:30] for case in batch]
+    spec = cfg['prompt_optimization']
+    if not spec.get('optimization_case_ids_file'):
+        return order
+    path = Path(root) / spec['optimization_case_ids_file']
+    if file_sha256(path) != spec['optimization_case_ids_sha256']:
+        raise RuntimeError('Fixed prompt optimization case selection changed')
+    ids = read_json(path)
+    by_id = {case['case_id']: case for case in order}
+    if not isinstance(ids, list) or len(ids) != spec['mixed_cases'] or len(set(ids)) != len(ids) or not set(ids) <= set(by_id):
+        raise ValueError('Fixed optimization case IDs must be a unique subset of the training cases')
+    return [by_id[key] for key in ids]
 
 
 def collect_base(cfg, policy, cases, root, *, max_cases=None):
@@ -28,9 +47,22 @@ def collect_base(cfg, policy, cases, root, *, max_cases=None):
     manifest = home / 'base_manifest.json'
     if manifest.exists() and read_json(manifest)['identity'] != identity:
         raise RuntimeError('Offline base data identity changed; choose a fresh output directory')
-    order = [case for batch in schedule(cfg, cases, root)[:30] for case in batch]
+    order = optimization_order(cfg, cases, root)
+    total = len(order)
+    openings = {}
+    spec = cfg['prompt_optimization']
+    if spec.get('fixed_openings_file'):
+        from src.online_rl.cases import file_sha256
+        path = Path(root) / spec['fixed_openings_file']
+        if file_sha256(path) != spec['fixed_openings_sha256']:
+            raise RuntimeError('Pinned screening Doctor openings changed')
+        openings = read_json(path)
+        if set(openings) != {case['case_id'] for case in order}:
+            raise ValueError('Each selected optimization case needs its screening Doctor opening')
     if manifest.exists():
         previous = read_json(manifest)
+        if previous['case_ids'] != [case['case_id'] for case in order]:
+            raise RuntimeError('Base collection case selection changed')
     else:
         previous = {'identity': identity, 'case_ids': [case['case_id'] for case in order], 'complete': False}
         atomic_write_json(manifest, previous)
@@ -44,7 +76,10 @@ def collect_base(cfg, policy, cases, root, *, max_cases=None):
             if row['identity'] != identity or row['case_id'] != case['case_id']:
                 raise RuntimeError('Base rollout identity mismatch')
         else:
-            _, trajectories = collect(case, cfg, policy, CallCache(folder / 'calls.jsonl'), 0, behavior=False)
+            kwargs = ({'fixed_opening': openings[case['case_id']],
+                       'seed_override': derive_seed(cfg['schedule']['seed'], case['case_id'], 'plan_b_auc32', 0)}
+                      if openings else {})
+            _, trajectories = collect(case, cfg, policy, CallCache(folder / 'calls.jsonl'), 0, behavior=False, **kwargs)
             outcomes = [row['outcome'] for row in trajectories]
             row = {'identity': identity, 'case_id': case['case_id'], 'trajectories': trajectories,
                    'outcomes': outcomes, 'success_rate': sum(outcomes) / 32,
@@ -60,14 +95,14 @@ def collect_base(cfg, policy, cases, root, *, max_cases=None):
                 for future in as_completed(futures):
                     case_id, row = future.result()
                     completed += 1
-                    previous.update(complete=completed == 120, completed_cases=completed)
+                    previous.update(complete=completed == total, completed_cases=completed, total_cases=total)
                     atomic_write_json(manifest, previous)
-                    print(f'Base rollout {completed}/120: {case_id} success={row["success_rate"]:.3f}', flush=True)
+                    print(f'Base rollout {completed}/{total}: {case_id} success={row["success_rate"]:.3f}', flush=True)
             except BaseException:
                 for future in futures:
                     future.cancel()
                 raise
-    previous.update(complete=completed == 120, completed_cases=completed)
+    previous.update(complete=completed == total, completed_cases=completed, total_cases=total)
     atomic_write_json(manifest, previous)
     return previous
 
@@ -76,9 +111,11 @@ def optimize(cfg, policy, backend, cases, root):
     home = Path(root) / cfg['prompt_optimization']['output_dir']
     manifest = read_json(home / 'base_manifest.json')
     if not manifest['complete'] or manifest['identity'] != base_identity(cfg, policy):
-        raise RuntimeError('Collect all 120 original-base rollouts before optimizing the prompt')
+        raise RuntimeError('Complete the configured original-base rollout collection before optimizing the prompt')
     by_id = {case['case_id']: case for case in cases}
-    train_ids = [case['case_id'] for batch in schedule(cfg, cases, root)[:30] for case in batch]
+    train_ids = [case['case_id'] for case in optimization_order(cfg, cases, root)]
+    if manifest.get('case_ids') is not None and manifest['case_ids'] != train_ids:
+        raise RuntimeError('Base manifest differs from the fixed optimization case selection')
     observations = {key: read_json(home / 'base_rollouts' / key / 'rollouts.json') for key in train_ids}
     mixed = [key for key in train_ids if observations[key]['mixed']]
     mixed.sort(key=lambda key: derive_seed(cfg['schedule']['seed'], key, 'prompt_case_selection', 0))
