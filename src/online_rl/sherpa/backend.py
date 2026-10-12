@@ -51,22 +51,28 @@ class ChecklistBackend:
         self._judge_pool.shutdown(wait=True, cancel_futures=True)
 
     def identity(self):
-        return {'generator': self.generator, 'generation': self.settings,
+        identity = {'generator': self.generator, 'generation': self.settings,
                 'judge': self.judge_model, 'judge_settings': self.judge_settings,
                 'judge_prompt': sha256_text(self.judge_prompt),
                 'reflection_prompt': sha256_text(self.reflection_prompt),
                 'assistant_behavior_instruction': sha256_text(ASSISTANT_BEHAVIOR_INSTRUCTION),
                 'doctor': self.policy.doctor.protocol}
+        mode = self.cfg['rubric_pipeline'].get('reflection_system_mode')
+        if mode is not None:
+            identity['reflection_system_mode'] = mode
+        return identity
 
     def reflect(self, case, trajectory, seed):
         started = time.perf_counter()
         request = {'case': case_view(case), 'dialogue': trajectory['dialogue'],
                    'outcome': trajectory['outcome']}
+        system = (self.reflection_prompt if self.cfg['rubric_pipeline'].get('reflection_system_mode') == 'standalone'
+                  else self.policy.doctor.system + '\n\n' + self.reflection_prompt)
         with usage.case(case['case_id']):
             raw = with_role('doctor_reflection', lambda: self.policy.doctor._chat(
                 json.dumps(request, ensure_ascii=False), seed,
                 self.cfg['rubric_pipeline']['reflection_max_tokens'],
-                self.policy.doctor.system + '\n\n' + self.reflection_prompt))
+                system))
         return {'trajectory_id': trajectory['trajectory_id'], 'outcome': trajectory['outcome'],
                 'text': raw, 'seed': seed, 'seconds': time.perf_counter() - started}
 

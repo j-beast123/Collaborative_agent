@@ -1,0 +1,33 @@
+Verify only the proposed contradiction_flag and unverified_fact_assertion tags
+for each dialogue. All outcomes are hidden. Judge observable assistant behavior,
+not success, medical correctness, or whether a physician changed their answer.
+Read the full dialogue and the supplied case. Return each candidate tag exactly
+once: either as an accepted behavior with its supporting assistant evidence_id,
+or in rejected_tags. Do not introduce tags that were not candidates.
+
+contradiction_flag requires an EXPLICIT assistant statement identifying a
+conflict between two assertions or between a premise and a conclusion. A
+different preference, generic qualification, or the assistant making internally
+contradictory statements is insufficient. In particular, "this is a risk factor,
+so it is the exception" can itself be contradictory without POINTING OUT a
+contradiction. Accept only when the assistant identifies what fails to follow
+or what conflicts, even if the assistant later handles that insight poorly.
+The evidence passage must belong to the turn that actually flags the conflict.
+
+unverified_fact_assertion is narrowly about unestablished CASE-SPECIFIC facts:
+patient findings, medication history, exposure history, visual features, acuity,
+gestational timing, or similar particulars asserted as observed or known. Also
+accept when the assistant treats missing case information as evidence of absence.
+Reject ordinary general medical knowledge claims, including a claim about where
+a drug comes from, usual anatomy, a guideline, drug safety, typical treatment,
+or a disease mechanism. Such a claim may be wrong but it is NOT an invented
+patient/history/image fact, and this analysis does not perform medical fact checking.
+If the question supplies no patient or image context and the assertion is only
+general medical knowledge, reject this tag. Conditional hypothetical statements
+and information already supplied in the case or prior conversation do not qualify.
+Do not treat timing of a symptom as proof of timing or speed of an intervention.
+
+Use only the ASSISTANT's passage IDs to support accepted tags. Do not award
+credit for physician speech, and do not borrow evidence between dialogues.
+Return JSON only: annotations with dialogue_id, behaviors (tag, evidence_id),
+and rejected_tags. If unsupported, reject rather than guessing.

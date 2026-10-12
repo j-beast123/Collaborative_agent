@@ -47,6 +47,7 @@ def main(argv=None):
         print(json.dumps({'config': args.config, 'phase': args.phase, 'method': cfg['method'],
                           'doctor': cfg['rollout']['doctor_model'], 'assistant': cfg['policy']['base_model'],
                           'schedule': cfg['schedule'], 'rollouts_per_case': 32,
+                          'advantage_normalization': cfg['advantage_normalization'],
                           'cache_enabled': not args.no_cache and cfg['prompt_optimization'].get('cache_enabled', True),
                           'checkpoint_every_steps': 10, 'launch': False}, ensure_ascii=False, indent=2))
         return

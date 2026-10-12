@@ -18,6 +18,7 @@ from src.online_rl.sherpa import PROTOCOL
 from src.online_rl.sherpa.pipeline import assess, case_metrics, reflections, training_records
 from src.online_rl.sherpa.prompt_search import frozen_prompt
 from src.online_rl.sherpa.rollouts import collect, schedule
+from src.online_rl.sherpa.learning_signal import signal_checks, save_step_signal
 from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.five_gpu import load_checkpoint, save_checkpoint
 
@@ -50,9 +51,13 @@ def train(cfg, policy, backend, cases, root, *, max_steps=None):
     identity = {'protocol': PROTOCOL, 'config': cfg,
                 'frozen_prompt': prompt_artifact['prompt_sha256'] if prompt_artifact else None,
                 'case_schedule': [[case['case_id'] for case in batch] for batch in batches]}
+    if prompt_artifact and prompt_artifact.get('prompt_source') == 'explicit_user_revision':
+        # Authenticate judge/reflection contents too on restart, not just paths.
+        identity['revised_prompt_backend'] = backend.identity()
     fingerprint = sha256_json(identity)
     state_path = home / 'run_state.json'
     updater = make_updater(policy, cfg)
+    advantage_mode = cfg.get('advantage_normalization', {}).get('mode', 'group_zscore')
     if state_path.exists():
         state = read_json(state_path)
         fingerprint = resume_fingerprint(identity, state, home / 'run_manifest.json')
@@ -62,6 +67,11 @@ def train(cfg, policy, backend, cases, root, *, max_steps=None):
     else:
         state = {'fingerprint': fingerprint, 'completed_steps': 0, 'policy_sha256': adapter_sha256(policy.model)}
         atomic_write_json(home / 'run_manifest.json', identity)
+    # Persist the resolved extends-chain config only after resume authentication.
+    atomic_write_json(home / 'config.json', cfg)
+    emit({'stage': 'training_configuration', 'advantage_mode': advantage_mode,
+          'advantage_scale': 1.0, 'exclude_zero_advantage_trajectories': advantage_mode == 'group_mean',
+          'grouping': 'same_case_32_trajectories', 'credit_scope': 'all_assistant_tokens_in_trajectory'})
     if prompt_artifact:
         # Only after resume identity validation; never replace another run's prompt.
         (home / 'frozen_generator_prompt.txt').write_text(prompt)
@@ -168,7 +178,7 @@ def train(cfg, policy, backend, cases, root, *, max_steps=None):
                           'fingerprint': fingerprint, 'policy_sha256': expected,
                           'trajectories': trajectories, 'reflections': examples,
                           'rubric_assessment': assessed, 'training_records': records,
-                          'metrics': case_metrics(trajectories, scores)}
+                          'metrics': case_metrics(trajectories, scores, advantage_mode)}
                 atomic_write_json(saved, record)
                 return record
 
@@ -183,11 +193,20 @@ def train(cfg, policy, backend, cases, root, *, max_steps=None):
             raise RuntimeError('GRPO requires four groups of 32 trajectories')
         emit({'stage': 'agent_update', 'step': step, 'iteration': iteration})
         update = updater.update_groups(groups)
+        signal = signal_checks(cfg, home, root, step, update,
+                               prompt_artifact['prompt_sha256'] if prompt_artifact else None)
+        save_step_signal(step_dir, step, signal)
+        if signal['alerts']:
+            emit({'stage': 'learning_signal_warning', 'step': step,
+                  'advantage_mode': advantage_mode, 'alerts': signal['alerts'],
+                  'action': 'Review signal scale; no automatic learning-rate or advantage changes'})
         current = adapter_sha256(policy.model)
         values = [row['reward'] for group in groups for row in group]
         traces = [trace for group in groups for row in group for trace in row['agent_traces']]
         metrics = {'step': step, 'iteration': iteration, 'step_in_iteration': (step - 1) % 30 + 1,
                    'method': method, 'trajectories': 128, 'cases': 4,
+                   'advantage_mode': advantage_mode, 'advantage_scale': 1.0,
+                   'grad_norm': update.get('grad_norm'), 'learning_signal': signal,
                    'reward_mean': statistics.mean(values), 'reward_std': statistics.pstdev(values),
                    'zero_advantage_group_fraction': sum(row['metrics']['zero_advantage'] for row in records) / 4,
                    'case_auc': {row['case_id']: row['metrics']['auc'] for row in records},

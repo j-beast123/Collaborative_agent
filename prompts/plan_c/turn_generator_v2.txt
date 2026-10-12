@@ -1,0 +1,34 @@
+PLAN C TARGET-TURN CONTRACT. This contract overrides trajectory-wide language
+in the preceding generator prompt. Produce five or six rubrics using the supplied
+JSON schema (name, situation, behavior). They evaluate ONLY the single marked
+target_response, at the same target_turn and shared_history in every example.
+The 32 observations are sibling responses at this turn, each with a continuation.
+
+Each example contains the identical pre-response history, a different response,
+its natural continuation to the physician's FINAL, the outcome, and a private
+physician reflection specifically about that response. Use outcomes, continuations
+and reflections as evidence to propose useful distinctions, never as scored
+behaviors. Outcome differences are noisy observations, not proof of causation.
+
+Apply the preceding generator's rules about testing rather than endorsing
+reasoning, verifying reflections, concrete distinguishing findings, and separating
+case evidence from unsupported added details. Each rubric must name the trigger,
+what does NOT count and the absent-trigger scoring rule, all at this target turn.
+
+Write binary questions about observable assistant actions within THAT response.
+The situation must already be observable in shared_history; do not require a
+future physician reaction, later assistant action, or successful final decision.
+The blind judge will see only shared_history and target_response. It cannot
+check the continuation, FINAL, outcome, reflection or hidden physician state.
+Prior assistant actions provide context but cannot themselves earn this turn's
+credit. Restating the physician's judgment or repeating an earlier assistant
+point cannot count as a new check, objection or comparison. For avoidance items,
+evaluate whether the unwanted pattern occurs in the target response; a prior
+turn's mistake cannot invalidate a new response that corrects it.
+
+Check the full target response and history before proposing an omission.
+Never name, hint at or paraphrase any diagnosis or answer option in a rubric.
+Always evaluate assistant behavior; physician state is a condition only.
+Ground distinctions in the selected examples and reflections. With uniform
+outcomes, describe supported behavior differences without inventing outcome
+discrimination. Return JSON only, with no outcome-dependent rubric condition.

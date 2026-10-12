@@ -43,7 +43,8 @@ def _build_initial_fanout(case: dict, *, max_agent_turns: int, branching: int, r
                    agent, doctor, stop_rule: Callable, final_option: Callable, outcome_fn: Callable, cache: CallCache,
                    behavior_logprobs: Optional[Callable] = None, workers: int = 1, opening: Optional[Callable] = None,
                    agent_workers: int = 1, on_leaf: Optional[Callable] = None, on_leaf_nodes: Optional[Callable] = None,
-                   repeat_agent_reply_after_turns: Optional[int] = None, budget='initial_fanout') -> Tree:
+                   repeat_agent_reply_after_turns: Optional[int] = None, budget='initial_fanout',
+                   frozen_state=None, start_depth=1) -> Tree:
     """build_tree under Doctor protocol v2 (src/online_rl/doctor.py): every Doctor call is seeded from its node identity
     (doctor_seed), its hidden status is cut from the visible reply and kept on the node, and after each Doctor turn the
     shared halting rule may end the branch ('doctor_halt'; that Doctor message stays in the dialogue and FINAL follows).
@@ -54,6 +55,9 @@ def _build_initial_fanout(case: dict, *, max_agent_turns: int, branching: int, r
     opening(case, seed) -> D1: the frozen shared opening (src/online_rl/doctor_openings.py), read, never generated; only D1.
     agent_workers > 1 (execution only, Agent replicas): the depth's Agent actions are independent given their seeds and are
     sampled concurrently; node order, seeds, cache keys and values are those of the sequential loop."""
+    # Plan C may start at a frozen pre-action state at an absolute later turn.
+    # Only newly sampled suffix nodes belong to leaf.path; shared-prefix actions
+    # remain in the visible dialogue and never become suffix training targets.
     from concurrent.futures import ThreadPoolExecutor
     from src.online_rl.doctor import doctor_seed, minimum_agent_turns
     cid = case['case_id']; ident = {'case': cid, 'policy': policy_sha256, 'protocol': protocol_sha256}
@@ -64,16 +68,28 @@ def _build_initial_fanout(case: dict, *, max_agent_turns: int, branching: int, r
             return list(pool.map(fn, items))
     pmap = lambda fn, items: mapped(fn, items, workers)
     amap = lambda fn, items: mapped(fn, items, agent_workers)
-    s1 = doctor_seed(run_seed, cid, 'doctor', 1)
-    d1 = (opening(case, s1) if opening is not None else
-          cache.call('doctor_turn', {**ident, 'path': '', 'round': 1, 'seed': s1}, lambda: doctor.turn(case, [], 1, max_agent_turns, s1)))
-    frontier = [('', None, [{'speaker': 'doctor', 'stage': 'D1', 'round': 1, 'text': d1['visible']}], d1['status'], d1.get('private_state'))]
+    if frozen_state is None:
+        if start_depth != 1:
+            raise ValueError('A later starting turn requires a frozen Doctor/history state')
+        s1 = doctor_seed(run_seed, cid, 'doctor', 1)
+        d1 = (opening(case, s1) if opening is not None else
+              cache.call('doctor_turn', {**ident, 'path': '', 'round': 1, 'seed': s1}, lambda: doctor.turn(case, [], 1, max_agent_turns, s1)))
+        prefix, status, private = [{'speaker': 'doctor', 'stage': 'D1', 'round': 1, 'text': d1['visible']}], d1['status'], d1.get('private_state')
+    else:
+        prefix, status, private = frozen_state
+        if not 1 <= start_depth <= max_agent_turns or not prefix or prefix[-1]['speaker'] != 'doctor':
+            raise ValueError('Invalid frozen continuation state')
+        if (prefix[-1].get('round') != start_depth
+                or sum(row['speaker'] == 'agent' for row in prefix) != start_depth - 1
+                or any(row.get('stage') == 'FINAL' for row in prefix)):
+            raise ValueError('Frozen history must end immediately before its target turn')
+    frontier = [('', None, prefix, status, private)]
     nodes, leaves = [], []
-    for depth in range(1, max_agent_turns + 1):
+    for depth in range(start_depth, max_agent_turns + 1):
         if not frontier: break
         entries, specs = [], []
         for path, parent, prefix, prev_status, prev_private in frontier:
-            for j in (range(branching) if depth == 1 else range(1)):
+            for j in (range(branching) if depth == start_depth else range(1)):
                 cpath = f'{path}.{j}' if path else str(j); nid = f'{cid}/{cpath}'; seed = derive_seed(run_seed, nid, 'agent', 0)
                 specs.append((cpath, nid, parent, prefix, prev_status, seed, prev_private))
 
@@ -117,7 +133,7 @@ def _build_initial_fanout(case: dict, *, max_agent_turns: int, branching: int, r
             if on_leaf is not None or on_leaf_nodes is not None:
                 opt=final_option(text)
                 full=e['dialogue']+[{'speaker':'doctor','stage':'FINAL','round':0,'text':text}]
-                path_ids=tuple(f'{cid}/{".".join(e["cpath"].split(".")[:k])}' for k in range(1,depth+1))
+                path_ids=tuple(f'{cid}/{".".join(e["cpath"].split(".")[:k])}' for k in range(1,len(e['cpath'].split('.'))+1))
                 leaf=Leaf(e['nid'],cid,path_ids,to_turns(full),text,opt,outcome_fn(case,opt),e['why'])
                 if on_leaf is not None:on_leaf(leaf)
                 if on_leaf_nodes is not None:
@@ -135,7 +151,7 @@ def _build_initial_fanout(case: dict, *, max_agent_turns: int, branching: int, r
                 nxt.append((e['cpath'], e['nid'], e['dialogue'], nd['status'], nd.get('private_state'))); continue
             final_text = finals[e['nid']]; opt = final_option(final_text)
             full = e['dialogue'] + [{'speaker': 'doctor', 'stage': 'FINAL', 'round': 0, 'text': final_text}]
-            path_ids = tuple(f'{cid}/{".".join(e["cpath"].split(".")[:k])}' for k in range(1, depth + 1))
+            path_ids = tuple(f'{cid}/{".".join(e["cpath"].split(".")[:k])}' for k in range(1, len(e['cpath'].split('.')) + 1))
             leaves.append(Leaf(e['nid'], cid, path_ids, to_turns(full), final_text, opt, outcome_fn(case, opt), e['why']))
         frontier = nxt
     return Tree(cid, policy_sha256, max_agent_turns, branching, tuple(nodes), tuple(leaves), budget)

@@ -66,12 +66,13 @@ def reward(R_O: Optional[float], R_A: Optional[float], w_O: float, w_A: float, r
 
 
 def advantages(rewards: list[Optional[float]], mode: str) -> list[Optional[float]]:
-    if mode not in ('mean_center', 'group_zscore'): raise ValueError(f'unknown advantage mode {mode}')
+    if mode not in ('group_mean', 'mean_center', 'group_zscore'): raise ValueError(f'unknown advantage mode {mode}')
     v = [r for r in rewards if r is not None]
     if any(not math.isfinite(r) for r in v): raise ValueError('rewards must be finite numbers or None')
     if len(v) < 2: return [None] * len(rewards)
-    m, sd = st.mean(v), math.sqrt(_pvar(v))
-    if mode == 'mean_center': return [None if r is None else r - m for r in rewards]
+    m = st.mean(v)
+    if mode in ('group_mean', 'mean_center'): return [None if r is None else r - m for r in rewards]
+    sd = math.sqrt(_pvar(v))
     if mode == 'group_zscore': return [None if r is None else ((r - m) / (sd + 1e-8) if sd > 0 else 0.0) for r in rewards]
     raise ValueError(f'unknown advantage mode {mode}')
 

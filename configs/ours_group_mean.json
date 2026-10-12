@@ -1,0 +1,17 @@
+{
+  "extends": "configs/ours.json",
+  "output_dir": "outputs/ours_qwen3_doctor_256_compact_luna_rubric_group_mean_prompt_v2",
+  "advantage_normalization": {"mode": "group_mean"},
+  "rubric_pipeline": {
+    "generator_prompt_file": "prompts/sherpa/trajectory_checklist_generator_v4.txt",
+    "judge_prompt_file": "prompts/sherpa/trajectory_checklist_judge_v3.txt"
+  },
+  "checkpoint_upload": {"path_prefix": "ours_group_mean_prompt_v2"},
+  "learning_signal_monitor": {
+    "reference_output_dir": "outputs/ours_qwen3_doctor_256_compact_luna_rubric_v4",
+    "allow_prompt_difference": true,
+    "gradient_norm_ratio_threshold": 0.1,
+    "kl_near_zero_threshold": 1e-8,
+    "kl_patience_steps": 3
+  }
+}

@@ -9,8 +9,77 @@ from src.online_rl.integrated.continuation import adapter_sha256
 from src.online_rl.integrated.metrics import advantages
 from src.online_rl.runtime import GRPOUpdater
 
-MODES = ('group_zscore', 'mean_center')
+MODES = ('group_zscore', 'group_mean', 'mean_center')
 RAW_LOGPROB_SEMANTICS = 'raw_policy_before_sampling_warpers_v1'
+
+
+def advantage_summary(values):
+    values = [a for a in values if a is not None]
+    return {'count': len(values), 'positive': sum(a > 0 for a in values),
+            'negative': sum(a < 0 for a in values), 'zero': sum(a == 0 for a in values),
+            'mean': sum(values) / len(values) if values else None,
+            'sum_abs': sum(abs(a) for a in values),
+            'mean_abs': sum(abs(a) for a in values) / len(values) if values else None,
+            'min': min(values) if values else None, 'max': max(values) if values else None,
+            'max_abs': max((abs(a) for a in values), default=None)}
+
+
+def prepare_advantage_groups(groups, mode):
+    """Center over the FULL rewarded group before selecting loss trajectories.
+
+    group_mean drops exact-zero advantages from both policy and KL loss. Legacy
+    modes retain their original inclusion semantics for existing experiments.
+    """
+    usable, adv, skipped, details = [], [], [], []
+    for group in groups:
+        rewards = [r['reward'] for r in group]
+        aligned = advantages(rewards, mode)
+        rewarded = sum(r is not None for r in rewards)
+        reason = ('fewer_than_two_rewarded_responses' if rewarded < 2 else
+                  'zero_advantage_group' if all(a == 0 for a in aligned if a is not None) else None)
+        pairs = [(r, a) for r, a in zip(group, aligned)
+                 if a is not None and (mode != 'group_mean' or a != 0)]
+        if reason:
+            skipped.append(reason)
+        else:
+            usable.extend(r for r, a in pairs)
+            adv.extend(a for r, a in pairs)
+        outcomes = [r.get('outcome') for r in group]
+        kind = ('unknown' if not outcomes or any(y not in (0, 1) for y in outcomes) else
+                'all_success' if all(y == 1 for y in outcomes) else
+                'all_failure' if all(y == 0 for y in outcomes) else 'mixed')
+        summary = advantage_summary(aligned)
+        details.append({'group': group[0].get('case_id') if group else None,
+                        'group_type': kind, 'outcomes': outcomes,
+                        'trajectory_ids': [r['trajectory_id'] for r in group],
+                        'rewards': rewards, 'advantages': aligned,
+                        'rewarded_responses': rewarded, 'used': reason is None, 'skip_reason': reason,
+                        'zero_advantage_trajectories': summary['zero'],
+                        'used_trajectory_ids': [r['trajectory_id'] for r, a in pairs] if reason is None else [],
+                        'used_assistant_tokens': sum(len(segment['completion_ids']) for r, a in pairs
+                            for trace in r['agent_traces'] for segment in (trace.get('segments') or [trace])) if reason is None else 0,
+                        'advantage': summary})
+    return usable, adv, skipped, details
+
+
+def signal_by_group_type(details):
+    result = {}
+    total_abs = sum(g['advantage']['sum_abs'] for g in details)
+    for kind in ('mixed', 'all_success', 'all_failure', 'unknown'):
+        rows = [g for g in details if g['group_type'] == kind]
+        abs_sum = sum(g['advantage']['sum_abs'] for g in rows)
+        count = sum(g['advantage']['count'] for g in rows)
+        result[kind] = {'groups_total': len(rows), 'groups_used': sum(g['used'] for g in rows),
+                        'groups_skipped': sum(not g['used'] for g in rows),
+                        'trajectories': count, 'used_trajectories': sum(len(g['used_trajectory_ids']) for g in rows),
+                        'zero_advantage_trajectories': sum(g['zero_advantage_trajectories'] for g in rows),
+                        'sum_abs_advantage': abs_sum,
+                        'share_abs_advantage': abs_sum / total_abs if total_abs else None,
+                        'mean_abs_advantage': abs_sum / count if count else None,
+                        'max_abs_advantage': max((g['advantage']['max_abs'] for g in rows
+                                                  if g['advantage']['max_abs'] is not None), default=None),
+                        'used_assistant_tokens': sum(g['used_assistant_tokens'] for g in rows)}
+    return result
 
 
 def validate_raw_sampling(settings: dict, *, recorded: bool, label: str):
@@ -217,22 +286,9 @@ class IntegratedGRPOUpdater(GRPOUpdater):
                         for i, segment in enumerate(trace.get('segments') or [trace]):
                             validate_raw_sampling(segment, recorded=True,
                                                   label=f"{record['trajectory_id']} turn {turn} segment {i}")
-        usable, adv, skipped, group_details = [], [], [], []
-        for g in groups:
-            rewards = [r['reward'] for r in g]
-            aligned_advantages = advantages(rewards, self.mode)
-            u = [r for r in g if r['reward'] is not None]
-            a = [x for x in aligned_advantages if x is not None]
-            reason = ('fewer_than_two_rewarded_responses' if len(u) < 2
-                      else 'zero_advantage_group' if all(x == 0 for x in a) else None)
-            if reason: skipped.append(reason)
-            else: usable += u; adv += a
-            group_details.append({
-                'group': g[0].get('case_id') if g else None,
-                'trajectory_ids': [r['trajectory_id'] for r in g],
-                'rewards': rewards, 'advantages': aligned_advantages,
-                'rewarded_responses': len(u), 'used': reason is None, 'skip_reason': reason,
-            })
+        usable, adv, skipped, group_details = prepare_advantage_groups(groups, self.mode)
+        all_adv = [a for g in group_details for a in g['advantages'] if a is not None]
+        zscore_adv = [a for g in group_details for a in advantages(g['rewards'], 'group_zscore') if a is not None]
         telemetry = {
             'groups_total': len(groups), 'groups_used': len(groups) - len(skipped),
             'groups_skipped': len(skipped),
@@ -240,16 +296,16 @@ class IntegratedGRPOUpdater(GRPOUpdater):
             'used_trajectories': len(usable),
             'used_agent_completions': sum(len(record['agent_traces']) for record in usable),
             'optimizer_steps': getattr(self, 'steps', 0),
-            'kl_scope': 'used_nonzero_advantage_groups_only',
+            'kl_scope': ('nonzero_advantage_trajectories_only' if self.mode == 'group_mean'
+                         else 'used_nonzero_advantage_groups_only'),
             'sampling_policy_alignment': ('raw_full_support_verified' if require_raw
                                           else 'legacy_raw_loss_sampling_not_enforced'),
             'advantage_diagnostics': {
                 'mode': self.mode, 'groups': group_details,
-                'used': {'count': len(adv), 'positive': sum(x > 0 for x in adv),
-                         'negative': sum(x < 0 for x in adv), 'zero': sum(x == 0 for x in adv),
-                         'mean': sum(adv) / len(adv) if adv else None,
-                         'mean_abs': sum(abs(x) for x in adv) / len(adv) if adv else None,
-                         'min': min(adv) if adv else None, 'max': max(adv) if adv else None},
+                'exclude_zero_advantage_trajectories': self.mode == 'group_mean',
+                'all': advantage_summary(all_adv), 'used': advantage_summary(adv),
+                'same_rewards_group_zscore': advantage_summary(zscore_adv),
+                'by_group_type': signal_by_group_type(group_details),
             },
         }
         if not usable:

@@ -1,4 +1,5 @@
 {
+  "retired": true,
   "template_config": "configs/ours.json",
   "output_dir": "outputs/plan_b_medmcqa_mixed_v1",
   "dataset": "openlifescienceai/medmcqa",

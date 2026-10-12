@@ -24,7 +24,7 @@ def main():
     cfg = load_config(args.config)
     problems = config_problems(cfg, ROOT)
     if cfg.get('method') != 'sherpa':
-        problems.append('ours requires the optimized rubric reward (method=sherpa)')
+        problems.append('ours requires the rubric reward (method=sherpa)')
     if args.max_steps is not None and args.max_steps < 1:
         parser.error('--max-steps must be positive')
     try:
@@ -40,10 +40,14 @@ def main():
     if args.launch and not upload_ready:
         problems.append('Fill HF_REPO_ID (existing model repository) and HF_TOKEN in .env for ten-step uploads')
     prompt_status = 'pending optimization'
+    prompt_file = str(artifact_path)
+    prompt_source = None
     if artifact_path.exists():
         try:
             _, artifact = frozen_prompt(cfg, ROOT)
-            prompt_status = 'ready: ' + artifact['prompt_sha256']
+            prompt_source = artifact.get('prompt_source', 'auc_optimized')
+            prompt_status = 'ready: ' + prompt_source + ': ' + artifact['prompt_sha256']
+            prompt_file = artifact['prompt_file']
         except Exception as exc:
             problems.append(str(exc))
             prompt_status = 'invalid'
@@ -54,8 +58,12 @@ def main():
         'cases_per_step': 4, 'rollouts_per_case': 32, 'rollouts_per_step': 128,
         'temperature': cfg['rollout']['temperature'],
         'doctor': cfg['rollout']['doctor_model'], 'reward': 'mean binary rubric score',
-        'advantage_normalization': 'within each case, 32 trajectories',
-        'frozen_prompt': str(artifact_path), 'prompt_status': prompt_status,
+        'advantage_normalization': cfg['advantage_normalization'],
+        'advantage_grouping': 'within each case, 32 trajectories',
+        'exclude_zero_advantage_trajectories': cfg['advantage_normalization']['mode'] == 'group_mean',
+        'frozen_prompt': prompt_file, 'prompt_status': prompt_status,
+        'prompt_source': prompt_source, 'source_optimized_artifact': str(artifact_path),
+        'judge_prompt_file': cfg['rubric_pipeline']['judge_prompt_file'],
         'execution': cfg['training_execution'], 'checkpoint_every_steps': 10,
         'checkpoint_upload': {'enabled': upload.get('enabled', False), 'ready': upload_ready, 'repo_id': repo},
         'problems': problems, 'launch': args.launch}, indent=2), flush=True)

@@ -6,6 +6,13 @@ from src.online_rl.sherpa import PROTOCOL
 
 def config_problems(cfg, root):
     problems = []
+    mode = cfg.get('rubric_pipeline', {}).get('reflection_system_mode')
+    if mode not in (None, 'legacy_doctor', 'standalone'):
+        problems.append('Unknown reflection_system_mode')
+    revision = cfg.get('rubric_pipeline', {}).get('generator_prompt_file')
+    if revision is not None and (not isinstance(revision, str) or not revision
+                                or not (Path(root) / revision).is_file()):
+        problems.append('generator_prompt_file must be an existing explicit prompt file')
     if cfg.get('pipeline_protocol') != PROTOCOL:
         problems.append('Unknown trajectory pipeline protocol')
     ro = cfg.get('rollout', {})
@@ -50,13 +57,34 @@ def config_problems(cfg, root):
         retries = training.get('rate_limit_retries', 0)
         if type(retries) is not int or retries < 0:
             problems.append('Training rate_limit_retries must be a nonnegative integer')
-    if cfg.get('advantage_normalization', {}).get('mode') != 'group_zscore':
-        problems.append('Trajectory groups require z-score advantages')
+    if cfg.get('advantage_normalization', {}).get('mode') not in ('group_zscore', 'group_mean'):
+        problems.append('Trajectory advantage mode must be group_zscore or group_mean')
+    monitor = cfg.get('learning_signal_monitor', {})
+    if monitor:
+        import math
+        ratio, near_zero = monitor.get('gradient_norm_ratio_threshold', .1), monitor.get('kl_near_zero_threshold', 1e-8)
+        if type(ratio) not in (int, float) or not math.isfinite(ratio) or not 0 < ratio <= 1:
+            problems.append('gradient_norm_ratio_threshold must be in (0, 1]')
+        if type(near_zero) not in (int, float) or not math.isfinite(near_zero) or near_zero < 0:
+            problems.append('kl_near_zero_threshold must be finite and nonnegative')
+        if type(monitor.get('kl_patience_steps', 3)) is not int or monitor.get('kl_patience_steps', 3) < 2:
+            problems.append('kl_patience_steps must be an integer >= 2')
+        reference = monitor.get('reference_output_dir')
+        if type(monitor.get('allow_prompt_difference', False)) is not bool:
+            problems.append('allow_prompt_difference must be a boolean')
+        if reference and (Path(root) / reference).resolve() == (Path(root) / cfg['output_dir']).resolve():
+            problems.append('Learning signal reference must be a different run directory')
     doctor_capacity = 128 if local_doctor else 50
     if cfg.get('execution', {}).get('api_limits', {}).get('doctor') != doctor_capacity:
         problems.append(f'Doctor API capacity must be {doctor_capacity}')
     if cfg.get('method') == 'sherpa':
         search = cfg.get('prompt_optimization', {})
+        gain = search.get('min_auc_improvement', 0.0)
+        if type(gain) not in (int, float) or not 0 <= gain <= 1:
+            problems.append('min_auc_improvement must be between zero and one')
+        seeds = search.get('additional_initial_prompt_files', [])
+        if not isinstance(seeds, list) or any(not isinstance(path, str) or not (Path(root) / path).is_file() for path in seeds):
+            problems.append('additional_initial_prompt_files must list existing prompt files')
         if search.get('inference_engine', 'transformers') not in ('transformers', 'vllm'):
             problems.append('Unknown prompt inference_engine')
         if search.get('inference_engine') == 'vllm':

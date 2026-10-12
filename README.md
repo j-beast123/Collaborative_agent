@@ -199,6 +199,70 @@ resumes saved evaluation calls on subsequent launches:
 Evaluation runs separately from training. Changing only the `evaluation`
 configuration preserves the existing training recovery identity and cached steps.
 
+The first-iteration rubric audit has an isolated follow-up configuration,
+`configs/sherpa_qwen_doctor_v5.json`. It separates private reflection from the
+Doctor discussion instructions, tightens whole-conversation judging of repeated
+agreement and unrepaired assumptions, and compares a stronger seed generator
+prompt with the current optimized prompt. Selection uses three generation passes
+and requires a mean-AUC gain greater than 0.02 before replacing the parent.
+This threshold is an operational guard, not a statistical significance test.
+Old training continues to use its existing frozen artifact.
+
+Prepare the v5 input after step 30; this only copies the 120 immutable original-
+base rollout files. It does not copy old reflections, rubrics, or scores. With
+the Doctor GPU free, run the new optimization separately:
+
+```bash
+.venv/bin/python scripts/online_rl/prepare_prompt_revision.py
+bash run_prompt_optimization.sh --config configs/sherpa_qwen_doctor_v5.json --phase optimize-prompt --launch
+```
+
+The new judge/reflection prompts need real calibration and optimization before
+claiming an improvement. They retain the same models and rollout/Doctor rules.
+No new model or API inference occurs during preparation.
+
+The preliminary behavior audit annotates all 3,840 saved original-base dialogues
+with Luna, eight dialogues per request. It hides outcome labels and the recorded
+FINAL messages. Every positive tag selects an assistant passage ID; code extracts
+the exact source quote. The analysis saves multi-label prevalence, tagged/untagged
+success rates, within-case success-rate differences, and case-bootstrap intervals.
+The main within-case comparison uses mixed cases with both tagged and untagged
+dialogues; each behavior has its own eligible-case denominator. These are
+observational associations, not causal effects or a trained-model evaluation.
+
+```bash
+.venv/bin/python scripts/online_rl/analyze_base_behaviors.py --launch
+.venv/bin/python scripts/online_rl/verify_behavior_tags.py --launch
+```
+
+Requests default to 64 concurrent calls during the training `agent_update` stage
+or after training exits. They wait during training rollout/API stages, use no
+GPU, and resume validated batches. The second command reviews only positive
+contradiction and unverified-case-fact candidates, saves corrected results under
+`outputs/base_behavior_luna_v2/verified/`, and preserves the original annotations.
+That review targets false positives; it does not establish recall or human-level
+annotation accuracy. The initial request uses seven descriptive tags, including
+an explicit agreement-only category. General medical knowledge assertions are
+excluded from the unverified-case-fact tag even when their correctness is dubious.
+
+For a small corrected Doctor-reflection pilot on the same saved dialogues:
+
+```bash
+.venv/bin/python scripts/online_rl/pilot_doctor_reflections.py --grounded --full-turn-evidence --output-dir outputs/doctor_reflection_pilot_v4 --launch
+```
+
+The default sample is four mixed base cases, one successful and one failed
+dialogue per case. It reuses the existing frozen local Doctor server and the
+original reflection seeds, uses a standalone private-reflection system prompt,
+and collects helpful/hindering observations plus a wished-for assistant action.
+Assistant evidence is selected by whole-turn ID, and the exact source text is
+extracted by code. The dialogue text is never fragmented in this mode. Completed
+outputs can be reopened without a running server.
+New inference uses only the first 40 seconds of an active training update stage;
+no new rollout, server launch, training-cache change, or remote API call occurs.
+Grounded quotations establish source attribution, not the truth of the physician
+model's retrospective assessment or its hypothetical wishes.
+
 Launch requires the completed optimization artifact
 `outputs/sherpa_prompt_auc_qwen3_doctor_256_compact_luna_v4/final_prompt.json`; it never falls back
 to an initial/intermediate prompt. Its hash and generator/judge/Doctor identity
@@ -400,60 +464,179 @@ previous cached rollouts and checkpoints are not imported as current observation
 
 Tests, training and API verification have not been run for these changes.
 
-## Plan B: mixed-case MedMCQA training data
+## Mean-only case-level trajectory advantages
 
-`configs/plan_b.json` prepares an independent 2,000-case random **train-only**
-pool. It excludes the current 120 training questions, calibration IDs, protected
-evaluation IDs/questions, and duplicate questions. No GPU inference runs during
-`prepare`. The pool is already prepared at
-`outputs/plan_b_medmcqa_mixed_v1/pool.jsonl`.
+`configs/ours_group_mean.json` inherits the unchanged `ours.json` experiment,
+selecting advantage mode `group_mean`, the explicit user-revised generator
+`trajectory_checklist_generator_v4.txt` and judge `trajectory_checklist_judge_v3.txt`,
+and assigning independent output and HF checkpoint paths. The existing running z-score job is not restarted or
+modified. The new run starts from the same fresh base/LoRA initialization; a
+mode change cannot resume an old run's optimizer/cached step records.
 
-After the current GPU job finishes:
+For each case's 32 trajectories, compute `A_i = R_i - mean(R)` over the **full**
+group. There is no standard-deviation divisor, epsilon normalization, extra
+scale or global/batch centering. Every assistant token across every turn of a
+trajectory receives that same advantage. After centering, exact-zero advantage
+trajectories are excluded from both policy and KL loss. A flat-reward group is
+excluded entirely. Legacy `group_zscore` and `mean_center` behavior is retained,
+including their previous KL inclusion. Plan C also selects `group_mean`, with
+shared-history turn groups rather than case-level trajectory groups.
 
-```bash
-bash run_plan_b.sh --phase all --launch
-```
+The binary reward calculation, rubric schema and input visibility,
+rollout/Doctor/termination rules, optimizer, KL coefficient, clipping, LoRA,
+case ordering, seed and 4 x 32 / 90-step schedule are inherited unchanged.
+The generator and judge text are exactly the new user-provided revisions.
+`rubric_pipeline.generator_prompt_file` explicitly selects the revised generator.
+The immutable optimized source artifact remains intact; the run saves a
+`sherpa_user_prompt_revision_v1` prompt receipt with both source and revised hashes,
+`prompt_source=explicit_user_revision` and `auc_validated=false`. It does not
+reuse the old prompt's AUC. Judge/reflection backend hashes participate in
+restart authentication for revised-prompt runs. Old rubric/score caches are
+not imported into the new output directory. The resolved configuration is saved in `config.json`
+and `run_manifest.json`; startup logs, step metrics and updater telemetry record
+the actual mode, exact-zero exclusion and fixed scale 1.0.
 
-Filtering uses the original Qwen3-8B base model **without LoRA** through vLLM on
-GPU 0 and the same frozen Doctor on GPU 1. It calls the shared training rollout
-function with the same prompts, temperature, final outcome and stopping rules,
-changing only the fanout to eight. The engine is vLLM rather than the training
-Transformers engine; identical seeds are not claimed to produce identical text.
-Both model queues are bounded at 128 requests. A sliding queue keeps up to 16
-cases active, replacing finished cases without waiting for a whole batch.
-Existing physical GPU locks are checked before either model is loaded, so an
-occupied GPU aborts filtering without stopping the active training process.
-
-The default accepts 2–6 successes out of eight and stops dispatching once the
-fixed randomized pool prefix contains 120 mixed cases. In-flight cases finish,
-and the first 120 eligible cases in pool order are selected, preventing a bias
-for fast-finishing conversations. `--selection random120` screens the entire
-pool and samples 120 eligible cases with a fixed seed instead. `--min-successes
-1` accepts 1–7 successes. Set these choices before screening; changing an
-already-cached screening protocol requires a fresh output directory. Pool size
-and case concurrency are configurable with `--pool-size` and `--case-workers`.
-
-Screening summaries store eight outcomes and the Doctor opening; shared call
-caches preserve resumable evidence. No rubric, judge call or optimizer is used
-in filtering. The script writes a new pinned `train120.jsonl`, case order,
-24 randomly selected prompt optimization IDs, and independent training/prompt
-configs. It then collects **32 additional trajectories only for those 24 cases**,
-reusing the screening Doctor opening but using fresh continuation seeds. The
-screening eight outcomes are never included in the AUC observations. The 24
-cases are fixed before this collection; undefined AUC is not fabricated or
-silently replaced with a selected favorable case.
-
-Phases can also be run separately, and completed calls/cases resume:
+Only inspect readiness now (no GPU/API training work):
 
 ```bash
-bash run_plan_b.sh --phase prepare --launch
-bash run_plan_b.sh --phase screen --launch
-bash run_plan_b.sh --phase auc32 --launch
-bash run_plan_b.sh --phase optimize --launch
-bash run_ours.sh --config outputs/plan_b_medmcqa_mixed_v1/ours_plan_b.json --launch
-bash monitor.sh --config outputs/plan_b_medmcqa_mixed_v1/ours_plan_b.json --mode training
+bash run_ours.sh --config configs/ours_group_mean.json
 ```
 
-The Plan B trainer reads its own optimized `final_prompt.json` and initializes
-fresh LoRA weights. Its output and HF checkpoint prefix are separate from the
-current experiment. Running without `--launch` only describes the planned phase.
+When explicitly ready to launch a separate experiment with free GPUs, use
+`bash run_ours.sh --config configs/ours_group_mean.json --launch`. Add
+`--max-steps 2` to run only the first two new steps. Repeating the same command
+resumes committed steps; `--max-steps` counts additional steps in that invocation.
+
+Each step saves `learning_signal.json` and `signal_by_group_type.csv` alongside
+`metrics.json`. They record overall/used advantage distributions, exact-zero
+trajectory and group exclusions, mixed/all-success/all-failure counts, each
+type's sum/share of absolute advantages, used assistant tokens, pre-clip gradient
+norm and KL. The mean-only mode also records a **diagnostic** z-score distribution
+computed from the same sampled rewards; it never affects the loss. Distribution
+`all` includes zero advantages for a comparable denominator; `used` describes
+only loss trajectories. Absolute-advantage mass is not measured gradient attribution.
+
+`learning_signal_monitor` reads same-step metrics from the old run without writing
+there. It checks matching model/data/rollout/optimizer settings. The revised configuration
+explicitly permits a reference with different generator/judge prompts and marks
+that comparison as descriptive, not a controlled normalization-only comparison.
+A gradient
+norm below 0.1 of the reference produces a `learning_signal_warning`. KL within
+1e-8 for three consecutive optimizer steps also produces a warning. The first
+step's zero KL is expected because the fresh adapter matches the frozen base;
+one/two steps alone cannot trigger the three-step warning. Alerts are stored in
+step metrics and logs. They never increase learning rate or introduce a multiplier;
+any future fixed advantage scale must be applied consistently across compared runs.
+
+Rebuild the first 30 steps' tables, or compare the first two steps once available:
+
+```bash
+.venv/bin/python scripts/online_rl/analyze_advantage_signal.py \
+  --run-dir outputs/ours_qwen3_doctor_256_compact_luna_rubric_group_mean_prompt_v2 \
+  --reference-dir outputs/ours_qwen3_doctor_256_compact_luna_rubric_v4 \
+  --max-step 30 \
+  --output-dir outputs/advantage_signal_comparison_v1
+```
+
+The report includes per-group/per-step/type CSVs, overall type summaries with AUC
+and reward variance, gradient/KL curves and JSON. Only committed steps are read.
+For historical logs without outcome types it reads the original saved case
+records and checks exact reward/advantage alignment. It performs no new rollout,
+judge/API call or optimization and cannot write into either source run directory.
+
+## Plan C: counterfactual replies at each main-dialogue turn
+
+Plan B is retired (`configs/plan_b.json` has `retired: true`; its default runner
+rejects execution). Historical code and generated datasets remain for provenance.
+The active `ours` run and its configuration/checkpoints are unchanged.
+
+`configs/plan_c.json` is an independent fresh-LoRA experiment. It retains the
+120 training cases, four cases per batch, 30 steps per iteration, three iterations,
+assistant temperature 1, frozen Qwen3-8B Doctor and existing termination rules.
+GPU 0 owns the Transformers trainable assistant; GPU 1 owns the frozen vLLM
+Doctor. Both request limits remain 128; Luna generates and judges rubrics.
+
+For each case, first generate **one main conversation** to Doctor FINAL. For
+every assistant turn actually reached by this conversation:
+
+1. Freeze the complete visible history immediately before that response and
+   preserve the Doctor status/private-state snapshot for identity and halting.
+2. Reuse the main response and its original continuation. Sample 31 alternative
+   responses from the **same policy prompt/history**, and continue each naturally
+   to FINAL under the same absolute turn limit and stopping rules. Branches do
+   not become the history of later main turns. This is a spine with siblings,
+   not recursive exponential branching.
+3. Select up to four successes and four failures (four examples total for a
+   uniform-outcome group), and ask the Doctor for standalone, private reflection
+   about the **marked response only**. Ground citations in the full target turn;
+   unsupported observations must explicitly use `none`.
+4. Generate five or six **turn-specific** binary rubrics from these observations.
+   The user-revised `trajectory_checklist_generator_v4.txt` supplies the base
+   instructions, followed by `prompts/plan_c/turn_generator_v2.txt` enforcing
+   target-turn scope. The judge uses `prompts/plan_c/turn_judge_v2.txt`, adapted
+   from the revised sentence-evidence/anti-repetition judge: it evaluates only the
+   marked response, including avoidance criteria. Source, contract and effective
+   prompt hashes are stored alongside the original optimized artifact provenance.
+   This revised prompt has **not** been optimized or AUC-validated for Plan C.
+5. The blind judge sees only the clinical case, shared pre-response history,
+   marked response and that turn's rubrics. FINAL, outcomes, later continuation,
+   reflection, private state and correct-answer labels are excluded. Earlier
+   actions provide context but cannot earn this response's credit.
+6. Average the binary scores for each target response. With `group_mean`, compute
+   `A_i = R_i - mean(R)` over all 32 siblings at this exact history, without
+   dividing by standard deviation. Exclude exact-zero advantage responses from
+   both policy and KL loss, and exclude an entirely flat-reward group. Pass **one target trace per
+   candidate** to GRPO, excluding prefix and continuation action traces.
+
+All turn groups from the four cases form **one optimizer update** after collection
+and scoring finish with frozen policy weights. A zero-variance group contributes
+no advantage. The selected mode, fixed scale 1.0 and target-only credit scope
+are saved in the resolved config, startup log and step metrics. Rubric failures stop the batch without inventing rewards. AUC uses
+half-credit ties and remains undefined for uniform outcomes. It measures an
+observed association with the eventual outcome, not a causal effect of the
+single response: downstream policy/Doctor sampling also varies.
+
+A case reaching four turns produces four groups of 32 candidates (128 target
+responses), so a four-case step has up to 16 groups / 512 target responses.
+This increases work relative to the old 32 full dialogues per case. With four
+turns and no early stopping, the assistant samples 4 main actions plus
+31 x (4 + 3 + 2 + 1) branch actions = 314 actions per case, versus 128 before.
+The concurrency limit 128 bounds requests in flight, not the total sample count.
+When a turn's branches complete, its reward pipeline starts immediately and
+can overlap the next turn's branch collection. There is no cross-step prefetch
+with stale adapters.
+
+Inspect the configuration without model loading, API calls, or training:
+
+```bash
+bash run_plan_c.sh
+bash run_plan_c.sh --responses-per-turn 8
+```
+
+Implementation is prepared only; no real Plan C experiment has been launched.
+When explicitly ready to run it after the current job, the future entrypoint is
+`bash run_plan_c.sh --launch` (optional `--max-steps 1` for a single batch).
+Acquire both physical GPU locks before model loading; an occupied GPU causes
+an error without stopping the existing training process.
+
+Output is isolated at `outputs/plan_c_turn_counterfactual_group_mean_prompt_v2`. Restart with the
+same command/config to reuse completed calls, turn observations and committed
+steps. Every step publishes a durable recovery checkpoint; every ten steps also
+publishes a checkpoint and queues HF upload under `plan_c_turn_counterfactual_group_mean_prompt_v2`
+in `zzu819/SHERPA`. Changed config, prompt/backend identity or policy hashes
+cannot silently import stale cached rewards/checkpoints.
+
+Each step stores `metrics.json`, `learning_signal.json` and
+`signal_by_group_type.csv` with per-turn AUC, reward variance, overall/used
+advantage distributions, mixed/all-success/all-failure absolute-advantage sums
+and shares, gradient norm, KL, update diagnostics and timing. Groups are typed
+from all sibling continuations, not from the main conversation alone. A KL
+near-zero alert is emitted after three consecutive optimizer steps. No real
+old Plan C run exists for a same-step gradient comparison; the diagnostic
+z-score distribution from the same rewards remains available.
+`analyze_advantage_signal.py` supports these dynamic turn groups as well as
+case-level runs, and records the group scope explicitly. Each case stores `spine.json` and
+`turn_XX/{rollouts,reflections,rubric_scores}.json`. The progress event stream
+includes `turn_rollouts_completed`, `turn_reward_completed`, `agent_update` and
+`batch_committed`; existing initial-fanout dashboard assumptions should not be
+used to interpret Plan C's dynamic sample count.

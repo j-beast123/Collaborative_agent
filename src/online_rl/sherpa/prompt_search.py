@@ -219,6 +219,14 @@ def optimize(cfg, policy, backend, cases, root):
     winner = stabilize(evaluate(initial, 'initial'))
     initial_result = winner
     history = [winner]
+    minimum_gain = spec.get('min_auc_improvement', 0.0)
+    def select_parent_or_challenger(parent, challengers):
+        challenger = max([parent, *challengers], key=lambda row: row['mean_auc'])
+        return challenger if challenger['mean_auc'] > parent['mean_auc'] + minimum_gain else parent
+    for index, path in enumerate(spec.get('additional_initial_prompt_files', [])):
+        candidate = stabilize(evaluate((Path(root) / path).read_text(), f'seed_{index}'))
+        history.append(candidate)
+        winner = select_parent_or_challenger(winner, [candidate])
     started = time.perf_counter()
     iterations = spec['iterations']
     if iterations not in (2, 3) or spec['candidates_per_iteration'] != 4:
@@ -244,7 +252,7 @@ def optimize(cfg, policy, backend, cases, root):
         # Deterministic ties keep the parent; no test or checkpoint selection enters fitness.
         finalists = sorted(candidates, key=lambda candidate: candidate['mean_auc'], reverse=True)[:2]
         contenders = [winner, *[stabilize(candidate) for candidate in finalists]] if spec.get('selection_repeats', 0) else [winner, *candidates]
-        winner = max(contenders, key=lambda candidate: candidate['mean_auc'])
+        winner = select_parent_or_challenger(winner, contenders)
         history.extend(candidates)
         atomic_write_json(home / 'history.json', {'candidates': history, 'winner': winner['prompt_sha256'],
                                                  'selection': list(selection_results.values()),
@@ -296,6 +304,21 @@ def frozen_prompt(cfg, root, *, policy=None, backend=None):
         raise RuntimeError('Frozen optimized prompt changed')
     if policy is not None and artifact['base_identity'] != base_identity(cfg, policy):
         raise RuntimeError('Optimized prompt belongs to a different base/model/training-data setup')
+    revision_file = cfg.get('rubric_pipeline', {}).get('generator_prompt_file')
+    if revision_file:
+        # Explicit user revision: retain the immutable optimized source and never
+        # claim its AUC for the edited text/new judge. No implicit fallback.
+        path = (Path(root) / revision_file).resolve()
+        revised = path.read_text()
+        if not revised.strip():
+            raise RuntimeError('User-revised generator prompt is empty')
+        return revised, {'schema': 'sherpa_user_prompt_revision_v1',
+            'prompt_file': str(path), 'prompt_sha256': sha256_text(revised),
+            'prompt_source': 'explicit_user_revision', 'auc_validated': False,
+            'source_optimized_artifact': cfg['prompt_optimization']['final_artifact'],
+            'source_optimized_prompt_sha256': artifact['prompt_sha256'],
+            'base_identity': artifact['base_identity'],
+            **({'backend': backend.identity()} if backend is not None else {})}
     if backend is not None and artifact['backend'] != backend.identity():
         raise RuntimeError('Optimized prompt generator/judge contract changed')
     return text, artifact

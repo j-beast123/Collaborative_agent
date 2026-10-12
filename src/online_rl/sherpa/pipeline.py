@@ -61,16 +61,17 @@ def training_records(tree, trajectories, scores):
         raise ValueError('Every trajectory needs exactly one aligned reward')
     rewards = {row['trajectory_id']: row['reward'] for row in scores}
     return [{'trajectory_id': trajectory['trajectory_id'], 'case_id': tree.case_id,
+             'outcome': trajectory['outcome'],
              'reward': rewards[trajectory['trajectory_id']], 'rollout_policy_sha256': tree.policy_sha256,
              'agent_traces': [nodes[node_id].trace for node_id in trajectory['path']]}
             for trajectory in trajectories]
 
 
-def case_metrics(trajectories, scores):
+def case_metrics(trajectories, scores, mode='group_zscore'):
     values = [row['reward'] for row in scores]
-    adv = advantages(values, 'group_zscore')
+    adv = advantages(values, mode)
     return {'success_rate': statistics.mean(row['outcome'] for row in trajectories),
             'reward_mean': statistics.mean(values), 'reward_std': statistics.pstdev(values),
-            'advantages': adv, 'zero_advantage': all(value == 0 for value in adv),
+            'advantage_mode': mode, 'advantages': adv, 'zero_advantage': all(value == 0 for value in adv),
             'auc': auc([row['outcome'] for row in trajectories], values),
             'mean_agent_turns': statistics.mean(row['agent_turns'] for row in trajectories)}

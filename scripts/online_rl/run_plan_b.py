@@ -139,6 +139,8 @@ def main(argv=None):
     parser.add_argument('--output-dir')
     args=parser.parse_args(argv); os.chdir(ROOT)
     task=read_json(args.config)
+    if task.get('retired'):
+        parser.error('Plan B has been retired; use run_plan_c.sh. Historical outputs are preserved.')
     for field in ('pool_size','min_successes','selection','case_workers','output_dir'):
         value=getattr(args,field)
         if value is not None: task[field]=value
