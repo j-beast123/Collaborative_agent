@@ -1,0 +1,3329 @@
+{
+  "complete": true,
+  "trajectories": 3840,
+  "cases": 120,
+  "overall_success_rate": 0.6559895833333333,
+  "contradiction_vs_agreement_only": {
+    "first": "contradiction_flag",
+    "second": "agreement_only",
+    "first_count": 5,
+    "second_count": 481,
+    "first_success_rate": 0.8,
+    "second_success_rate": 0.681912681912682,
+    "mixed_comparable_cases": 0,
+    "mixed_case_mean_difference": null,
+    "mixed_case_bootstrap_95_interval": null
+  },
+  "tags": [
+    {
+      "tag": "repeated_agreement",
+      "tagged": 3772,
+      "untagged": 68,
+      "tagged_success_rate": 0.6569459172852599,
+      "untagged_success_rate": 0.6029411764705882,
+      "within_case_count": 43,
+      "within_case_mean_difference": -0.004377818592579177,
+      "within_case_bootstrap_95_interval": [
+        -0.10812703175793949,
+        0.09374843710927733
+      ],
+      "mixed_within_case_count": 15,
+      "mixed_within_case_mean_difference": -0.012549746632060309,
+      "mixed_within_case_bootstrap_95_interval": [
+        -0.3085304659498208,
+        0.2653664565566679
+      ],
+      "mantel_haenszel_odds_ratio": 1.21875,
+      "mh_zero_denominator": false,
+      "case_strata": [
+        {
+          "case_id": "medmcqa_79917da0-2029-47d2-8b88-a56c192ade3c",
+          "mixed": true,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 28,
+          "untagged_successes": 1,
+          "success_rate_difference": 0.43333333333333335
+        },
+        {
+          "case_id": "medmcqa_4b511c5f-b932-4747-805e-27de5a563979",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c1144ca3-ee25-4d9c-b093-df2649ad5b82",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 30,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.032258064516129004
+        },
+        {
+          "case_id": "medmcqa_bd5e6457-804b-4e90-9c1a-85e90d8aba01",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 23,
+          "untagged_successes": 0,
+          "success_rate_difference": 0.7419354838709677
+        },
+        {
+          "case_id": "medmcqa_a2635318-029c-411e-9235-c31fc8125117",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a94ede84-8220-4a30-bed3-dddbb72e7b63",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 1,
+          "success_rate_difference": -1
+        },
+        {
+          "case_id": "medmcqa_941bef2d-2171-4f33-82f3-3320a8c5dc88",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ee34a664-5bd1-4089-b5ef-b8154e2459a8",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ae30ac4b-f517-42a9-9685-8dec94394f57",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_de8d606f-56fd-4743-abbd-5d4d7f2e3f6b",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_14916541-04cb-4e1e-aa6f-4b7cd574e9f4",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c1b6f382-7969-4807-879e-ae1780f5c9d1",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_f5831c48-845a-4f9b-873f-b3adf82d9b9c",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_23a34a25-2b99-4933-9403-0bede39cea47",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 24,
+          "untagged_successes": 0,
+          "success_rate_difference": 0.7741935483870968
+        },
+        {
+          "case_id": "medmcqa_6f236ffa-9573-43fb-bb0f-d8bd29a2f99f",
+          "mixed": true,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 5,
+          "untagged_successes": 0,
+          "success_rate_difference": 0.16666666666666666
+        },
+        {
+          "case_id": "medmcqa_8f009fea-3837-4f02-9018-17bf2c35519e",
+          "mixed": true,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 8,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.23333333333333334
+        },
+        {
+          "case_id": "medmcqa_d5efdbf8-93d6-4ce4-a89e-df816fb16944",
+          "mixed": true,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 29,
+          "untagged_successes": 2,
+          "success_rate_difference": -0.033333333333333326
+        },
+        {
+          "case_id": "medmcqa_0c9ad3bf-43f2-460d-9acb-7b824adf199f",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 3,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_14906fba-5e70-4a78-86cb-dcfc3d622265",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_63332465-cba0-452c-9a08-c178e8454e0a",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9531838e-9009-47d8-8d6e-3880fab47804",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 1,
+          "success_rate_difference": -1
+        },
+        {
+          "case_id": "medmcqa_7abc4d81-a624-4c90-a2b8-9668772d4fef",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_3cb45aa3-1aed-4e04-8102-9313a17d70ac",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c41b1ac3-08a0-4af8-b96c-05eb224658a5",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_fb46defa-9ad3-4308-88e6-2b0c7a074943",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9c51fc8d-b66b-45b1-b11d-90564c5e1283",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 1,
+          "success_rate_difference": -1
+        },
+        {
+          "case_id": "medmcqa_270267e0-ca7a-4256-8911-05d1b4b98fa5",
+          "mixed": true,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 1,
+          "success_rate_difference": 0.5
+        },
+        {
+          "case_id": "medmcqa_df0f4111-9f16-47d2-86c1-4ea366bf2f83",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_50deb372-9d24-4c12-a2ab-846ed0728099",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 3,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9b9330a6-fbe8-44af-a05f-e73ece32dc28",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_fa4d1794-6330-474e-a881-c98d638e1135",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_8b98a243-f907-4e4d-b3f8-f128dd50017b",
+          "mixed": true,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 29,
+          "untagged_successes": 1,
+          "success_rate_difference": 0.4666666666666667
+        },
+        {
+          "case_id": "medmcqa_e4f25db8-08a0-4f94-92f7-654b4889667c",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_8605f12f-3bb7-4bf1-a861-5f39a6acd817",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9a2a0a21-5fef-4ea8-a921-b21f14dca4cc",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 3,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_aeb39b20-8826-4751-aa17-aac74cbcd000",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_42d9ebf7-ff69-4f47-930e-ce00bc233532",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5874917c-0ad2-44d1-ad51-79de91a8bd51",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_2f643fde-ce8f-49d4-a2ae-67c62bee00dd",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_674fc963-f4f3-4c48-84ef-7440ccb8f745",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 4,
+          "untagged_successes": 0,
+          "success_rate_difference": 0.12903225806451613
+        },
+        {
+          "case_id": "medmcqa_d148ec30-5ef1-4c85-ac37-a41c39e83bfc",
+          "mixed": true,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 28,
+          "untagged_successes": 3,
+          "success_rate_difference": -0.03448275862068961
+        },
+        {
+          "case_id": "medmcqa_52585a42-70e8-4f18-8d9a-bcbc85b23a62",
+          "mixed": true,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 28,
+          "untagged_successes": 2,
+          "success_rate_difference": -0.06666666666666665
+        },
+        {
+          "case_id": "medmcqa_68e6ec14-c2f1-430d-9407-adab2bd6f7a1",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        }
+      ]
+    },
+    {
+      "tag": "contradiction_flag",
+      "tagged": 5,
+      "untagged": 3835,
+      "tagged_success_rate": 0.8,
+      "untagged_success_rate": 0.6558018252933507,
+      "within_case_count": 4,
+      "within_case_mean_difference": 0.22580645161290322,
+      "within_case_bootstrap_95_interval": [
+        0,
+        0.6774193548387096
+      ],
+      "mixed_within_case_count": 1,
+      "mixed_within_case_mean_difference": 0.9032258064516129,
+      "mixed_within_case_bootstrap_95_interval": null,
+      "mantel_haenszel_odds_ratio": null,
+      "mh_zero_denominator": true,
+      "case_strata": [
+        {
+          "case_id": "medmcqa_ae30ac4b-f517-42a9-9685-8dec94394f57",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_62a657c5-86bb-4fc3-8195-16319de8f170",
+          "mixed": false,
+          "tagged": 2,
+          "untagged": 30,
+          "tagged_successes": 2,
+          "untagged_successes": 30,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_0c9ad3bf-43f2-460d-9acb-7b824adf199f",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_674fc963-f4f3-4c48-84ef-7440ccb8f745",
+          "mixed": true,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 3,
+          "success_rate_difference": 0.9032258064516129
+        }
+      ]
+    },
+    {
+      "tag": "confidence_reinforcement",
+      "tagged": 3345,
+      "untagged": 495,
+      "tagged_success_rate": 0.6687593423019432,
+      "untagged_success_rate": 0.5696969696969697,
+      "within_case_count": 99,
+      "within_case_mean_difference": -0.006235561121709128,
+      "within_case_bootstrap_95_interval": [
+        -0.03410258516520376,
+        0.016261070084599497
+      ],
+      "mixed_within_case_count": 18,
+      "mixed_within_case_mean_difference": -0.034295586169400205,
+      "mixed_within_case_bootstrap_95_interval": [
+        -0.18534522824845404,
+        0.08737748862986056
+      ],
+      "mantel_haenszel_odds_ratio": 0.9740740740740741,
+      "mh_zero_denominator": false,
+      "case_strata": [
+        {
+          "case_id": "medmcqa_79917da0-2029-47d2-8b88-a56c192ade3c",
+          "mixed": true,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 22,
+          "untagged_successes": 7,
+          "success_rate_difference": -0.12
+        },
+        {
+          "case_id": "medmcqa_dbdeda4f-ff5f-456c-86cf-980e7d41b8e0",
+          "mixed": false,
+          "tagged": 23,
+          "untagged": 9,
+          "tagged_successes": 23,
+          "untagged_successes": 9,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_b2f49314-f631-496e-9190-8d2207a2f252",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a3e63643-04b3-419d-a983-f759ea9c00c0",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_cf09bd88-c95b-4259-8642-e1a053793ed0",
+          "mixed": false,
+          "tagged": 27,
+          "untagged": 5,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_4b511c5f-b932-4747-805e-27de5a563979",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_3ce61463-a3ad-4e05-8e97-b404f9f04e0e",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_3b55094e-f1e5-443d-99c5-f3ce1e3ba461",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 3,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a7d5ee17-8885-490d-92dd-881fce3b5ecb",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_884995ab-28f9-415b-9d0a-6613c35ee5f6",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 3,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c1144ca3-ee25-4d9c-b093-df2649ad5b82",
+          "mixed": true,
+          "tagged": 26,
+          "untagged": 6,
+          "tagged_successes": 25,
+          "untagged_successes": 6,
+          "success_rate_difference": -0.038461538461538436
+        },
+        {
+          "case_id": "medmcqa_bd5e6457-804b-4e90-9c1a-85e90d8aba01",
+          "mixed": true,
+          "tagged": 15,
+          "untagged": 17,
+          "tagged_successes": 12,
+          "untagged_successes": 11,
+          "success_rate_difference": 0.15294117647058825
+        },
+        {
+          "case_id": "medmcqa_4f04cbab-c048-4163-afa7-d895553f98aa",
+          "mixed": false,
+          "tagged": 27,
+          "untagged": 5,
+          "tagged_successes": 27,
+          "untagged_successes": 5,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a2635318-029c-411e-9235-c31fc8125117",
+          "mixed": false,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 28,
+          "untagged_successes": 4,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_0a9b45bf-3d6a-4e1a-b472-88957e62e874",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a94ede84-8220-4a30-bed3-dddbb72e7b63",
+          "mixed": true,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 0,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.14285714285714285
+        },
+        {
+          "case_id": "medmcqa_ab6eb7d3-ec20-44ea-84fe-983aad531115",
+          "mixed": false,
+          "tagged": 26,
+          "untagged": 6,
+          "tagged_successes": 26,
+          "untagged_successes": 6,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ca9ac082-dd5d-4387-ad90-ed37a10af084",
+          "mixed": false,
+          "tagged": 26,
+          "untagged": 6,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_472a3a0c-d7a1-4152-95fa-0b328fea939c",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_3eba12db-c5d2-47f7-9a0a-fd31db80afa6",
+          "mixed": false,
+          "tagged": 26,
+          "untagged": 6,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_941bef2d-2171-4f33-82f3-3320a8c5dc88",
+          "mixed": false,
+          "tagged": 19,
+          "untagged": 13,
+          "tagged_successes": 19,
+          "untagged_successes": 13,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ad4340fa-1151-4008-a94c-06cffd5694cf",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_028d5d73-b4d4-4e70-80b6-97f20a250e80",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_24d7a21b-470c-4fcb-8eaa-ad3855354205",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ee34a664-5bd1-4089-b5ef-b8154e2459a8",
+          "mixed": false,
+          "tagged": 13,
+          "untagged": 19,
+          "tagged_successes": 13,
+          "untagged_successes": 19,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_8178a378-67ef-472d-9410-553516cae621",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c2482fd9-9011-4b6b-b881-8217881c1873",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_422aa9b0-fb93-4a53-8980-ddee6344a8bd",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 3,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ae30ac4b-f517-42a9-9685-8dec94394f57",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a1fcf57e-c7dc-41ec-94f5-fe183d5e238a",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_e3d92743-890e-48d6-b30c-b07392a4ac25",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_46819a87-30e1-41ea-b2f7-6889b9de2908",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_de8d606f-56fd-4743-abbd-5d4d7f2e3f6b",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 3,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c75157eb-c452-45f1-90b4-69d0c1fd8775",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_14916541-04cb-4e1e-aa6f-4b7cd574e9f4",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_99f66cda-30ac-4db2-839e-110cd5062156",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_770fb0fc-569b-49b8-bd16-6cb1f7244620",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 3,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c1b6f382-7969-4807-879e-ae1780f5c9d1",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_7aeb8b94-79c6-4866-9e8d-c98a16a8b376",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_dc4678af-b353-4a7b-a1b9-7e4369a62eeb",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 3,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_bc4b3619-7afc-4293-bfe6-b113a5446903",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ca45e06e-3be0-4bfc-b198-7cae2a2c4542",
+          "mixed": true,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 29,
+          "untagged_successes": 2,
+          "success_rate_difference": -0.033333333333333326
+        },
+        {
+          "case_id": "medmcqa_f5831c48-845a-4f9b-873f-b3adf82d9b9c",
+          "mixed": false,
+          "tagged": 24,
+          "untagged": 8,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_6f236ffa-9573-43fb-bb0f-d8bd29a2f99f",
+          "mixed": true,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 4,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.10714285714285715
+        },
+        {
+          "case_id": "medmcqa_8f009fea-3837-4f02-9018-17bf2c35519e",
+          "mixed": true,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 7,
+          "untagged_successes": 2,
+          "success_rate_difference": -0.005714285714285672
+        },
+        {
+          "case_id": "medmcqa_d5efdbf8-93d6-4ce4-a89e-df816fb16944",
+          "mixed": true,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 28,
+          "untagged_successes": 3,
+          "success_rate_difference": 0.25
+        },
+        {
+          "case_id": "medmcqa_12f574c0-cd69-4960-943d-1d4787c25bea",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_fb5c446c-68c1-4610-ac3d-a19f3b7dd63e",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_cbb9cbe1-bd6f-4b12-aa92-71fb68f9584b",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_494e0226-2c50-43b3-bb58-7350559bbf5e",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_0c9ad3bf-43f2-460d-9acb-7b824adf199f",
+          "mixed": false,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 25,
+          "untagged_successes": 7,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_1450b6e6-0109-48ea-ad6f-21d84b3619d5",
+          "mixed": false,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 25,
+          "untagged_successes": 7,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_d6ef1ed6-ddc3-4e1e-b2a1-d8a8d1889430",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_14906fba-5e70-4a78-86cb-dcfc3d622265",
+          "mixed": false,
+          "tagged": 21,
+          "untagged": 11,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_1cf60f69-2164-44e9-9e1e-80ad895dde41",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_63332465-cba0-452c-9a08-c178e8454e0a",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9531838e-9009-47d8-8d6e-3880fab47804",
+          "mixed": true,
+          "tagged": 27,
+          "untagged": 5,
+          "tagged_successes": 0,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.2
+        },
+        {
+          "case_id": "medmcqa_6a788250-badb-4888-93b7-e02837940c07",
+          "mixed": false,
+          "tagged": 20,
+          "untagged": 12,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_7abc4d81-a624-4c90-a2b8-9668772d4fef",
+          "mixed": false,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_e3bedef4-47de-45df-9bf2-58e005643a3d",
+          "mixed": false,
+          "tagged": 3,
+          "untagged": 29,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_3cb45aa3-1aed-4e04-8102-9313a17d70ac",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c41b1ac3-08a0-4af8-b96c-05eb224658a5",
+          "mixed": false,
+          "tagged": 27,
+          "untagged": 5,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_fb46defa-9ad3-4308-88e6-2b0c7a074943",
+          "mixed": false,
+          "tagged": 19,
+          "untagged": 13,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_d4152b4b-88e0-456b-ae4b-ba03c0cbd641",
+          "mixed": false,
+          "tagged": 18,
+          "untagged": 14,
+          "tagged_successes": 18,
+          "untagged_successes": 14,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5ae81d02-47b9-4dee-b54b-9ad5cb761147",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_8ca13ddf-28b1-420c-9c30-aa6f45126af4",
+          "mixed": false,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 28,
+          "untagged_successes": 4,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9c51fc8d-b66b-45b1-b11d-90564c5e1283",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 1,
+          "success_rate_difference": -1
+        },
+        {
+          "case_id": "medmcqa_270267e0-ca7a-4256-8911-05d1b4b98fa5",
+          "mixed": true,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 2,
+          "success_rate_difference": 0.33333333333333337
+        },
+        {
+          "case_id": "medmcqa_d296b596-7522-4849-9129-710a0462b25c",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_4d7cf2f4-94e4-42a9-94d1-d52c1a7e5f75",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_b0d3b044-47e3-4873-9c00-91efa5bea6c5",
+          "mixed": false,
+          "tagged": 26,
+          "untagged": 6,
+          "tagged_successes": 26,
+          "untagged_successes": 6,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_50deb372-9d24-4c12-a2ab-846ed0728099",
+          "mixed": false,
+          "tagged": 27,
+          "untagged": 5,
+          "tagged_successes": 27,
+          "untagged_successes": 5,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9b9330a6-fbe8-44af-a05f-e73ece32dc28",
+          "mixed": false,
+          "tagged": 26,
+          "untagged": 6,
+          "tagged_successes": 26,
+          "untagged_successes": 6,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_fa4d1794-6330-474e-a881-c98d638e1135",
+          "mixed": false,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5a41675a-fdcd-499b-b4a9-7ac72fc6a6b1",
+          "mixed": true,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 1,
+          "untagged_successes": 0,
+          "success_rate_difference": 0.04
+        },
+        {
+          "case_id": "medmcqa_8b98a243-f907-4e4d-b3f8-f128dd50017b",
+          "mixed": true,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 29,
+          "untagged_successes": 1,
+          "success_rate_difference": 0.4666666666666667
+        },
+        {
+          "case_id": "medmcqa_28979f40-eefd-4fcf-a57e-f7e3bed87567",
+          "mixed": false,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 25,
+          "untagged_successes": 7,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_dbc01a9d-53a0-46fd-8ff2-db710193e41c",
+          "mixed": true,
+          "tagged": 16,
+          "untagged": 16,
+          "tagged_successes": 15,
+          "untagged_successes": 13,
+          "success_rate_difference": 0.125
+        },
+        {
+          "case_id": "medmcqa_5de9b58b-3bba-4c18-bcb3-6b60cba28977",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_654216b5-a0c7-461d-a6ae-e8a3f316783d",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_e4f25db8-08a0-4f94-92f7-654b4889667c",
+          "mixed": false,
+          "tagged": 17,
+          "untagged": 15,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_3a423cd2-f253-495e-972c-28c70d7cc2be",
+          "mixed": true,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 2,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.17857142857142858
+        },
+        {
+          "case_id": "medmcqa_8605f12f-3bb7-4bf1-a861-5f39a6acd817",
+          "mixed": false,
+          "tagged": 21,
+          "untagged": 11,
+          "tagged_successes": 21,
+          "untagged_successes": 11,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_3e16995f-aca6-4ea5-9dee-a12e08526584",
+          "mixed": false,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9a2a0a21-5fef-4ea8-a921-b21f14dca4cc",
+          "mixed": false,
+          "tagged": 27,
+          "untagged": 5,
+          "tagged_successes": 27,
+          "untagged_successes": 5,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_530486d3-007d-45a9-9ae4-705184d05463",
+          "mixed": false,
+          "tagged": 26,
+          "untagged": 6,
+          "tagged_successes": 26,
+          "untagged_successes": 6,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_4a5a3a28-6974-494d-b2b0-be8c6d758dbe",
+          "mixed": false,
+          "tagged": 22,
+          "untagged": 10,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_aeb39b20-8826-4751-aa17-aac74cbcd000",
+          "mixed": false,
+          "tagged": 22,
+          "untagged": 10,
+          "tagged_successes": 22,
+          "untagged_successes": 10,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5879d051-aeef-4886-a93c-05e807f038dd",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 30,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.032258064516129004
+        },
+        {
+          "case_id": "medmcqa_4797bb62-d4d5-46e6-860c-aa3bd6da4edb",
+          "mixed": false,
+          "tagged": 24,
+          "untagged": 8,
+          "tagged_successes": 24,
+          "untagged_successes": 8,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_42d9ebf7-ff69-4f47-930e-ce00bc233532",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9bbcc0d4-1ecf-4aad-9b26-6f35c61badf3",
+          "mixed": false,
+          "tagged": 27,
+          "untagged": 5,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5874917c-0ad2-44d1-ad51-79de91a8bd51",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_2f643fde-ce8f-49d4-a2ae-67c62bee00dd",
+          "mixed": false,
+          "tagged": 27,
+          "untagged": 5,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_691f500f-f0f6-4dc2-bdf5-877f0cf14c34",
+          "mixed": false,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_47989bdf-2e35-4e80-bf62-ccb36223b5b5",
+          "mixed": false,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 28,
+          "untagged_successes": 4,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_d148ec30-5ef1-4c85-ac37-a41c39e83bfc",
+          "mixed": true,
+          "tagged": 20,
+          "untagged": 12,
+          "tagged_successes": 19,
+          "untagged_successes": 12,
+          "success_rate_difference": -0.050000000000000044
+        },
+        {
+          "case_id": "medmcqa_52585a42-70e8-4f18-8d9a-bcbc85b23a62",
+          "mixed": true,
+          "tagged": 26,
+          "untagged": 6,
+          "tagged_successes": 24,
+          "untagged_successes": 6,
+          "success_rate_difference": -0.07692307692307687
+        },
+        {
+          "case_id": "medmcqa_68e6ec14-c2f1-430d-9407-adab2bd6f7a1",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        }
+      ]
+    },
+    {
+      "tag": "unverified_fact_assertion",
+      "tagged": 123,
+      "untagged": 3717,
+      "tagged_success_rate": 0.5853658536585366,
+      "untagged_success_rate": 0.6583266074791498,
+      "within_case_count": 20,
+      "within_case_mean_difference": -0.024642401021711363,
+      "within_case_bootstrap_95_interval": [
+        -0.07279054916985951,
+        0.008850574712643677
+      ],
+      "mixed_within_case_count": 4,
+      "mixed_within_case_mean_difference": -0.12321200510855682,
+      "mixed_within_case_bootstrap_95_interval": [
+        -0.30833333333333335,
+        0.036845466155810996
+      ],
+      "mantel_haenszel_odds_ratio": 0.11206896551724138,
+      "mh_zero_denominator": false,
+      "case_strata": [
+        {
+          "case_id": "medmcqa_79917da0-2029-47d2-8b88-a56c192ade3c",
+          "mixed": true,
+          "tagged": 3,
+          "untagged": 29,
+          "tagged_successes": 3,
+          "untagged_successes": 26,
+          "success_rate_difference": 0.10344827586206895
+        },
+        {
+          "case_id": "medmcqa_b2f49314-f631-496e-9190-8d2207a2f252",
+          "mixed": false,
+          "tagged": 6,
+          "untagged": 26,
+          "tagged_successes": 6,
+          "untagged_successes": 26,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_cf09bd88-c95b-4259-8642-e1a053793ed0",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_884995ab-28f9-415b-9d0a-6613c35ee5f6",
+          "mixed": false,
+          "tagged": 3,
+          "untagged": 29,
+          "tagged_successes": 3,
+          "untagged_successes": 29,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a2635318-029c-411e-9235-c31fc8125117",
+          "mixed": false,
+          "tagged": 6,
+          "untagged": 26,
+          "tagged_successes": 6,
+          "untagged_successes": 26,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_0a9b45bf-3d6a-4e1a-b472-88957e62e874",
+          "mixed": false,
+          "tagged": 3,
+          "untagged": 29,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a94ede84-8220-4a30-bed3-dddbb72e7b63",
+          "mixed": true,
+          "tagged": 2,
+          "untagged": 30,
+          "tagged_successes": 0,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.03333333333333333
+        },
+        {
+          "case_id": "medmcqa_ca9ac082-dd5d-4387-ad90-ed37a10af084",
+          "mixed": false,
+          "tagged": 12,
+          "untagged": 20,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_bc4b3619-7afc-4293-bfe6-b113a5446903",
+          "mixed": false,
+          "tagged": 4,
+          "untagged": 28,
+          "tagged_successes": 4,
+          "untagged_successes": 28,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_f5831c48-845a-4f9b-873f-b3adf82d9b9c",
+          "mixed": false,
+          "tagged": 19,
+          "untagged": 13,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_14906fba-5e70-4a78-86cb-dcfc3d622265",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_d4152b4b-88e0-456b-ae4b-ba03c0cbd641",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_b0d3b044-47e3-4873-9c00-91efa5bea6c5",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_fa4d1794-6330-474e-a881-c98d638e1135",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_28979f40-eefd-4fcf-a57e-f7e3bed87567",
+          "mixed": false,
+          "tagged": 12,
+          "untagged": 20,
+          "tagged_successes": 12,
+          "untagged_successes": 20,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_dbc01a9d-53a0-46fd-8ff2-db710193e41c",
+          "mixed": true,
+          "tagged": 10,
+          "untagged": 22,
+          "tagged_successes": 6,
+          "untagged_successes": 22,
+          "success_rate_difference": -0.4
+        },
+        {
+          "case_id": "medmcqa_654216b5-a0c7-461d-a6ae-e8a3f316783d",
+          "mixed": false,
+          "tagged": 26,
+          "untagged": 6,
+          "tagged_successes": 26,
+          "untagged_successes": 6,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_e4f25db8-08a0-4f94-92f7-654b4889667c",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_2f643fde-ce8f-49d4-a2ae-67c62bee00dd",
+          "mixed": false,
+          "tagged": 6,
+          "untagged": 26,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_52585a42-70e8-4f18-8d9a-bcbc85b23a62",
+          "mixed": true,
+          "tagged": 5,
+          "untagged": 27,
+          "tagged_successes": 4,
+          "untagged_successes": 26,
+          "success_rate_difference": -0.16296296296296287
+        }
+      ]
+    },
+    {
+      "tag": "clarification_request",
+      "tagged": 153,
+      "untagged": 3687,
+      "tagged_success_rate": 0.43790849673202614,
+      "untagged_success_rate": 0.6650393273664226,
+      "within_case_count": 26,
+      "within_case_mean_difference": -0.025417635082282588,
+      "within_case_bootstrap_95_interval": [
+        -0.07242495012893496,
+        0.007077433951247984
+      ],
+      "mixed_within_case_count": 10,
+      "mixed_within_case_mean_difference": -0.06608585121393473,
+      "mixed_within_case_bootstrap_95_interval": [
+        -0.1790945360774583,
+        0.01946236559139783
+      ],
+      "mantel_haenszel_odds_ratio": 0.3333333333333333,
+      "mh_zero_denominator": false,
+      "case_strata": [
+        {
+          "case_id": "medmcqa_79917da0-2029-47d2-8b88-a56c192ade3c",
+          "mixed": true,
+          "tagged": 2,
+          "untagged": 30,
+          "tagged_successes": 2,
+          "untagged_successes": 27,
+          "success_rate_difference": 0.09999999999999998
+        },
+        {
+          "case_id": "medmcqa_263b7dee-c001-4563-957d-77ba3eeb62a1",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a2635318-029c-411e-9235-c31fc8125117",
+          "mixed": false,
+          "tagged": 3,
+          "untagged": 29,
+          "tagged_successes": 3,
+          "untagged_successes": 29,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a94ede84-8220-4a30-bed3-dddbb72e7b63",
+          "mixed": true,
+          "tagged": 8,
+          "untagged": 24,
+          "tagged_successes": 0,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.041666666666666664
+        },
+        {
+          "case_id": "medmcqa_ca9ac082-dd5d-4387-ad90-ed37a10af084",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ae30ac4b-f517-42a9-9685-8dec94394f57",
+          "mixed": false,
+          "tagged": 2,
+          "untagged": 30,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c75157eb-c452-45f1-90b4-69d0c1fd8775",
+          "mixed": false,
+          "tagged": 2,
+          "untagged": 30,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ca45e06e-3be0-4bfc-b198-7cae2a2c4542",
+          "mixed": true,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 30,
+          "success_rate_difference": 0.032258064516129004
+        },
+        {
+          "case_id": "medmcqa_6f236ffa-9573-43fb-bb0f-d8bd29a2f99f",
+          "mixed": true,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 5,
+          "success_rate_difference": -0.16129032258064516
+        },
+        {
+          "case_id": "medmcqa_d5efdbf8-93d6-4ce4-a89e-df816fb16944",
+          "mixed": true,
+          "tagged": 2,
+          "untagged": 30,
+          "tagged_successes": 1,
+          "untagged_successes": 30,
+          "success_rate_difference": -0.5
+        },
+        {
+          "case_id": "medmcqa_fb5c446c-68c1-4610-ac3d-a19f3b7dd63e",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_0c9ad3bf-43f2-460d-9acb-7b824adf199f",
+          "mixed": false,
+          "tagged": 6,
+          "untagged": 26,
+          "tagged_successes": 6,
+          "untagged_successes": 26,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_14906fba-5e70-4a78-86cb-dcfc3d622265",
+          "mixed": false,
+          "tagged": 3,
+          "untagged": 29,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_7abc4d81-a624-4c90-a2b8-9668772d4fef",
+          "mixed": false,
+          "tagged": 20,
+          "untagged": 12,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_e3bedef4-47de-45df-9bf2-58e005643a3d",
+          "mixed": false,
+          "tagged": 9,
+          "untagged": 23,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_270267e0-ca7a-4256-8911-05d1b4b98fa5",
+          "mixed": true,
+          "tagged": 6,
+          "untagged": 26,
+          "tagged_successes": 6,
+          "untagged_successes": 25,
+          "success_rate_difference": 0.038461538461538436
+        },
+        {
+          "case_id": "medmcqa_b0d3b044-47e3-4873-9c00-91efa5bea6c5",
+          "mixed": false,
+          "tagged": 7,
+          "untagged": 25,
+          "tagged_successes": 7,
+          "untagged_successes": 25,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_28979f40-eefd-4fcf-a57e-f7e3bed87567",
+          "mixed": false,
+          "tagged": 3,
+          "untagged": 29,
+          "tagged_successes": 3,
+          "untagged_successes": 29,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_dbc01a9d-53a0-46fd-8ff2-db710193e41c",
+          "mixed": true,
+          "tagged": 17,
+          "untagged": 15,
+          "tagged_successes": 14,
+          "untagged_successes": 14,
+          "success_rate_difference": -0.1098039215686275
+        },
+        {
+          "case_id": "medmcqa_654216b5-a0c7-461d-a6ae-e8a3f316783d",
+          "mixed": false,
+          "tagged": 15,
+          "untagged": 17,
+          "tagged_successes": 15,
+          "untagged_successes": 17,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_e4f25db8-08a0-4f94-92f7-654b4889667c",
+          "mixed": false,
+          "tagged": 3,
+          "untagged": 29,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_4a5a3a28-6974-494d-b2b0-be8c6d758dbe",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5879d051-aeef-4886-a93c-05e807f038dd",
+          "mixed": true,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 30,
+          "success_rate_difference": 0.032258064516129004
+        },
+        {
+          "case_id": "medmcqa_9bbcc0d4-1ecf-4aad-9b26-6f35c61badf3",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_d148ec30-5ef1-4c85-ac37-a41c39e83bfc",
+          "mixed": true,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 30,
+          "success_rate_difference": 0.032258064516129004
+        },
+        {
+          "case_id": "medmcqa_52585a42-70e8-4f18-8d9a-bcbc85b23a62",
+          "mixed": true,
+          "tagged": 8,
+          "untagged": 24,
+          "tagged_successes": 7,
+          "untagged_successes": 23,
+          "success_rate_difference": -0.08333333333333337
+        }
+      ]
+    },
+    {
+      "tag": "alternative_comparison",
+      "tagged": 2379,
+      "untagged": 1461,
+      "tagged_success_rate": 0.6485918453131568,
+      "untagged_success_rate": 0.6680355920602327,
+      "within_case_count": 98,
+      "within_case_mean_difference": 0.0008818213228442273,
+      "within_case_bootstrap_95_interval": [
+        -0.007619139107016793,
+        0.008992903240706923
+      ],
+      "mixed_within_case_count": 17,
+      "mixed_within_case_mean_difference": 0.005083440566984369,
+      "mixed_within_case_bootstrap_95_interval": [
+        -0.04473605704155988,
+        0.050781121900339316
+      ],
+      "mantel_haenszel_odds_ratio": 0.8324324324324325,
+      "mh_zero_denominator": false,
+      "case_strata": [
+        {
+          "case_id": "medmcqa_79917da0-2029-47d2-8b88-a56c192ade3c",
+          "mixed": true,
+          "tagged": 7,
+          "untagged": 25,
+          "tagged_successes": 5,
+          "untagged_successes": 24,
+          "success_rate_difference": -0.24571428571428566
+        },
+        {
+          "case_id": "medmcqa_dbdeda4f-ff5f-456c-86cf-980e7d41b8e0",
+          "mixed": false,
+          "tagged": 21,
+          "untagged": 11,
+          "tagged_successes": 21,
+          "untagged_successes": 11,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_b2f49314-f631-496e-9190-8d2207a2f252",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 3,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a3e63643-04b3-419d-a983-f759ea9c00c0",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_fde00866-c07b-4772-87fb-da61a024756f",
+          "mixed": false,
+          "tagged": 13,
+          "untagged": 19,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_3ce61463-a3ad-4e05-8e97-b404f9f04e0e",
+          "mixed": false,
+          "tagged": 7,
+          "untagged": 25,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_263b7dee-c001-4563-957d-77ba3eeb62a1",
+          "mixed": false,
+          "tagged": 8,
+          "untagged": 24,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_3b55094e-f1e5-443d-99c5-f3ce1e3ba461",
+          "mixed": false,
+          "tagged": 24,
+          "untagged": 8,
+          "tagged_successes": 24,
+          "untagged_successes": 8,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a7d5ee17-8885-490d-92dd-881fce3b5ecb",
+          "mixed": false,
+          "tagged": 2,
+          "untagged": 30,
+          "tagged_successes": 2,
+          "untagged_successes": 30,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c1144ca3-ee25-4d9c-b093-df2649ad5b82",
+          "mixed": true,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 30,
+          "success_rate_difference": 0.032258064516129004
+        },
+        {
+          "case_id": "medmcqa_4f04cbab-c048-4163-afa7-d895553f98aa",
+          "mixed": false,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 28,
+          "untagged_successes": 4,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a2635318-029c-411e-9235-c31fc8125117",
+          "mixed": false,
+          "tagged": 16,
+          "untagged": 16,
+          "tagged_successes": 16,
+          "untagged_successes": 16,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_0a9b45bf-3d6a-4e1a-b472-88957e62e874",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a94ede84-8220-4a30-bed3-dddbb72e7b63",
+          "mixed": true,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 1,
+          "untagged_successes": 0,
+          "success_rate_difference": 0.04
+        },
+        {
+          "case_id": "medmcqa_ab6eb7d3-ec20-44ea-84fe-983aad531115",
+          "mixed": false,
+          "tagged": 19,
+          "untagged": 13,
+          "tagged_successes": 19,
+          "untagged_successes": 13,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ca9ac082-dd5d-4387-ad90-ed37a10af084",
+          "mixed": false,
+          "tagged": 21,
+          "untagged": 11,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_472a3a0c-d7a1-4152-95fa-0b328fea939c",
+          "mixed": false,
+          "tagged": 24,
+          "untagged": 8,
+          "tagged_successes": 24,
+          "untagged_successes": 8,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_3eba12db-c5d2-47f7-9a0a-fd31db80afa6",
+          "mixed": false,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ad4340fa-1151-4008-a94c-06cffd5694cf",
+          "mixed": false,
+          "tagged": 13,
+          "untagged": 19,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_24d7a21b-470c-4fcb-8eaa-ad3855354205",
+          "mixed": false,
+          "tagged": 13,
+          "untagged": 19,
+          "tagged_successes": 13,
+          "untagged_successes": 19,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_8178a378-67ef-472d-9410-553516cae621",
+          "mixed": false,
+          "tagged": 24,
+          "untagged": 8,
+          "tagged_successes": 24,
+          "untagged_successes": 8,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c2482fd9-9011-4b6b-b881-8217881c1873",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_422aa9b0-fb93-4a53-8980-ddee6344a8bd",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ae30ac4b-f517-42a9-9685-8dec94394f57",
+          "mixed": false,
+          "tagged": 21,
+          "untagged": 11,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_46819a87-30e1-41ea-b2f7-6889b9de2908",
+          "mixed": false,
+          "tagged": 2,
+          "untagged": 30,
+          "tagged_successes": 2,
+          "untagged_successes": 30,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_de8d606f-56fd-4743-abbd-5d4d7f2e3f6b",
+          "mixed": false,
+          "tagged": 24,
+          "untagged": 8,
+          "tagged_successes": 24,
+          "untagged_successes": 8,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c75157eb-c452-45f1-90b4-69d0c1fd8775",
+          "mixed": false,
+          "tagged": 22,
+          "untagged": 10,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_61db2bd8-a0f1-45d4-ad0f-905d4b41d09e",
+          "mixed": false,
+          "tagged": 13,
+          "untagged": 19,
+          "tagged_successes": 13,
+          "untagged_successes": 19,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_14916541-04cb-4e1e-aa6f-4b7cd574e9f4",
+          "mixed": false,
+          "tagged": 23,
+          "untagged": 9,
+          "tagged_successes": 23,
+          "untagged_successes": 9,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_99f66cda-30ac-4db2-839e-110cd5062156",
+          "mixed": false,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_770fb0fc-569b-49b8-bd16-6cb1f7244620",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 3,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c1b6f382-7969-4807-879e-ae1780f5c9d1",
+          "mixed": false,
+          "tagged": 2,
+          "untagged": 30,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_7aeb8b94-79c6-4866-9e8d-c98a16a8b376",
+          "mixed": false,
+          "tagged": 23,
+          "untagged": 9,
+          "tagged_successes": 23,
+          "untagged_successes": 9,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_bc4b3619-7afc-4293-bfe6-b113a5446903",
+          "mixed": false,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 28,
+          "untagged_successes": 4,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ca45e06e-3be0-4bfc-b198-7cae2a2c4542",
+          "mixed": true,
+          "tagged": 27,
+          "untagged": 5,
+          "tagged_successes": 26,
+          "untagged_successes": 5,
+          "success_rate_difference": -0.03703703703703709
+        },
+        {
+          "case_id": "medmcqa_f5831c48-845a-4f9b-873f-b3adf82d9b9c",
+          "mixed": false,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_23a34a25-2b99-4933-9403-0bede39cea47",
+          "mixed": true,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 21,
+          "untagged_successes": 3,
+          "success_rate_difference": 0.0
+        },
+        {
+          "case_id": "medmcqa_6f236ffa-9573-43fb-bb0f-d8bd29a2f99f",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 5,
+          "untagged_successes": 0,
+          "success_rate_difference": 0.16129032258064516
+        },
+        {
+          "case_id": "medmcqa_0bea72f8-c855-43ba-b554-cc787a9cbd57",
+          "mixed": false,
+          "tagged": 24,
+          "untagged": 8,
+          "tagged_successes": 24,
+          "untagged_successes": 8,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_8f009fea-3837-4f02-9018-17bf2c35519e",
+          "mixed": true,
+          "tagged": 24,
+          "untagged": 8,
+          "tagged_successes": 6,
+          "untagged_successes": 3,
+          "success_rate_difference": -0.125
+        },
+        {
+          "case_id": "medmcqa_d5efdbf8-93d6-4ce4-a89e-df816fb16944",
+          "mixed": true,
+          "tagged": 26,
+          "untagged": 6,
+          "tagged_successes": 25,
+          "untagged_successes": 6,
+          "success_rate_difference": -0.038461538461538436
+        },
+        {
+          "case_id": "medmcqa_12f574c0-cd69-4960-943d-1d4787c25bea",
+          "mixed": false,
+          "tagged": 24,
+          "untagged": 8,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_62a657c5-86bb-4fc3-8195-16319de8f170",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_fb5c446c-68c1-4610-ac3d-a19f3b7dd63e",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_e7d47277-58bc-496e-b118-9c9e0f82004b",
+          "mixed": false,
+          "tagged": 16,
+          "untagged": 16,
+          "tagged_successes": 16,
+          "untagged_successes": 16,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_cbb9cbe1-bd6f-4b12-aa92-71fb68f9584b",
+          "mixed": false,
+          "tagged": 15,
+          "untagged": 17,
+          "tagged_successes": 15,
+          "untagged_successes": 17,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_bff0e033-f128-4b54-b9bb-d0973d19964b",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_494e0226-2c50-43b3-bb58-7350559bbf5e",
+          "mixed": false,
+          "tagged": 16,
+          "untagged": 16,
+          "tagged_successes": 16,
+          "untagged_successes": 16,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_0c9ad3bf-43f2-460d-9acb-7b824adf199f",
+          "mixed": false,
+          "tagged": 4,
+          "untagged": 28,
+          "tagged_successes": 4,
+          "untagged_successes": 28,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_1450b6e6-0109-48ea-ad6f-21d84b3619d5",
+          "mixed": false,
+          "tagged": 16,
+          "untagged": 16,
+          "tagged_successes": 16,
+          "untagged_successes": 16,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_d6ef1ed6-ddc3-4e1e-b2a1-d8a8d1889430",
+          "mixed": false,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 28,
+          "untagged_successes": 4,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_14906fba-5e70-4a78-86cb-dcfc3d622265",
+          "mixed": false,
+          "tagged": 22,
+          "untagged": 10,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_1cf60f69-2164-44e9-9e1e-80ad895dde41",
+          "mixed": false,
+          "tagged": 12,
+          "untagged": 20,
+          "tagged_successes": 12,
+          "untagged_successes": 20,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_63332465-cba0-452c-9a08-c178e8454e0a",
+          "mixed": false,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 25,
+          "untagged_successes": 7,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9531838e-9009-47d8-8d6e-3880fab47804",
+          "mixed": true,
+          "tagged": 6,
+          "untagged": 26,
+          "tagged_successes": 1,
+          "untagged_successes": 0,
+          "success_rate_difference": 0.16666666666666666
+        },
+        {
+          "case_id": "medmcqa_6a788250-badb-4888-93b7-e02837940c07",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_7abc4d81-a624-4c90-a2b8-9668772d4fef",
+          "mixed": false,
+          "tagged": 14,
+          "untagged": 18,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c41b1ac3-08a0-4af8-b96c-05eb224658a5",
+          "mixed": false,
+          "tagged": 23,
+          "untagged": 9,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_fb46defa-9ad3-4308-88e6-2b0c7a074943",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_cf67e095-f114-4f6d-a01c-bf1f46190437",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_d4152b4b-88e0-456b-ae4b-ba03c0cbd641",
+          "mixed": false,
+          "tagged": 26,
+          "untagged": 6,
+          "tagged_successes": 26,
+          "untagged_successes": 6,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5ae81d02-47b9-4dee-b54b-9ad5cb761147",
+          "mixed": false,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 28,
+          "untagged_successes": 4,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_8ca13ddf-28b1-420c-9c30-aa6f45126af4",
+          "mixed": false,
+          "tagged": 17,
+          "untagged": 15,
+          "tagged_successes": 17,
+          "untagged_successes": 15,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9c51fc8d-b66b-45b1-b11d-90564c5e1283",
+          "mixed": true,
+          "tagged": 21,
+          "untagged": 11,
+          "tagged_successes": 1,
+          "untagged_successes": 0,
+          "success_rate_difference": 0.047619047619047616
+        },
+        {
+          "case_id": "medmcqa_df0f4111-9f16-47d2-86c1-4ea366bf2f83",
+          "mixed": false,
+          "tagged": 28,
+          "untagged": 4,
+          "tagged_successes": 28,
+          "untagged_successes": 4,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c4d26611-6b2c-4f50-9e01-684c9f0fb516",
+          "mixed": false,
+          "tagged": 8,
+          "untagged": 24,
+          "tagged_successes": 8,
+          "untagged_successes": 24,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_d296b596-7522-4849-9129-710a0462b25c",
+          "mixed": false,
+          "tagged": 4,
+          "untagged": 28,
+          "tagged_successes": 4,
+          "untagged_successes": 28,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_4d7cf2f4-94e4-42a9-94d1-d52c1a7e5f75",
+          "mixed": false,
+          "tagged": 3,
+          "untagged": 29,
+          "tagged_successes": 3,
+          "untagged_successes": 29,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_b0d3b044-47e3-4873-9c00-91efa5bea6c5",
+          "mixed": false,
+          "tagged": 17,
+          "untagged": 15,
+          "tagged_successes": 17,
+          "untagged_successes": 15,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_50deb372-9d24-4c12-a2ab-846ed0728099",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 31,
+          "untagged_successes": 1,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_928e1387-da7b-459b-a341-339b71448103",
+          "mixed": false,
+          "tagged": 16,
+          "untagged": 16,
+          "tagged_successes": 16,
+          "untagged_successes": 16,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9b9330a6-fbe8-44af-a05f-e73ece32dc28",
+          "mixed": false,
+          "tagged": 23,
+          "untagged": 9,
+          "tagged_successes": 23,
+          "untagged_successes": 9,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_fa4d1794-6330-474e-a881-c98d638e1135",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5a41675a-fdcd-499b-b4a9-7ac72fc6a6b1",
+          "mixed": true,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 1,
+          "untagged_successes": 0,
+          "success_rate_difference": 0.04
+        },
+        {
+          "case_id": "medmcqa_8b98a243-f907-4e4d-b3f8-f128dd50017b",
+          "mixed": true,
+          "tagged": 10,
+          "untagged": 22,
+          "tagged_successes": 9,
+          "untagged_successes": 21,
+          "success_rate_difference": -0.054545454545454564
+        },
+        {
+          "case_id": "medmcqa_28979f40-eefd-4fcf-a57e-f7e3bed87567",
+          "mixed": false,
+          "tagged": 19,
+          "untagged": 13,
+          "tagged_successes": 19,
+          "untagged_successes": 13,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_dbc01a9d-53a0-46fd-8ff2-db710193e41c",
+          "mixed": true,
+          "tagged": 22,
+          "untagged": 10,
+          "tagged_successes": 19,
+          "untagged_successes": 9,
+          "success_rate_difference": -0.036363636363636376
+        },
+        {
+          "case_id": "medmcqa_5de9b58b-3bba-4c18-bcb3-6b60cba28977",
+          "mixed": false,
+          "tagged": 7,
+          "untagged": 25,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_654216b5-a0c7-461d-a6ae-e8a3f316783d",
+          "mixed": false,
+          "tagged": 30,
+          "untagged": 2,
+          "tagged_successes": 30,
+          "untagged_successes": 2,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_e4f25db8-08a0-4f94-92f7-654b4889667c",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_3a423cd2-f253-495e-972c-28c70d7cc2be",
+          "mixed": true,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 3,
+          "untagged_successes": 0,
+          "success_rate_difference": 0.10344827586206896
+        },
+        {
+          "case_id": "medmcqa_54efecbf-202e-4883-b3e4-1b55646b873f",
+          "mixed": false,
+          "tagged": 25,
+          "untagged": 7,
+          "tagged_successes": 25,
+          "untagged_successes": 7,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9a2a0a21-5fef-4ea8-a921-b21f14dca4cc",
+          "mixed": false,
+          "tagged": 29,
+          "untagged": 3,
+          "tagged_successes": 29,
+          "untagged_successes": 3,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_530486d3-007d-45a9-9ae4-705184d05463",
+          "mixed": false,
+          "tagged": 17,
+          "untagged": 15,
+          "tagged_successes": 17,
+          "untagged_successes": 15,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_4a5a3a28-6974-494d-b2b0-be8c6d758dbe",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5c829941-1ce9-46a9-9e54-4d2d29a987bb",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_aeb39b20-8826-4751-aa17-aac74cbcd000",
+          "mixed": false,
+          "tagged": 12,
+          "untagged": 20,
+          "tagged_successes": 12,
+          "untagged_successes": 20,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5879d051-aeef-4886-a93c-05e807f038dd",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 30,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.032258064516129004
+        },
+        {
+          "case_id": "medmcqa_42d9ebf7-ff69-4f47-930e-ce00bc233532",
+          "mixed": false,
+          "tagged": 23,
+          "untagged": 9,
+          "tagged_successes": 23,
+          "untagged_successes": 9,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9bbcc0d4-1ecf-4aad-9b26-6f35c61badf3",
+          "mixed": false,
+          "tagged": 11,
+          "untagged": 21,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5874917c-0ad2-44d1-ad51-79de91a8bd51",
+          "mixed": false,
+          "tagged": 27,
+          "untagged": 5,
+          "tagged_successes": 27,
+          "untagged_successes": 5,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_2f643fde-ce8f-49d4-a2ae-67c62bee00dd",
+          "mixed": false,
+          "tagged": 11,
+          "untagged": 21,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_691f500f-f0f6-4dc2-bdf5-877f0cf14c34",
+          "mixed": false,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_674fc963-f4f3-4c48-84ef-7440ccb8f745",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 4,
+          "untagged_successes": 0,
+          "success_rate_difference": 0.12903225806451613
+        },
+        {
+          "case_id": "medmcqa_52585a42-70e8-4f18-8d9a-bcbc85b23a62",
+          "mixed": true,
+          "tagged": 31,
+          "untagged": 1,
+          "tagged_successes": 29,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.06451612903225812
+        },
+        {
+          "case_id": "medmcqa_68e6ec14-c2f1-430d-9407-adab2bd6f7a1",
+          "mixed": false,
+          "tagged": 9,
+          "untagged": 23,
+          "tagged_successes": 9,
+          "untagged_successes": 23,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_98ce8737-f7be-4a7c-9477-efe797bd0637",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_bc40d5e3-2df6-4c0c-8be5-963a4251a498",
+          "mixed": false,
+          "tagged": 27,
+          "untagged": 5,
+          "tagged_successes": 27,
+          "untagged_successes": 5,
+          "success_rate_difference": 0
+        }
+      ]
+    },
+    {
+      "tag": "agreement_only",
+      "tagged": 481,
+      "untagged": 3359,
+      "tagged_success_rate": 0.681912681912682,
+      "untagged_success_rate": 0.6522774635308127,
+      "within_case_count": 56,
+      "within_case_mean_difference": 0.0002137289386691264,
+      "within_case_bootstrap_95_interval": [
+        -0.01386253426101623,
+        0.011152863825910606
+      ],
+      "mixed_within_case_count": 7,
+      "mixed_within_case_mean_difference": 0.0017098315093530111,
+      "mixed_within_case_bootstrap_95_interval": [
+        -0.10908960748082934,
+        0.08655580044079346
+      ],
+      "mantel_haenszel_odds_ratio": 2.0869565217391304,
+      "mh_zero_denominator": false,
+      "case_strata": [
+        {
+          "case_id": "medmcqa_79917da0-2029-47d2-8b88-a56c192ade3c",
+          "mixed": true,
+          "tagged": 9,
+          "untagged": 23,
+          "tagged_successes": 9,
+          "untagged_successes": 20,
+          "success_rate_difference": 0.13043478260869568
+        },
+        {
+          "case_id": "medmcqa_dbdeda4f-ff5f-456c-86cf-980e7d41b8e0",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a3e63643-04b3-419d-a983-f759ea9c00c0",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_cf09bd88-c95b-4259-8642-e1a053793ed0",
+          "mixed": false,
+          "tagged": 6,
+          "untagged": 26,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_4b511c5f-b932-4747-805e-27de5a563979",
+          "mixed": false,
+          "tagged": 23,
+          "untagged": 9,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_fde00866-c07b-4772-87fb-da61a024756f",
+          "mixed": false,
+          "tagged": 2,
+          "untagged": 30,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_3ce61463-a3ad-4e05-8e97-b404f9f04e0e",
+          "mixed": false,
+          "tagged": 10,
+          "untagged": 22,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_263b7dee-c001-4563-957d-77ba3eeb62a1",
+          "mixed": false,
+          "tagged": 13,
+          "untagged": 19,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a7d5ee17-8885-490d-92dd-881fce3b5ecb",
+          "mixed": false,
+          "tagged": 8,
+          "untagged": 24,
+          "tagged_successes": 8,
+          "untagged_successes": 24,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_884995ab-28f9-415b-9d0a-6613c35ee5f6",
+          "mixed": false,
+          "tagged": 2,
+          "untagged": 30,
+          "tagged_successes": 2,
+          "untagged_successes": 30,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c1144ca3-ee25-4d9c-b093-df2649ad5b82",
+          "mixed": true,
+          "tagged": 15,
+          "untagged": 17,
+          "tagged_successes": 15,
+          "untagged_successes": 16,
+          "success_rate_difference": 0.05882352941176472
+        },
+        {
+          "case_id": "medmcqa_ab6eb7d3-ec20-44ea-84fe-983aad531115",
+          "mixed": false,
+          "tagged": 5,
+          "untagged": 27,
+          "tagged_successes": 5,
+          "untagged_successes": 27,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ad4340fa-1151-4008-a94c-06cffd5694cf",
+          "mixed": false,
+          "tagged": 9,
+          "untagged": 23,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_028d5d73-b4d4-4e70-80b6-97f20a250e80",
+          "mixed": false,
+          "tagged": 16,
+          "untagged": 16,
+          "tagged_successes": 16,
+          "untagged_successes": 16,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_24d7a21b-470c-4fcb-8eaa-ad3855354205",
+          "mixed": false,
+          "tagged": 9,
+          "untagged": 23,
+          "tagged_successes": 9,
+          "untagged_successes": 23,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_422aa9b0-fb93-4a53-8980-ddee6344a8bd",
+          "mixed": false,
+          "tagged": 8,
+          "untagged": 24,
+          "tagged_successes": 8,
+          "untagged_successes": 24,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_ae30ac4b-f517-42a9-9685-8dec94394f57",
+          "mixed": false,
+          "tagged": 3,
+          "untagged": 29,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_a1fcf57e-c7dc-41ec-94f5-fe183d5e238a",
+          "mixed": false,
+          "tagged": 22,
+          "untagged": 10,
+          "tagged_successes": 22,
+          "untagged_successes": 10,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_e3d92743-890e-48d6-b30c-b07392a4ac25",
+          "mixed": false,
+          "tagged": 23,
+          "untagged": 9,
+          "tagged_successes": 23,
+          "untagged_successes": 9,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_46819a87-30e1-41ea-b2f7-6889b9de2908",
+          "mixed": false,
+          "tagged": 19,
+          "untagged": 13,
+          "tagged_successes": 19,
+          "untagged_successes": 13,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_61db2bd8-a0f1-45d4-ad0f-905d4b41d09e",
+          "mixed": false,
+          "tagged": 7,
+          "untagged": 25,
+          "tagged_successes": 7,
+          "untagged_successes": 25,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_14916541-04cb-4e1e-aa6f-4b7cd574e9f4",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_c1b6f382-7969-4807-879e-ae1780f5c9d1",
+          "mixed": false,
+          "tagged": 14,
+          "untagged": 18,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_7aeb8b94-79c6-4866-9e8d-c98a16a8b376",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_8f009fea-3837-4f02-9018-17bf2c35519e",
+          "mixed": true,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 9,
+          "success_rate_difference": -0.2903225806451613
+        },
+        {
+          "case_id": "medmcqa_fb5c446c-68c1-4610-ac3d-a19f3b7dd63e",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_494e0226-2c50-43b3-bb58-7350559bbf5e",
+          "mixed": false,
+          "tagged": 8,
+          "untagged": 24,
+          "tagged_successes": 8,
+          "untagged_successes": 24,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_0c9ad3bf-43f2-460d-9acb-7b824adf199f",
+          "mixed": false,
+          "tagged": 7,
+          "untagged": 25,
+          "tagged_successes": 7,
+          "untagged_successes": 25,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_d6ef1ed6-ddc3-4e1e-b2a1-d8a8d1889430",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_1cf60f69-2164-44e9-9e1e-80ad895dde41",
+          "mixed": false,
+          "tagged": 7,
+          "untagged": 25,
+          "tagged_successes": 7,
+          "untagged_successes": 25,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9531838e-9009-47d8-8d6e-3880fab47804",
+          "mixed": true,
+          "tagged": 9,
+          "untagged": 23,
+          "tagged_successes": 0,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.043478260869565216
+        },
+        {
+          "case_id": "medmcqa_6a788250-badb-4888-93b7-e02837940c07",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_7abc4d81-a624-4c90-a2b8-9668772d4fef",
+          "mixed": false,
+          "tagged": 2,
+          "untagged": 30,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_e3bedef4-47de-45df-9bf2-58e005643a3d",
+          "mixed": false,
+          "tagged": 8,
+          "untagged": 24,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_cf67e095-f114-4f6d-a01c-bf1f46190437",
+          "mixed": false,
+          "tagged": 22,
+          "untagged": 10,
+          "tagged_successes": 22,
+          "untagged_successes": 10,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_d4152b4b-88e0-456b-ae4b-ba03c0cbd641",
+          "mixed": false,
+          "tagged": 4,
+          "untagged": 28,
+          "tagged_successes": 4,
+          "untagged_successes": 28,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_8ca13ddf-28b1-420c-9c30-aa6f45126af4",
+          "mixed": false,
+          "tagged": 7,
+          "untagged": 25,
+          "tagged_successes": 7,
+          "untagged_successes": 25,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9c51fc8d-b66b-45b1-b11d-90564c5e1283",
+          "mixed": true,
+          "tagged": 5,
+          "untagged": 27,
+          "tagged_successes": 0,
+          "untagged_successes": 1,
+          "success_rate_difference": -0.037037037037037035
+        },
+        {
+          "case_id": "medmcqa_c4d26611-6b2c-4f50-9e01-684c9f0fb516",
+          "mixed": false,
+          "tagged": 16,
+          "untagged": 16,
+          "tagged_successes": 16,
+          "untagged_successes": 16,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_d296b596-7522-4849-9129-710a0462b25c",
+          "mixed": false,
+          "tagged": 20,
+          "untagged": 12,
+          "tagged_successes": 20,
+          "untagged_successes": 12,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_4d7cf2f4-94e4-42a9-94d1-d52c1a7e5f75",
+          "mixed": false,
+          "tagged": 24,
+          "untagged": 8,
+          "tagged_successes": 24,
+          "untagged_successes": 8,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_b0d3b044-47e3-4873-9c00-91efa5bea6c5",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_4b37d4ad-b0a3-4002-9d57-4e4a0ced2845",
+          "mixed": false,
+          "tagged": 8,
+          "untagged": 24,
+          "tagged_successes": 8,
+          "untagged_successes": 24,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_8b98a243-f907-4e4d-b3f8-f128dd50017b",
+          "mixed": true,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 29,
+          "success_rate_difference": 0.06451612903225812
+        },
+        {
+          "case_id": "medmcqa_28979f40-eefd-4fcf-a57e-f7e3bed87567",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 31,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_dbc01a9d-53a0-46fd-8ff2-db710193e41c",
+          "mixed": true,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 1,
+          "untagged_successes": 27,
+          "success_rate_difference": 0.12903225806451613
+        },
+        {
+          "case_id": "medmcqa_5de9b58b-3bba-4c18-bcb3-6b60cba28977",
+          "mixed": false,
+          "tagged": 24,
+          "untagged": 8,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_e4f25db8-08a0-4f94-92f7-654b4889667c",
+          "mixed": false,
+          "tagged": 1,
+          "untagged": 31,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5c829941-1ce9-46a9-9e54-4d2d29a987bb",
+          "mixed": false,
+          "tagged": 23,
+          "untagged": 9,
+          "tagged_successes": 23,
+          "untagged_successes": 9,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_aeb39b20-8826-4751-aa17-aac74cbcd000",
+          "mixed": false,
+          "tagged": 6,
+          "untagged": 26,
+          "tagged_successes": 6,
+          "untagged_successes": 26,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_42d9ebf7-ff69-4f47-930e-ce00bc233532",
+          "mixed": false,
+          "tagged": 6,
+          "untagged": 26,
+          "tagged_successes": 6,
+          "untagged_successes": 26,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_9bbcc0d4-1ecf-4aad-9b26-6f35c61badf3",
+          "mixed": false,
+          "tagged": 4,
+          "untagged": 28,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_5874917c-0ad2-44d1-ad51-79de91a8bd51",
+          "mixed": false,
+          "tagged": 3,
+          "untagged": 29,
+          "tagged_successes": 3,
+          "untagged_successes": 29,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_2f643fde-ce8f-49d4-a2ae-67c62bee00dd",
+          "mixed": false,
+          "tagged": 11,
+          "untagged": 21,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_68e6ec14-c2f1-430d-9407-adab2bd6f7a1",
+          "mixed": false,
+          "tagged": 15,
+          "untagged": 17,
+          "tagged_successes": 15,
+          "untagged_successes": 17,
+          "success_rate_difference": 0
+        },
+        {
+          "case_id": "medmcqa_98ce8737-f7be-4a7c-9477-efe797bd0637",
+          "mixed": false,
+          "tagged": 6,
+          "untagged": 26,
+          "tagged_successes": 0,
+          "untagged_successes": 0,
+          "success_rate_difference": 0
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Observational association, not a causal intervention or effect of training.",
+    "Tags are multi-label; rows cannot be added as mutually exclusive categories.",
+    "Within-case differences compare tagged versus untagged conversations in the same case.",
+    "Mixed-only differences exclude uniform-outcome cases that have zero outcome variation.",
+    "Bootstrap resamples cases, not trajectories; intervals are exploratory and uncorrected for multiple comparisons.",
+    "Each tag has its own eligible case denominator. Sparse tags need manual evidence review.",
+    "Temporal direction is unresolved: assistant behavior can respond to earlier physician reasoning."
+  ],
+  "sparse_review": {
+    "candidates": 206,
+    "original_counts": {
+      "unverified_fact_assertion": 185,
+      "contradiction_flag": 21
+    },
+    "verified_counts": {
+      "unverified_fact_assertion": 123,
+      "contradiction_flag": 5
+    },
+    "note": "Only original positive candidates for these two tags were reviewed; false negatives were not exhaustively audited."
+  },
+  "metadata": {
+    "model": "gpt-6-luna",
+    "api_provider": "openai_direct",
+    "base_model": "Qwen/Qwen3-8B",
+    "base_no_lora": true,
+    "source_base_run": "outputs/sherpa_prompt_auc_qwen3_doctor_256_compact_luna_v4",
+    "requests_grouped": 8,
+    "initial_batches": 480,
+    "sparse_review_batches": 60,
+    "new_rollouts": 0,
+    "outcome_hidden_during_annotation": true,
+    "source_quotes_validated": true,
+    "human_ground_truth_annotation": false,
+    "source_validation": "All 120 questions/options matched public MedMCQA train parquet exactly.",
+    "mixed_base_cases": 20
+  },
+  "publication_note": "Case-adjusted associations did not show a stable positive relation: all calculable mixed-case bootstrap intervals include zero; contradiction flags have only one eligible mixed case. This is a descriptive audit of model annotations, not a causal validation of the reward."
+}
