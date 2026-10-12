@@ -36,6 +36,7 @@ PROTOCOLS = {
     't2f120': {'cases': 120, 'rounds': 2, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/fixed_t2_final120/', 'scorer_request_cache': 'canonical_request_sha256_v1'},
     't2bal': {'cases': 60, 'rounds': 2, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/fixed_t2_bal/', 'scorer_request_cache': 'canonical_request_sha256_v1'},
     't2m': {'cases': 120, 'rounds': 2, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/fixed_t2_main120/', 'scorer_request_cache': 'canonical_request_sha256_v1'},
+    't4off': {'cases': 120, 'rounds': 4, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/e3priv_t4_off_120/', 'scorer_request_cache': 'canonical_request_sha256_v1'},
     't2psmoke': {'cases': 5, 'rounds': 2, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/fixed_t2_pilot_smoke/', 'scorer_request_cache': 'canonical_request_sha256_v1',
                  'outcome_only_allowed': True},
     't2p': {'cases': 60, 'rounds': 2, 'prompt_mode': ('p0_fixed',), 'root': 'outputs/fixed_t2_pilot/', 'scorer_request_cache': 'canonical_request_sha256_v1',
