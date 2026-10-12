@@ -164,6 +164,8 @@ def gate_protocol_problems(cfg: dict) -> list[str]:
 def evidence_gate_identity(cfg: dict, root: Path = ROOT):
     """Post-rollout research identity, independent of a frozen rollout override."""
     jm = cfg.get('judges', {})
+    if jm.get('gate_enabled', True) is False:
+        return None
     if jm.get('gate_protocol') not in (EVIDENCE_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL, PUBLIC_GATE_PROTOCOL_V2, PUBLIC_GATE_PROTOCOL_V3):
         return None
     from src.online_rl.tree.luna import LunaDecisionClient
@@ -530,6 +532,11 @@ def make_scorer(cfg: dict, client):
                 raise AssertionError('unreachable compact applicability retry')
 
             scorer.review_state = scorer.applicability = retry_invalid_stage1
+            # Fixed-bank scoring opts into the same bounded retry for the
+            # fused, all-criteria state request. Source/witness paths may keep
+            # using the singleton interface and its historical cache contract.
+            if callable(getattr(scorer, 'review_state_batch', None)):
+                scorer.review_state_batch = retry_invalid_stage1
         # A judge can omit one of the required public M/C checks or paraphrase
         # a requested literal quote while still returning valid JSON. Retry
         # those incomplete executions; never turn them into a numeric score,
@@ -578,6 +585,8 @@ def make_scorer(cfg: dict, client):
 
 def make_gate(cfg: dict, client, cases):
     """Keep legacy gating for existing configs; bind evidence gating only by explicit version."""
+    if cfg['judges'].get('gate_enabled', True) is False:
+        return None
     from src.online_rl.tree.backends import posthoc_gates
     if cfg['judges'].get('compact_runtime') in ('v7_1', 'v7_5_v7_6'):
         from functools import wraps
@@ -671,7 +680,8 @@ def make_feedback(cfg: dict, policy, key: str):
         from src.online_rl.tree.doctor_reflection import local_doctor_feedback
         if policy.doctor.model != feedback['model']:
             raise RuntimeError('Reflection model differs from the participating Doctor')
-        return local_doctor_feedback(policy.doctor, system, feedback['max_tokens'], run_seed=cfg['schedule']['seed'])
+        return local_doctor_feedback(policy.doctor, system, feedback['max_tokens'], run_seed=cfg['schedule']['seed'],
+                                     invalid_output_policy=feedback.get('invalid_output_policy', 'raise'))
     from src.online_rl.tree.backends import api_behavior_feedback, api_feedback
     if protocol in ('behavior_observer_v4', 'behavior_observer_v5'):
         return api_behavior_feedback(key, feedback['model'], system, feedback['max_tokens'], protocol)

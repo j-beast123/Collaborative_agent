@@ -96,8 +96,9 @@ def test_parallel_eval_drains_five_way_and_resumes_missing_cases(tmp_path):
 
 
 def test_openings_ignore_policy_and_call_seed_and_exclude_gold(tmp_path):
-    calls=[]
-    doctor=SimpleNamespace(turn=lambda case,dialogue,r,rounds,seed:calls.append(seed) or {'visible':str(seed)})
+    calls=[]; roles=[]
+    doctor=SimpleNamespace(turn=lambda case,dialogue,r,rounds,seed,followup_role=None:
+                           (calls.append(seed),roles.append(followup_role),{'visible':str(seed)})[-1])
     cache_openings(doctor,tmp_path/'D1.jsonl',{'model':'pinned'})
     case={'case_id':'a','question':'Q','options':{'A':'a'},'ground_truth':{'correct_option':'A'}}
     a=doctor.turn(case,[],1,5,123)
@@ -106,8 +107,9 @@ def test_openings_ignore_policy_and_call_seed_and_exclude_gold(tmp_path):
     fresh=SimpleNamespace(turn=lambda *args:pytest.fail('D1 must survive restart'))
     cache_openings(fresh,tmp_path/'D1.jsonl',{'model':'pinned'})
     assert fresh.turn(case,[],1,5,789)==a
-    doctor.turn(case,[],2,5,999)
+    doctor.turn(case,[],2,5,999,followup_role='counterargument')
     assert calls[-1]==999
+    assert roles[-1]=='counterargument'
     assert 'ground_truth' not in (tmp_path/'D1.jsonl').read_text()
 
 

@@ -8,10 +8,17 @@ from src.online_rl.tree.records import Tree
 
 
 def batch_slots(cursor, total, interval=24, workers=4, lanes=1):
-    if min(interval, workers, lanes) < 1 or not 0 <= cursor <= total:
+    """Assign a bounded batch, allowing either uniform or per-worker lanes."""
+    lane_counts = ([lanes] * workers if isinstance(lanes, int) else list(lanes))
+    if (min(interval, workers, *lane_counts) < 1 or len(lane_counts) != workers
+            or not 0 <= cursor <= total):
         raise ValueError('Invalid batch dimensions or cursor')
-    size = min(total-cursor, interval-cursor % interval, workers*lanes)
-    return [{'index': cursor+i, 'worker': i % workers, 'lane': i // workers} for i in range(size)]
+    capacity = sum(lane_counts)
+    size = min(total-cursor, interval-cursor % interval, capacity)
+    placement = [(worker, lane) for lane in range(max(lane_counts))
+                 for worker, count in enumerate(lane_counts) if lane < count]
+    return [{'index': cursor+i, 'worker': placement[i][0], 'lane': placement[i][1]}
+            for i in range(size)]
 
 
 
@@ -49,14 +56,24 @@ def update_batch(updater, records, expected, actual):
         tree = from_dict(Tree, record['tree'])
         if tree.policy_sha256 != expected or record['policy_sha256'] != expected:
             raise RuntimeError('Mixed source policies in batch')
-        nodes = {n.node_id: n for n in tree.nodes}
-        for parent, ids in sorted(record['agent_targets']['groups'].items()):
-            group = [{'trajectory_id': nid, 'case_id': f'{tree.case_id}|{parent}',
-                      'reward': record['agent_targets']['nodes'][nid]['reward'],
-                      'rollout_policy_sha256': nodes[nid].policy_sha256,
-                      'agent_traces': [nodes[nid].trace]} for nid in ids]
-            assert_single_prompt(group)
-            groups.append(group)
+        nodes = {n.node_id: n for n in tree.nodes}; targets = record['agent_targets']
+        if targets.get('mode') == 'trajectory_level':
+            from src.online_rl.integrated.episode import assert_trajectory_group
+            group=[]
+            for leaf in tree.leaves:
+                target=targets['trajectories'][leaf.leaf_id]
+                group.append({'trajectory_id':leaf.leaf_id,'case_id':tree.case_id,
+                              'reward':target['reward'],'rollout_policy_sha256':tree.policy_sha256,
+                              'agent_traces':[nodes[nid].trace for nid in leaf.path]})
+            assert_trajectory_group(group); groups.append(group)
+        else:
+            for parent, ids in sorted(targets['groups'].items()):
+                group = [{'trajectory_id': nid, 'case_id': f'{tree.case_id}|{parent}',
+                          'reward': targets['nodes'][nid]['reward'],
+                          'rollout_policy_sha256': nodes[nid].policy_sha256,
+                          'agent_traces': [nodes[nid].trace]} for nid in ids]
+                assert_single_prompt(group)
+                groups.append(group)
     return updater.update_groups(groups)
 
 
@@ -236,8 +253,11 @@ def cache_openings(doctor, path, identity):
     from src.online_rl.tree.cache import CallCache
     cache = CallCache(path)
     turn = doctor.turn
-    def cached(case, dialogue, round_, rounds, seed):
-        if round_ != 1: return turn(case, dialogue, round_, rounds, seed)
+    def cached(case, dialogue, round_, rounds, seed, followup_role=None):
+        if round_ != 1:
+            return turn(case, dialogue, round_, rounds, seed, followup_role=followup_role)
+        if followup_role is not None:
+            raise ValueError('Doctor follow-up role cannot alter the shared D1 opening')
         view = {k: case.get(k) for k in ('case_id','scenario','question','options')}
         key = {'case': view, 'protocol': identity, 'rounds': rounds}
         # Stable seed independent of checkpoint, lane and rollout branch.

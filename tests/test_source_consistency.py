@@ -128,6 +128,21 @@ def test_existing_answer_presupposition_gate_still_rejects_after_source_pass():
     assert not r.valid and r.source_check['status'] == 'PASS' and r.gate['reasons'] == ['answer presupposition']
 
 
+def test_source_applicability_execution_failure_quarantines_candidate():
+    """A malformed judge output excludes this candidate; it must not kill its worker/batch."""
+    from src.common.config import IntegrationUnavailable
+    g = Gen()
+    def failed_stage1(_rubric):
+        raise IntegrationUnavailable('Exact prefix quote failed')
+    r = PH.generate_rubric('P', 'p' * 64, tin(), g, CallCache(None), gate_ok, failed_stage1)
+    assert not r.valid
+    assert r.source_check == {
+        'status': 'SOURCE_APPLICABILITY_ERROR',
+        'error_type': 'IntegrationUnavailable',
+    }
+    assert r.problems == ('source_applicability_error: IntegrationUnavailable',)
+
+
 # 9 + 11: trainer under v2.1: admission is the only change; REUSE / witness / K / supports / equal R_A as in v2; caches separate
 def v21_env(log, w, fix=lambda cond: 'any turn'):
     env = WT.witness_env(log, w); base = env.generate_fn

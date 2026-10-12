@@ -168,10 +168,11 @@ def _source_consistency(prompt_text, prompt_sha256, tin, generate_fn, cache, sou
     # A judge contract failure is neither non-applicability nor score zero.  At
     # generation admission it quarantines this candidate so one malformed or
     # uncertain LLM result cannot terminate the whole training batch.
+    from src.common.config import IntegrationUnavailable
     from src.online_rl.tree.applicability import ApplicabilityUncertain, ScoringContractError
     try:
         first = source_stage1(rubric)
-    except (ApplicabilityUncertain, ScoringContractError) as error:
+    except (ApplicabilityUncertain, ScoringContractError, IntegrationUnavailable) as error:
         return ({'status':'SOURCE_APPLICABILITY_ERROR','error_type':type(error).__name__}, rubric, raw,
                 [f'source_applicability_error: {type(error).__name__}'])
     if first is None: return {'status': 'NO_SOURCE_LOCUS', 'locus': None}, rubric, raw, ['source_inconsistent: no behavioral locus']

@@ -15,6 +15,7 @@ from src.online_rl.integrated.records import sha256_json
 
 VISIBLE = ('rubric_id', 'name', 'applicability_condition', 'required_behavior', 'scores')
 SCORE_RECORD_CONTRACT = 'complete_state_scoring_with_shared_applicability_v2'
+FUSED_APPLICABILITY_CACHE_KIND = 'rubric_state_applicability_bundle'
 
 
 def _review_applicability(case, node, rubrics, scorer, cache):
@@ -29,7 +30,8 @@ def _review_applicability(case, node, rubrics, scorer, cache):
         rid = rubric['rubric_id']
         try:
             review[rid] = state_applicability(case, node, rubric, scorer, cache)
-        except (IntegrationUnavailable, ScoringContractError, ApplicabilityUncertain) as exc:
+        except (IntegrationUnavailable, ScoringContractError, ApplicabilityUncertain,
+                ValueError, TypeError, KeyError) as exc:
             review[rid] = {
                 'applicable': None,
                 'status': 'execution_error',
@@ -145,7 +147,41 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
             if callable(getattr(scorer, 'match_state', None)):
                 matched = validate_match(cache.call('rubric_state_match', identity,
                     lambda: validate_match(scorer.match_state(view, prefix, rubrics))))
-            review = _review_applicability(case, n, rubrics, scorer, cache)
+            batch_review = getattr(scorer, 'review_state_batch', None)
+            if callable(batch_review):
+                bundle_identity = {
+                    'contract': getattr(scorer, 'state_batch_contract', None),
+                    'state_sha256': state_sha, 'policy': n.policy_sha256,
+                    'rubrics': sha256_json(rubrics),
+                    'model': getattr(scorer, 'model', None),
+                    'review_identity': getattr(scorer, 'review_identity', None),
+                    'protocol': getattr(scorer, 'protocol', None),
+                    'score_record_contract': SCORE_RECORD_CONTRACT,
+                }
+                try:
+                    def validate_review(rows):
+                        _mapping(rows, src, 'state applicability bundle')
+                        for rid, row in rows.items():
+                            if not isinstance(row, dict) or row.get('error') or type(row.get('applicable')) not in (bool, type(None)):
+                                raise ScoringContractError(f'{rid}: invalid bundled applicability result')
+                        return rows
+                    review = validate_review(cache.call(FUSED_APPLICABILITY_CACHE_KIND, bundle_identity,
+                        lambda: validate_review(batch_review(view, prefix, rubrics))))
+                    # A valid uncertain judgment remains unscored. It is not NA.
+                    review = {rid: ({**row, 'status': 'execution_error',
+                                     'scoring_status': 'applicability_error',
+                                     'error_type': 'ApplicabilityUncertain',
+                                     'error': 'Uncertain bundled applicability'}
+                                    if row.get('applicable') is None else row)
+                              for rid, row in review.items()}
+                except (IntegrationUnavailable, ScoringContractError, ApplicabilityUncertain,
+                        ValueError, TypeError, KeyError) as exc:
+                    review = {rid: {'applicable': None, 'status': 'execution_error',
+                                   'scoring_status': 'applicability_error',
+                                   'error_type': type(exc).__name__, 'error': str(exc)}
+                              for rid in src}
+            else:
+                review = _review_applicability(case, n, rubrics, scorer, cache)
             on = [r for r in rubrics if review[r['rubric_id']]['applicable'] and
                   (matched is None or str(matched[r['rubric_id']]['value']).upper() == 'Y')]
             mask = tuple(r['rubric_id'] for r in on)
@@ -206,7 +242,8 @@ def score_nodes(case: dict, nodes: list[AgentNode], kept: list[TrajectoryRubric]
                                 lambda: validate_single(scorer.score_behavior(view, to_dialogue(node.prefix), request_rubrics,
                                                                                      node.response, matched)))
                             state_results[node.node_id] = validate_behavior(node, restore_aliases(rows))
-                except (IntegrationUnavailable, ScoringContractError) as exc:
+                except (IntegrationUnavailable, ScoringContractError, ApplicabilityUncertain,
+                        ValueError, TypeError, KeyError) as exc:
                     # The entire request is technically incomplete. Quarantine
                     # exactly its response/rubric cells; do not fabricate NA or 0.
                     failure = {'_technical_error': True, 'error_type': type(exc).__name__,

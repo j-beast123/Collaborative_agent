@@ -291,12 +291,12 @@ class TreeTrainer:
 
     def step(self, *, frozen_record=None, prompt_text=None, prompt_id=None, score_responses=True, commit=True,
              apply_update=True, defer_verification=False, cumulative_snapshot=None, online_working_bank=False,
-             reuse_frozen_rubric_candidates=False) -> dict:
+             reuse_frozen_rubric_candidates=False, fixed_scoring_rollout=False) -> dict:
         cumulative_reuse = []
         if getattr(self, 'cumulative_bank', None):
             from src.online_rl.tree import cumulative_bank as CB
             if (cumulative_snapshot is None or commit or apply_update or score_responses or
-                    (not defer_verification and not online_working_bank)):
+                    (not defer_verification and not online_working_bank and not fixed_scoring_rollout)):
                 raise ValueError('cumulative bank preparation requires its snapshot and an explicit verification mode')
             CB.validate_snapshot(cumulative_snapshot)
         elif cumulative_snapshot is not None:
@@ -307,6 +307,8 @@ class TreeTrainer:
             raise ValueError('online working bank requires semantic assignment and immediate verification')
         if reuse_frozen_rubric_candidates and (frozen_record is None or self.exact_source_case or not self.reuse):
             raise ValueError('frozen rubric candidate reuse requires a semantic-match frozen rollout record')
+        if fixed_scoring_rollout and (defer_verification or online_working_bank or frozen_record is not None):
+            raise ValueError('fixed scoring rollout only creates a fresh rollout for the pinned bank')
         if defer_verification and (not self.rubric_on or self.verification not in W.PROTOCOLS):
             raise ValueError('deferred verification requires a rubric-enabled witness protocol')
         t_case = time.time(); rollout_seconds = 0.0
@@ -330,7 +332,8 @@ class TreeTrainer:
                           outcome_fn=e.outcome_fn, cache=self.cache, behavior_logprobs=e.behavior_logprobs, workers=self.doctor_workers,
                           opening=getattr(e, 'opening', None), agent_workers=self.agent_workers,on_leaf=on_leaf,
                           repeat_agent_reply_after_turns=ro.get('halting',{}).get('repeat_agent_reply_after_turns'),
-                          sampling_unit=ro.get('sampling_unit', 'response_tree'))
+                          sampling_unit=ro.get('sampling_unit', 'response_tree'),
+                          doctor_followup_roles=ro.get('doctor_followup_roles'))
             if (self.rubric_on and not cfg['rubric'].get('source_sampling') and
                     (cfg.get('five_gpu') or {}).get('execution_mode') == 'shared_ready_tasks_v1'):
                 from concurrent.futures import ThreadPoolExecutor
@@ -353,7 +356,7 @@ class TreeTrainer:
             decided, cfg['rubric'].get('source_sampling'), run_seed=s.run_seed, case_id=cid)
         feedback, tins, rubrics, source_scores, effs, selection, scores, weights, bank = [], [], [], [], [], [], [], {}, None
         seeded_rubric_candidates=[]; seeded_candidate_aliases={}
-        if self.rubric_on:                                           # Outcome-only arm: no feedback, rubric, verification or scoring
+        if self.rubric_on and not fixed_scoring_rollout:             # Fixed-bank scoring skips generation and rerun entirely.
             fb = lambda l: doctor_feedback(case, l, e.feedback_fn, self.fb_sha, self.cache, self.fb_model)
             if frozen_record is not None:
                 feedback = [from_dict(DoctorFeedback, f) for f in frozen_record['feedback']]
@@ -450,7 +453,8 @@ class TreeTrainer:
                                 **W.witness_telemetry(all_wit_objs)},
                             'member_intervention_version': self.member_intervention_version, 'verification_pending': False}
                     scores = []; weights = {d.rubric_id: 1.0 for d in selection if d.retained}
-                elif cumulative_snapshot is not None and not self.exact_source_case:
+                elif (cumulative_snapshot is not None and not self.exact_source_case and
+                      not self.cumulative_bank.get('force_generate_each_trajectory', False)):
                     def match_existing(tin):
                         return CB.match_existing(tin, cumulative_snapshot, e.bank_matcher, self.cache,
                                                  top_k=int(self.cumulative_bank.get('retrieval_top_k', 8)))
@@ -570,6 +574,10 @@ class TreeTrainer:
                   'rubric_source_sampling': rubric_source_sampling,
                   'seconds': time.time() - t_case,
                   'timings': {'rollout_wall_seconds': rollout_seconds}}
+        if fixed_scoring_rollout:
+            record.update(fixed_scoring_rollout=True,
+                          rubric_bank={'verification_pending': False, 'assignments': []},
+                          cumulative_reuse=[], cumulative_reused_trajectories=0)
         if commit:
             atomic_write_json(self._case_path(s.case_cursor), record)
             self._commit()
@@ -761,7 +769,12 @@ class TreeTrainer:
         from src.online_rl.tree import cumulative_bank as CB
         from src.online_rl.tree.scoring import score_cumulative_nodes
         CB.validate_snapshot(snapshot)
-        self.validate_member_interventions(record)
+        if record.get('fixed_scoring_rollout'):
+            if (record.get('trajectory_rubrics') or record.get('feedback') or
+                    (record.get('rubric_bank') or {}).get('assignments')):
+                raise RuntimeError('fixed scoring rollout unexpectedly contains generated rubric evidence')
+        else:
+            self.validate_member_interventions(record)
         if record['rubric_bank'].get('verification_pending'):
             raise RuntimeError('cumulative scoring cannot precede local verification')
         entries = {entry['bank_id']: entry for entry in snapshot['entries']}

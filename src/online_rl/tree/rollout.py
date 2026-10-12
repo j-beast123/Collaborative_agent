@@ -20,18 +20,24 @@ def build_tree(case: dict, *, max_agent_turns: int, branching: int, run_seed: in
                agent, doctor, stop_rule: Callable, final_option: Callable, outcome_fn: Callable, cache: CallCache,
                behavior_logprobs: Optional[Callable] = None, workers: int = 1, opening: Optional[Callable] = None, agent_workers: int = 1,
                on_leaf: Optional[Callable] = None, repeat_agent_reply_after_turns: Optional[int] = None,
-               sampling_unit: str = 'response_tree') -> Tree:
+               sampling_unit: str = 'response_tree', doctor_followup_roles: Optional[list[str]] = None) -> Tree:
     """agent.sample(case, prefix, turn, seed) -> trace with 'completion_text'; doctor.turn(case, dialogue, round, rounds) and
     doctor.final(case, dialogue) -> text. Ancestor replies depend on the policy, so every key carries policy_sha256."""
     if max_agent_turns < 1 or branching < 1: raise ValueError('max_agent_turns and branching must be >= 1')
     if sampling_unit not in ('response_tree', 'independent_trajectory'):
         raise ValueError(f'unknown rollout sampling_unit {sampling_unit!r}')
+    if doctor_followup_roles is not None:
+        if sampling_unit != 'independent_trajectory':
+            raise ValueError('Doctor follow-up roles require independent trajectories')
+        if len(doctor_followup_roles) != branching or len(set(doctor_followup_roles)) != branching:
+            raise ValueError('Doctor follow-up roles must contain one distinct role per trajectory')
     if opening is not None and not getattr(doctor, 'status_protocol', False): raise ValueError('frozen openings need Doctor protocol v2')
     if getattr(doctor, 'status_protocol', False):
         return _build_tree_v2(case, max_agent_turns=max_agent_turns, branching=branching, run_seed=run_seed, policy_sha256=policy_sha256, opening=opening,
                               protocol_sha256=protocol_sha256, agent=agent, doctor=doctor, stop_rule=stop_rule, final_option=final_option,
                               outcome_fn=outcome_fn, cache=cache, behavior_logprobs=behavior_logprobs, workers=workers, agent_workers=agent_workers,on_leaf=on_leaf,
-                              repeat_agent_reply_after_turns=repeat_agent_reply_after_turns, sampling_unit=sampling_unit)
+                              repeat_agent_reply_after_turns=repeat_agent_reply_after_turns, sampling_unit=sampling_unit,
+                              doctor_followup_roles=doctor_followup_roles)
     cid = case['case_id']; ident = {'case': cid, 'policy': policy_sha256, 'protocol': protocol_sha256}
     d1 = cache.call('doctor_turn', {**ident, 'path': '', 'round': 1}, lambda: doctor.turn(case, [], 1, max_agent_turns))
     frontier = [('', None, [{'speaker': 'doctor', 'stage': 'D1', 'round': 1, 'text': d1}])]
@@ -74,7 +80,7 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
                    behavior_logprobs: Optional[Callable] = None, workers: int = 1, opening: Optional[Callable] = None,
                    agent_workers: int = 1, on_leaf: Optional[Callable] = None,
                    repeat_agent_reply_after_turns: Optional[int] = None,
-                   sampling_unit: str = 'response_tree') -> Tree:
+                   sampling_unit: str = 'response_tree', doctor_followup_roles: Optional[list[str]] = None) -> Tree:
     """build_tree under Doctor protocol v2 (src/online_rl/doctor.py): every Doctor call is seeded from its node identity
     (doctor_seed), its hidden status is cut from the visible reply and kept on the node, and after each Doctor turn the
     shared halting rule may end the branch ('doctor_halt'; that Doctor message stays in the dialogue and FINAL follows).
@@ -122,8 +128,13 @@ def _build_tree_v2(case: dict, *, max_agent_turns: int, branching: int, run_seed
 
         def doctor_turn(e):
             ds = doctor_seed(run_seed, e['nid'], 'doctor', depth + 1)
-            return cache.call('doctor_turn', {**ident, 'path': e['cpath'], 'round': depth + 1, 'seed': ds},
-                              lambda: doctor.turn(case, e['dialogue'], depth + 1, max_agent_turns, ds))
+            role = doctor_followup_roles[int(e['cpath'].split('.')[0])] if doctor_followup_roles is not None else None
+            identity = {**ident, 'path': e['cpath'], 'round': depth + 1, 'seed': ds}
+            if role is not None: identity['followup_role'] = role
+            return cache.call('doctor_turn', identity,
+                              lambda: doctor.turn(case, e['dialogue'], depth + 1, max_agent_turns, ds,
+                                                  followup_role=role) if role is not None else
+                                      doctor.turn(case, e['dialogue'], depth + 1, max_agent_turns, ds))
         open_ = [e for e in entries if e['why'] is None]
         for e, nd in zip(open_, pmap(doctor_turn, open_)):
             e['nd'] = nd

@@ -26,7 +26,7 @@ from src.common.retry import Retry
 from src.online_rl.integrated.continuation import derive_seed
 from src.online_rl.integrated.records import sha256_json, sha256_text
 
-PROTOCOL_VERSION = 'doctor_v2_status_halting_v1'
+PROTOCOL_VERSION = 'doctor_v2_status_halting_roles6_v2'
 STATUS_KEYS = ('current_option', 'open_issue', 'collaborator_objection', 'more_info_could_change_decision')
 FLAGS = STATUS_KEYS[1:]
 SEED_MOD = 2 ** 31 - 1
@@ -58,11 +58,38 @@ STATUS_INSTRUCTION = (
     "- If you are unsure about any field, use true.")
 _STATUS_START = re.compile(r'(?im)^[ \t*_`>#-]*STATUS\s*[:：]')
 
+FOLLOWUP_GUIDANCE = {
+    'evidence_request': (
+        'Focus this follow-up on asking the collaborator to identify the concrete evidence or relationship that supports '
+        'their reasoning. Do not imply which option must be selected.'),
+    'counterargument': (
+        'Focus this follow-up on one relevant counterargument or competing option grounded in the case and established '
+        'knowledge. Do not invent case facts or prescribe the conclusion.'),
+    'uncertainty_check': (
+        'Focus this follow-up on the most decision-relevant unresolved uncertainty in the collaborator reasoning. If none '
+        'exists, say that briefly rather than inventing one.'),
+    'conclusion_link': (
+        'Focus this follow-up on whether the stated evidence actually supports the collaborator conclusion. Permit support, '
+        'revision, or uncertainty according to the evidence; do not prescribe an option.'),
+    'alternative_hypothesis': (
+        'Focus this follow-up on one plausible alternative interpretation or hypothesis that is relevant to the case. Ask '
+        'the collaborator to compare it with their current reasoning without prescribing which option must win.'),
+    'mechanism_challenge': (
+        'Focus this follow-up on whether the mechanism or causal relationship in the collaborator reasoning is adequately '
+        'supported. Ask for the missing connection when needed; do not invent case facts or prescribe an option.'),
+}
 
-def turn_prompt(case: dict, dialogue: list[dict], turn: int, rounds: int, with_status: bool) -> str:
+
+def turn_prompt(case: dict, dialogue: list[dict], turn: int, rounds: int, with_status: bool,
+                followup_role: Optional[str] = None) -> str:
     """v2 discussion prompt for Doctor turn `turn` (the grounding text is the v1 one); the status request from turn 2 on."""
     from src.collaboration.generator import case_text, dialogue_text
     body = (V2_OPENING.format(rounds=rounds) if turn == 1 else V2_TURN.format(turn=turn, rounds=rounds)) + (FINAL_TURN if turn == rounds else '')
+    if followup_role is not None:
+        if turn < 2: raise ValueError('Doctor follow-up roles cannot alter the shared opening')
+        try: role_instruction = FOLLOWUP_GUIDANCE[followup_role]
+        except KeyError as exc: raise ValueError(f'unknown Doctor follow-up role {followup_role!r}') from exc
+        body += f"\n\nFollow-up focus for this trajectory: {role_instruction}"
     text = (f"{case_text(case)}\n\nGrounding constraint: Use only the question, answer choices, dialogue, and established domain "
             "knowledge. If no patient vignette or event description is provided, do not invent one.\n\n"
             f"Conversation so far:\n{dialogue_text(dialogue)}\n\n{body}")
@@ -241,8 +268,10 @@ class OllamaDoctor:
                      retry_wait_seconds=retry_wait_seconds)
         retry.succeeded(); return text
 
-    def turn(self, case: dict, dialogue: list[dict], round_: int, rounds: int, seed: int) -> dict:
-        raw = self._chat(turn_prompt(case, dialogue, round_, rounds, with_status=True), seed)
+    def turn(self, case: dict, dialogue: list[dict], round_: int, rounds: int, seed: int,
+             followup_role: Optional[str] = None) -> dict:
+        raw = self._chat(turn_prompt(case, dialogue, round_, rounds, with_status=True,
+                                     followup_role=followup_role), seed)
         visible, status, err = split_status(raw, case['options']) if round_ >= 2 else (raw.strip(), None, None)
         if round_ == 1: visible = split_status(raw, case['options'])[0]            # never let a stray status line through
         return {'raw': raw, 'visible': visible, 'status': status, 'status_error': err, 'seed': seed}

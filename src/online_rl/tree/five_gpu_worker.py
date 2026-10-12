@@ -6,11 +6,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-_CFG = _POLICY = None
+_CFG = _POLICY = _WORKER = None
 
 
 def initialize(cfg, worker, key, pool_spec=None, existing_policy=None):
-    global _CFG, _POLICY
+    global _CFG, _POLICY, _WORKER
+    _WORKER = worker
     if existing_policy is None:
         from src.online_rl.tree.devices import physical_gpus
         os.environ['CUDA_VISIBLE_DEVICES'] = physical_gpus()[worker]
@@ -42,7 +43,10 @@ def initialize(cfg, worker, key, pool_spec=None, existing_policy=None):
     # Each generation seeds under gen_lock; episode-level reseeds would race across lanes.
     _POLICY.seed_all = lambda seed: None
     # Execution-only request capacity is independent of the number of training cases.
-    concurrency=int(os.environ.get('SHERPA_DOCTOR_CONCURRENCY',cfg['five_gpu'].get('doctor_concurrency',cfg['five_gpu']['lanes_per_gpu'])))
+    per_gpu=cfg['five_gpu'].get('doctor_concurrency_by_gpu')
+    configured=(per_gpu[worker] if per_gpu is not None else
+                cfg['five_gpu'].get('doctor_concurrency',cfg['five_gpu']['lanes_per_gpu']))
+    concurrency=int(os.environ.get('SHERPA_DOCTOR_CONCURRENCY',configured))
     if concurrency not in (1,2,4,8):raise ValueError('Doctor concurrency must be 1, 2, 4 or 8')
     _CFG.setdefault('execution',{})['doctor_workers']=concurrency
     _CFG['execution']['agent_workers']=int(os.environ.get('SHERPA_AGENT_BATCH_SIZE',cfg['five_gpu'].get('agent_batch_size',1)))
@@ -84,7 +88,9 @@ def run_many(jobs, checkpoint, expected, phase='fixed', prompt=None):
         prepare(checkpoint, expected)
     elif _POLICY.pool_actor.expected != expected:
         raise RuntimeError('Shared GPU worker was not prepared at the batch barrier')
-    with ThreadPoolExecutor(max_workers=_CFG['five_gpu']['lanes_per_gpu']) as pool:
+    per_gpu=_CFG['five_gpu'].get('lanes_per_gpu_by_gpu')
+    lanes=per_gpu[_WORKER] if per_gpu else _CFG['five_gpu']['lanes_per_gpu']
+    with ThreadPoolExecutor(max_workers=lanes) as pool:
         records=list(pool.map(lambda job: run_case(job, phase, prompt), jobs))
     if adapter_sha256(_POLICY.model)!=expected:
         raise RuntimeError('Worker phase changed the frozen Agent policy')
@@ -104,7 +110,7 @@ def run_case(job, phase='fixed', prompt=None):
     cfg['schedule'].pop('positions', None)
     cfg['schedule']['calibration_only_cursors'] = []
     trainer = build(cfg, policy=_POLICY, cases=[job['case']], defer_update=True)
-    if phase in ('bank_prepare', 'bank_verify', 'bank_score', 'bank_online'):
+    if phase in ('bank_prepare', 'bank_verify', 'bank_score', 'bank_online', 'bank_fixed'):
         from src.online_rl.tree import cumulative_bank as CB
         from src.online_rl.integrated.records import sha256_text
         snapshot = CB.validate_snapshot(prompt['snapshot'])
@@ -117,7 +123,13 @@ def run_case(job, phase='fixed', prompt=None):
                     record['policy_sha256'] != trainer.state.policy_sha256 or
                     record['case_id'] != job['case']['case_id']):
                 raise RuntimeError('Saved cumulative phase prompt/policy/case mismatch')
-            trainer.validate_member_interventions(record)
+            # A frozen-scoring rollout intentionally has no newly generated
+            # rubric/intervention artifacts.  Its immutable seed bank is
+            # validated separately below and is used only during bank_score.
+            if not record.get('fixed_scoring_rollout'):
+                trainer.validate_member_interventions(record)
+            elif any(record.get(key) for key in ('feedback', 'trajectory_rubrics', 'rubric_assignments')):
+                raise RuntimeError('Frozen-scoring rollout unexpectedly contains generated rubric artifacts')
             if name == 'bank_score':
                 scoring = record.get('cumulative_bank_scoring') or {}
                 actual = CB.validate_snapshot(scoring.get('snapshot'))
@@ -134,7 +146,12 @@ def run_case(job, phase='fixed', prompt=None):
         if path.exists():
             return validate_phase(json.loads(path.read_text()), phase, snapshot)
         phase_started = time.perf_counter()
-        if phase == 'bank_online':
+        if phase == 'bank_fixed':
+            with activity('bank_fixed.rollout_only'):
+                record = trainer.step(prompt_text=prompt['text'], prompt_id=prompt['id'],
+                    score_responses=False, commit=False, apply_update=False,
+                    cumulative_snapshot=snapshot, fixed_scoring_rollout=True)
+        elif phase == 'bank_online':
             with activity('bank_online.trajectory_match_generate_verify'):
                 record = trainer.step(prompt_text=prompt['text'], prompt_id=prompt['id'],
                                       score_responses=False, commit=False, apply_update=False,
@@ -177,7 +194,8 @@ def run_case(job, phase='fixed', prompt=None):
         else:
             # The input snapshot predates new KEEP additions; its identity is
             # independently validated, while all five scores use this new set.
-            source = base / ('bank_online.json' if (base / 'bank_online.json').exists() else 'bank_verify.json')
+            source = (base/'bank_fixed.json' if (base/'bank_fixed.json').exists() else
+                      base/'bank_online.json' if (base/'bank_online.json').exists() else base/'bank_verify.json')
             verified = validate_phase(json.loads(source.read_text()), source.stem)
             with activity('bank_score.frozen_cumulative_scoring'):
                 record = trainer.score_cumulative(verified, snapshot)

@@ -19,6 +19,7 @@ from src.online_rl.tree.records import TrajectoryRubric, to_dialogue
 from src.judges.rubric_schema import PUBLIC_CRITERION_FIELDS, has_public_criterion, validate_public_criterion
 
 VERSION = 'cumulative_keep_bank_v1'
+OFFLINE_NO_GATE_ADMISSION = 'offline_rerun_only_no_gate_v1'
 RETRIEVAL_VERSION = 'deterministic_lexical_bm25_v1'
 CHECKS = ('same_user_context', 'same_agent_state', 'same_behavior',
           'same_score_boundaries', 'observed_source_anchor', 'no_new_premise')
@@ -82,15 +83,21 @@ def _validate_proof(proof):
     gate = raw.get('gate') or {}
     public = has_public_criterion(rubric)
     expected_gates = ('public_mc_gate_v1', 'public_mc_gate_v2', 'public_mc_gate_v3') if public else ('evidence_gate_v2',)
-    if (gate.get('protocol') not in expected_gates or gate.get('passed') is not True or gate.get('observable') is not True or
-            gate.get('score_boundaries_clear') is not True or
-            (gate.get('source_anchor') or {}).get('matches') is not True):
+    no_gate = proof.get('admission_contract') == OFFLINE_NO_GATE_ADMISSION
+    if no_gate:
+        if raw.get('gate') is not None:
+            raise ValueError('Offline no-Gate admission must not contain a Gate decision')
+    elif (gate.get('protocol') not in expected_gates or gate.get('passed') is not True or gate.get('observable') is not True or
+          gate.get('score_boundaries_clear') is not True or
+          (gate.get('source_anchor') or {}).get('matches') is not True):
         raise ValueError('Cumulative registration requires the evidence quality gate')
-    if rubric.get('criterion_version') == 'public_behavior_mc_semantic_v2' and gate.get('protocol') != 'public_mc_gate_v2':
+    if (not no_gate and rubric.get('criterion_version') == 'public_behavior_mc_semantic_v2'
+            and gate.get('protocol') != 'public_mc_gate_v2'):
         raise ValueError('Semantic v2 criterion requires its own v2 gate evidence')
-    if rubric.get('criterion_version') == 'public_behavior_mc_semantic_v3' and gate.get('protocol') != 'public_mc_gate_v3':
+    if (not no_gate and rubric.get('criterion_version') == 'public_behavior_mc_semantic_v3'
+            and gate.get('protocol') != 'public_mc_gate_v3'):
         raise ValueError('Semantic v3 criterion requires its own v3 gate evidence')
-    if public and (gate.get('criterion_sha256') != content_hash(rubric) or
+    if public and not no_gate and (gate.get('criterion_sha256') != content_hash(rubric) or
                    gate.get('public_criterion_version') != rubric['criterion_version']):
         raise ValueError('Public criterion requires its own versioned gate proof')
     source_check = raw.get('source_check') or {}
@@ -197,7 +204,9 @@ def extend_snapshot(snapshot, records):
                 raise ValueError('Retained rubric lacks its original generation/witness record')
             proof = copy.deepcopy({'case_id': record['case_id'], 'policy_sha256': record['policy_sha256'],
                 'prompt_sha256': record['prompt_sha256'], 'record_sha256': sha256_json(record),
-                'case_cursor': record.get('case_cursor'), 'rubric': canonical[rid], 'witness': witnesses[rid]})
+                'case_cursor': record.get('case_cursor'), 'rubric': canonical[rid], 'witness': witnesses[rid],
+                **({'admission_contract': record['bank_admission_contract']}
+                   if record.get('bank_admission_contract') else {})})
             _validate_proof(proof)
             key = content_hash(canonical[rid]['rubric'])
             if key not in by_key:

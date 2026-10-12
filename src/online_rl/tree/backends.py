@@ -38,7 +38,9 @@ class RoleDoctor:
     def __init__(self, doctor, role: str = 'doctor'):
         self.doctor, self.role, self.model, self.protocol = doctor, role, doctor.model, doctor.protocol
 
-    def turn(self, case, dialogue, round_, rounds, seed): return with_role(self.role, lambda: self.doctor.turn(case, dialogue, round_, rounds, seed))
+    def turn(self, case, dialogue, round_, rounds, seed, followup_role=None):
+        return with_role(self.role, lambda: self.doctor.turn(
+            case, dialogue, round_, rounds, seed, followup_role=followup_role))
 
     def final(self, case, dialogue, seed): return with_role(self.role, lambda: self.doctor.final(case, dialogue, seed))
 

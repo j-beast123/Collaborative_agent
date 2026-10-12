@@ -191,7 +191,8 @@ def elapsed(start,end):
 def summarize_phase(record):
     """Compact confirmed results; None rewards remain distinct from real zero."""
     target_meta=record.get('agent_targets') or {}
-    targets=target_meta.get('nodes',{})
+    targets=(target_meta.get('trajectories',{}) if target_meta.get('mode')=='trajectory_level'
+             else target_meta.get('nodes',{}))
     outcome_weight=float((target_meta.get('reward_weights') or {}).get('w_outcome',0.0))
     outcome_values={nid:float(node['outcome_component']) for nid,node in targets.items()
                     if isinstance(node,dict) and node.get('outcome_component') is not None}
@@ -214,6 +215,13 @@ def summarize_phase(record):
                     'varying_groups':sum(max(v)-min(v)>1e-12 for v in outcome_groups),
                     'varying_targets':len(outcome_signal_targets)}
     rewarded=[v['reward'] for v in targets.values() if v.get('reward') is not None]
+    reward_groups=[]
+    for ids in target_meta.get('groups',{}).values():
+        values=[targets[nid].get('reward') for nid in ids if nid in targets and targets[nid].get('reward') is not None]
+        if values:reward_groups.append(values)
+    reward_signal={'targets':len(rewarded),'groups':len(reward_groups),
+                   'varying_groups':sum(len(v)>1 and max(v)-min(v)>1e-12 for v in reward_groups),
+                   'mean':sum(rewarded)/len(rewarded) if rewarded else None}
     nodes=record.get('tree',{}).get('nodes',[])
     scores=record.get('response_scores',[])
     witness=record.get('rubric_bank',{}).get('witness',[])
@@ -239,7 +247,7 @@ def summarize_phase(record):
                 level=int(round(float(hard)*2))
                 label=str(level) if level in (0,1,2) else 'other'
             score_distribution[label]+=1
-    return {'total_nodes':len(nodes),'outcome_signal':outcome_signal,
+    return {'total_nodes':len(nodes),'outcome_signal':outcome_signal,'reward_signal':reward_signal,
             'scored_nodes':len({s['response_node_id'] for s in scores}),
             'valid_rewards':len(rewarded),'na_rewards':sum(v.get('reward') is None for v in targets.values()),
             'reward_sum':sum(rewarded),'keep':sum(w.get('decision')=='KEEP' for w in witness),
@@ -323,6 +331,7 @@ class Monitor:
                 self.api_purposes[purpose]['calls']+=1
         state=read_json(self.root/'run_state.json',{})
         cumulative=bool(self.cfg.get('rubric',{}).get('cumulative_bank') or state.get('rubric_bank_sha256'))
+        fixed_scoring=bool(((self.cfg.get('rubric') or {}).get('cumulative_bank') or {}).get('frozen_scoring_only'))
         eval_jobs=[]
         for job in sorted((self.root/'evaluation').glob('checkpoint_*')):
             manifest=read_json(job/'manifest.json',{})
@@ -364,9 +373,10 @@ class Monitor:
                     r.update(case_index=assignment['index'],case_id=manifest['case_ids'][manifest['assignments'].index(assignment)])
                     if cumulative:
                         if (directory/'bank_score.json').exists():r['phase']='waiting at batch barrier'
+                        elif (directory/'bank_fixed.json').exists():r['phase']='fixed-bank scoring / wait'
                         elif (directory/'bank_verify.json').exists():r['phase']='bank scoring / wait'
                         elif (directory/'bank_prepare.json').exists():r['phase']='bank rerun verification / wait'
-                        else:r['phase']='bank rollout / Doctor reflection'
+                        else:r['phase']='trajectory rollout' if fixed_scoring else 'bank rollout / Doctor reflection'
                     elif (directory/'union.json').exists() or (directory/'result.json').exists():r['phase']='waiting at batch barrier'
                     elif (directory/'P1_verify.json').exists() or (directory/'P1.json').exists():r['phase']='P0+P1 union scoring / wait'
                     elif (directory/'P1_prepare.json').exists():r['phase']='P1 rubric / rerun'
@@ -379,6 +389,25 @@ class Monitor:
                     ro=self.cfg['rollout']
                     leaves=leaf_progress(cache.agent_paths,cache.final_paths,ro['branching'],ro['rounds'],
                                          ro.get('halting',{}).get('min_agent_turns',2 if ro.get('doctor_backend') else 1))
+                    if ro.get('sampling_unit')=='independent_trajectory':
+                        # Four independently continued conversations, not a
+                        # branching 4^depth tree. A trajectory is complete when
+                        # its Doctor FINAL has been recorded.
+                        target=int(ro['branching'])
+                        completed=min(target,len(cache.final_paths))
+                        leaves.update(completed=completed,
+                                      remaining_min=max(0,target-completed),
+                                      remaining_max=max(0,target-completed),
+                                      tree_complete=completed==target,
+                                      depth_target=target)
+                    # In fixed-bank trajectory GRPO, bank_fixed.json is the
+                    # authoritative completed rollout.  API-call heuristics can
+                    # otherwise make a finished independent trajectory set look
+                    # like an unfinished branching tree.
+                    if (directory/'bank_fixed.json').exists():
+                        fixed_record=read_json(directory/'bank_fixed.json',{})
+                        fixed_leaves=len((fixed_record.get('tree') or {}).get('leaves',[]))
+                        leaves.update(completed=fixed_leaves,remaining_min=0,remaining_max=0,tree_complete=True)
                     if cumulative and not any((directory/f'bank_{stage}.json').exists() for stage in ('prepare','verify','score')):
                         # Leaf reflection overlaps rollout. Its first completed
                         # API call does not mean a complete tree or rubric bank.
@@ -386,10 +415,11 @@ class Monitor:
                         generating=any(cache.counts[k] for k in ('rubric_generation','rubric_repair','rubric_match','rubric_match_batch','posthoc_gate')) or any(
                             active.get(k) for k in ('role.rubric_generator','cache.rubric_generation','cache.rubric_repair','cache.posthoc_gate'))
                         matching=bool(cache.counts['cumulative_bank_match'] or active.get('cache.cumulative_bank_match'))
-                        if not leaves['tree_complete']:r['phase']='bank rollout / Doctor reflection'
+                        if not leaves['tree_complete']:
+                            r['phase']='trajectory rollout' if fixed_scoring else 'bank rollout / Doctor reflection'
                         elif generating:r['phase']='bank candidate generation / reuse'
                         elif matching:r['phase']='bank reuse matching'
-                        else:r['phase']='bank Doctor reflection / wait'
+                        else:r['phase']='fixed-bank scoring / wait' if fixed_scoring else 'bank Doctor reflection / wait'
                     case_start=first_record_time(directory/'execution_runtime.jsonl') or batch_start
                     case_end=(file_time(directory/'bank_score.json') if cumulative else None) or file_time(directory/'union.json') or file_time(directory/'result.json') or wall
                     phases={
@@ -405,6 +435,9 @@ class Monitor:
                         phases={'P0':self.phase_summary(directory/'bank_verify.json'),
                                 'P1':None,'union':self.phase_summary(directory/'bank_score.json')}
                     bank_phases={phase:(directory/f'bank_{phase}.json').exists() for phase in ('prepare','verify','score')}
+                    if (directory/'bank_fixed.json').exists():
+                        bank_phases['prepare']=True
+                        bank_phases['verify']=True
                     final_scoring=phases['union']
                     pipeline={'feedback_done':len(cache.feedback_leaves),
                               'cumulative':cumulative,
@@ -430,6 +463,8 @@ class Monitor:
                                                     for phase in ('P0','P1','union')},
                               'outcome_signal':{phase:(phases[phase] or {}).get('outcome_signal')
                                                 for phase in ('P0','P1','union')},
+                              'reward_signal':{phase:(phases[phase] or {}).get('reward_signal')
+                                               for phase in ('P0','P1','union')},
                               'phase_scored_pairs':{phase:(phases[phase] or {}).get('scored_pairs')
                                                     for phase in ('P0','P1','union')},
                               'keep':{p:phases[p]['keep'] if phases[p] is not None else None for p in ('P0','P1')},
@@ -444,6 +479,8 @@ class Monitor:
                               'final_reward_sum':final_scoring['reward_sum'] if final_scoring else 0,
                               'final_training_rubrics':final_scoring['training_rubrics'] if final_scoring else None}
                     r.update(agent_nodes=cache.counts['agent'],doctor_calls=cache.counts['doctor_turn'],finals=cache.counts['final'],
+                             applicability_calls=cache.counts['rubric_state_applicability']+cache.counts['rubric_applicability'],
+                             behavior_calls=cache.counts['rubric_behavior']+cache.counts['rubric_behavior_batch'],
                              depth=depth,depth_done=cache.depths[depth],
                              depth_doctor_done=cache.doctor_depths[depth],depth_final_done=cache.final_depths[depth],
                              depth_doctor_upper=leaves['depth_target'] if depth<ro['rounds'] else 0,
@@ -501,6 +538,14 @@ class Monitor:
                                     'groups':sum(x['groups'] for x in union_signals),
                                     'varying_groups':sum(x['varying_groups'] for x in union_signals),
                                     'varying_targets':sum(x['varying_targets'] for x in union_signals)}
+        reward_signals=[p['reward_signal']['union'] for p in pipelines
+                        if p.get('reward_signal',{}).get('union') is not None]
+        reward_n=sum(x['targets'] for x in reward_signals)
+        pipeline['reward_signal']={'cases':len(reward_signals),'targets':reward_n,
+                                   'groups':sum(x['groups'] for x in reward_signals),
+                                   'varying_groups':sum(x['varying_groups'] for x in reward_signals),
+                                   'mean':(sum((x['mean'] or 0.0)*x['targets'] for x in reward_signals)/reward_n
+                                           if reward_n else None)}
         live_scores=collections.Counter()
         for p in pipelines:live_scores.update(p['live_score_distribution'])
         pipeline['live_score_distribution']={k:live_scores.get(k,0) for k in ('0','1','2','NA','U')}
@@ -531,6 +576,8 @@ class Monitor:
         return {'time':datetime.now(ZoneInfo('Asia/Seoul')).isoformat(timespec='seconds'),'run_dir':str(self.root),
                 'batch':latest.parent.name if latest else None,'completed_cases':state.get('case_cursor',0),
                 'total_cases':self.cfg['schedule']['cases'],'gpus':rows,'gpu_query_error':error,
+                'trajectory_level':self.cfg.get('rollout',{}).get('training_unit')=='trajectory',
+                'fixed_scoring_only':fixed_scoring,
                 'run_elapsed_seconds':elapsed(run_start,run_end),'batch_elapsed_seconds':elapsed(batch_start,batch_end),
                 'leaves':{'completed':sum(r['leaves']['completed'] for r in rows if r.get('leaves')),
                           'remaining_min':sum(r['leaves']['remaining_min'] for r in rows if r.get('leaves')),
@@ -881,9 +928,14 @@ def render_dashboard(s):
            f'{" · unpriced " + str(api["unpriced_calls"]) if api.get("unpriced_calls") else ""}']
     leaves=s.get('leaves',{})
     if leaves.get('trees_total'):
-        lines.append(f'Cases {s.get("completed_cases",0)}/{s.get("total_cases",0)} · '
-                     f'leaves {leaves.get("completed",0)} done / {remaining(leaves)} left · '
-                     f'trees {leaves.get("trees_complete",0)}/{leaves.get("trees_total",0)}')
+        if s.get('trajectory_level'):
+            lines.append(f'Cases {s.get("completed_cases",0)}/{s.get("total_cases",0)} · '
+                         f'independent trajectories {leaves.get("completed",0)} done / {remaining(leaves)} left · '
+                         f'case rollout sets {leaves.get("trees_complete",0)}/{leaves.get("trees_total",0)}')
+        else:
+            lines.append(f'Cases {s.get("completed_cases",0)}/{s.get("total_cases",0)} · '
+                         f'leaves {leaves.get("completed",0)} done / {remaining(leaves)} left · '
+                         f'trees {leaves.get("trees_complete",0)}/{leaves.get("trees_total",0)}')
     evaluation=s.get('checkpoint_evaluation')
     if evaluation:
         accuracy='' if evaluation.get('accuracy') is None else f' · accuracy {100*evaluation["accuracy"]:.1f}%'
@@ -895,7 +947,10 @@ def render_dashboard(s):
     p=s.get('pipeline',{})
     if p.get('cases_total'):
         done=p.get('phase_complete',{})
-        if s.get('cumulative_bank'):
+        if s.get('fixed_scoring_only'):
+            lines.append(f'Fixed bank 13 · rollout sets {leaves.get("trees_complete",0)}/{leaves.get("trees_total",0)} · '
+                         f'scored cases {done.get("union",0)}/{p["cases_total"]} · updates {s.get("committed_batches",0)}')
+        elif s.get('cumulative_bank'):
             lines.append(render_bank_progress(s))
         else:
             lines.append(f'Phases · P0 verified {done.get("P0",0)}/{p["cases_total"]} · '
@@ -908,7 +963,9 @@ def render_dashboard(s):
             if f is None or f.get('rubrics_validated') is None:return f'{phase} verification pending'
             return (f'{phase} KEEP {f["rubrics_keep"]}/{f["rubrics_validated"]}'
                     f' (new {f["rubrics_generated"]}){incomplete_suffix(f)}')
-        if s.get('cumulative_bank'):lines.append(render_bank_status(s))
+        if s.get('fixed_scoring_only'):
+            pass
+        elif s.get('cumulative_bank'):lines.append(render_bank_status(s))
         else:lines.append('Rubrics confirmed · '+' | '.join(rubric_status(phase) for phase in ('P0','P1'))+
                           f' · gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)}')
         lines.append(render_outcome_signal(p.get('outcome_signal')))
@@ -990,10 +1047,18 @@ def render_compact_dashboard(s):
            f'{" · unpriced " + str(api["unpriced_calls"]) if api.get("unpriced_calls") else ""}']
     if leaves.get('trees_total'):
         done=p.get('phase_complete',{})
-        lines.append(f'Cases {s.get("completed_cases",0)}/{s.get("total_cases",0)} · '
-                     f'leaves {leaves.get("completed",0)}/{remaining(leaves)} · '
-                     f'trees {leaves.get("trees_complete",0)}/{leaves.get("trees_total",0)}')
-        if s.get('cumulative_bank'):
+        if s.get('trajectory_level'):
+            lines.append(f'Cases {s.get("completed_cases",0)}/{s.get("total_cases",0)} · '
+                         f'trajectories {leaves.get("completed",0)}/{remaining(leaves)} · '
+                         f'rollout sets {leaves.get("trees_complete",0)}/{leaves.get("trees_total",0)}')
+        else:
+            lines.append(f'Cases {s.get("completed_cases",0)}/{s.get("total_cases",0)} · '
+                         f'leaves {leaves.get("completed",0)}/{remaining(leaves)} · '
+                         f'trees {leaves.get("trees_complete",0)}/{leaves.get("trees_total",0)}')
+        if s.get('fixed_scoring_only'):
+            lines.append(f'Fixed bank 13 · scored cases {done.get("union",0)}/{p["cases_total"]} · '
+                         f'updates {s.get("committed_batches",0)}')
+        elif s.get('cumulative_bank'):
             lines.append(render_bank_progress(s))
         else:
             lines.append(f'Phases P0 verified {done.get("P0",0)}/{p["cases_total"]} · '
@@ -1005,10 +1070,17 @@ def render_compact_dashboard(s):
             f=funnel.get(phase)
             if f is None or f.get('rubrics_validated') is None:return f'{phase} verifying'
             return f'{phase} KEEP {f["rubrics_keep"]}/{f["rubrics_validated"]} (new {f["rubrics_generated"]}){incomplete_suffix(f)}'
-        if s.get('cumulative_bank'):lines.append(render_bank_status(s))
+        if s.get('fixed_scoring_only'):
+            pass
+        elif s.get('cumulative_bank'):lines.append(render_bank_status(s))
         else:lines.append('Rubrics · '+compact_rubrics('P0')+' · '+compact_rubrics('P1')+
                           f' · gate +{p.get("gate_pass",0)}/-{p.get("gate_reject",0)}')
-        lines.append(render_outcome_signal(p.get('outcome_signal')))
+        if s.get('fixed_scoring_only'):
+            rs=p.get('reward_signal') or {}
+            lines.append(f'Learning signal · varying groups {rs.get("varying_groups",0)}/{rs.get("groups",0)} · '
+                         f'rewarded trajectories {rs.get("targets",0)}')
+        else:
+            lines.append(render_outcome_signal(p.get('outcome_signal')))
         train=p.get('score_distribution',{}).get('union',{})
         if train.get('cases'):
             counts=train['counts']
@@ -1033,12 +1105,15 @@ def render_compact_dashboard(s):
                 return f'{f["rubrics_keep"]}/{f["rubrics_validated"]}{incomplete_suffix(f)}'
             case_pipeline=r.get('pipeline',{})
             dist,n,score_label=case_score_distribution(case_pipeline)
-            keep_label=(f'newK{case_keep("P0")} R{case_pipeline.get("bank_reused_trajectories",0)}'
-                        if case_pipeline.get('cumulative') else f'K{case_keep("P0")}/{case_keep("P1")}')
+            keep_label=('bank13' if s.get('fixed_scoring_only') else
+                        (f'newK{case_keep("P0")} R{case_pipeline.get("bank_reused_trajectories",0)}'
+                         if case_pipeline.get('cumulative') else f'K{case_keep("P0")}/{case_keep("P1")}'))
+            unit_label='T' if s.get('trajectory_level') else 'L'
             work=(f'C{r["case_index"]+1} {r.get("phase")} · '
                   f'A{r.get("agent_nodes",0)} D{r.get("doctor_calls",0)} F{r.get("finals",0)} · '
-                  f'L{leaf.get("completed",0)}/{remaining(leaf)} · '
+                  f'{unit_label}{leaf.get("completed",0)}/{remaining(leaf)} · '
                   f'{keep_label} · '
+                  f'App{r.get("applicability_calls",0)} Beh{r.get("behavior_calls",0)} · '
                   f'{score_label} score n={n} [0:{dist.get("0",0)} 1:{dist.get("1",0)} '
                   f'2:{dist.get("2",0)} NA:{dist.get("NA",0)}{unscorable_suffix(dist)}]')
         else:

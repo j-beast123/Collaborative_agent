@@ -15,6 +15,7 @@ QUALITY_PROTOCOL = 'compact_runtime_v7_3'
 QUALITY_APP_CONTRACT = 'compact_condition_v7_3'
 REFERENT_PROTOCOL = 'compact_runtime_v7_5_v7_6'
 REFERENT_APP_CONTRACT = 'compact_condition_v7_5'
+FUSED_PROTOCOL = 'compact_runtime_v7_5_v7_6_fused_state_v1'
 REVISIONS = ('v7_1', 'v7_3', 'v7_5_v7_6')
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -52,11 +53,20 @@ def compact_scorer(client, app_client, response_batch_size=4, *, revision='v7_1'
     protocol = {'v7_1': PROTOCOL, 'v7_3': QUALITY_PROTOCOL,
                 'v7_5_v7_6': REFERENT_PROTOCOL}[revision]
     def invoke(judge, packet, role):
+        # Structured output grows with the number of criteria and responses.
+        # Keep a single state-level request while giving the provider enough
+        # room to finish its schema. This changes only the output ceiling; the
+        # model, prompt, evidence rules and decoding policy remain fixed.
+        item_count = len(packet.get('items', packet.get('rubric_items', {})))
+        response_count = max(1, len(packet.get('responses', [])))
+        output_items = item_count if role == 'rubric_applicability' else item_count * response_count
+        output_budget = min(32768, max(judge.max_tokens, 768 * output_items))
         payload = upgrade({'model': judge.model, 'max_tokens': judge.max_tokens,
             'messages': [{'role': 'system', 'content': judge.system},
                          {'role': 'user', 'content': json.dumps(packet, ensure_ascii=False)}]}, revision=revision)
         body = with_role(role, lambda: judge._chat(payload['messages'],
-            payload['response_format']['json_schema']['schema'], role, return_body=True))
+            payload['response_format']['json_schema']['schema'], role,
+            max_tokens=output_budget, return_body=True))
         # _chat uses the same schema with its fixed name; preserve actual wire name.
         payload['response_format']['json_schema']['name'] = 'decisions'
         result = validate_response(payload, body)
@@ -71,14 +81,16 @@ def compact_scorer(client, app_client, response_batch_size=4, *, revision='v7_1'
         return result, audit
 
     def review(view, prefix, rubrics):
+        # One visible state, one applicability request. The caller binds the
+        # complete criterion bundle into a versioned cache identity, so sibling
+        # replies with the same prefix reuse this result without ambiguity.
         result = {}
-        # Stable singleton request, shared by source/witness/sibling cache.
+        packet = {'stage': 'applicability', 'state': condition_state(view, prefix),
+                  'items': condition_items(rubrics)}
+        judged, audit = invoke(app_client, packet, 'rubric_applicability')
         for rubric in rubrics:
             rid = rubric['rubric_id']
-            packet = {'stage': 'applicability', 'state': condition_state(view, prefix),
-                      'items': condition_items([rubric])}
-            row, audit = invoke(app_client, packet, 'rubric_applicability')
-            item = row['applicability'][rid]
+            item = judged['applicability'][rid]
             if item['applicable'] is None and revision == 'v7_1':
                 error = IntegrationUnavailable('Unresolved compact applicability')
                 error.audit = audit
@@ -94,15 +106,18 @@ def compact_scorer(client, app_client, response_batch_size=4, *, revision='v7_1'
         if len(ids) != len(set(ids)) or len(ids) > response_batch_size:
             raise ValueError('Invalid sibling batch')
         out = {nid: {} for nid in ids}
-        # One response/criterion per call bounds evidence output at the original token limit.
+        if not rubrics or not responses:
+            return out
+        # Score every sibling and every applicable criterion in one state-level
+        # request. IDs remain explicit in the strict schema and returned map.
+        packet = {'stage': 'level', 'shared_pre_reply_state': condition_state(view, prefix),
+            'rubric_items': public_behavior_items(rubrics, client.system),
+            'responses': responses}
+        result, audit = invoke(client, packet, 'rubric_scorer')
         for response in responses:
             nid = response['response_id']
             for rubric in rubrics:
                 rid = rubric['rubric_id']
-                packet = {'stage': 'level', 'shared_pre_reply_state': condition_state(view, prefix),
-                    'rubric_items': public_behavior_items([rubric], client.system),
-                    'responses': [response]}
-                result, audit = invoke(client, packet, 'rubric_scorer')
                 item = result['answers'][nid][rid]
                 out[nid][rid] = {'applicable': True, 'probabilities': None, 'hard': item['score'],
                     'scoring_status': item['scoring_status'], 'stage2': item['evidence'],
@@ -142,6 +157,7 @@ def compact_scorer(client, app_client, response_batch_size=4, *, revision='v7_1'
     review.model = app_client.model
     review.applicability_contract = app_contract
     score.review_state = score.applicability = review
+    score.review_state_batch = review
     score.score_behavior = behavior
     score.score_behavior_batch = behavior_batch
     score.response_batch_size = response_batch_size
@@ -149,7 +165,8 @@ def compact_scorer(client, app_client, response_batch_size=4, *, revision='v7_1'
     score.compact_revision = revision
     score.review_identity = {'contract': app_contract, 'protocol': review.protocol}
     score.model = client.model
-    score.protocol = sha256_json({'contract': protocol, 'client': public_client_identity(client),
+    score.protocol = sha256_json({'contract': FUSED_PROTOCOL, 'client': public_client_identity(client),
                                  'app': review.protocol, 'files': files})
+    score.state_batch_contract = FUSED_PROTOCOL
     score.behavior_cache_contract = 'public_behavior_content_alias_v1'
     return score

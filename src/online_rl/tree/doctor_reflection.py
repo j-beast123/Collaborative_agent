@@ -97,7 +97,8 @@ def parse_reflection(raw: str, count: int) -> dict:
     return result
 
 
-def local_doctor_feedback(doctor, system: str, max_tokens: int, run_seed: int = 0):
+def local_doctor_feedback(doctor, system: str, max_tokens: int, run_seed: int = 0,
+                          invalid_output_policy: str = 'raise'):
     """Return the posthoc feedback interface; its outcome argument is ignored.
 
     One deterministic, bounded format repair is allowed. Persistent invalid
@@ -112,6 +113,8 @@ def local_doctor_feedback(doctor, system: str, max_tokens: int, run_seed: int = 
         raise ValueError('Doctor reflection max_tokens must be a positive integer')
     if isinstance(run_seed, bool) or not isinstance(run_seed, int):
         raise ValueError('Doctor reflection run_seed must be an integer')
+    if invalid_output_policy not in ('raise', 'exclude_trajectory'):
+        raise ValueError('Unknown Doctor reflection invalid-output policy')
     combined = f'{doctor.system}\n\n{PHASE}\n{system.strip()}\n\n{OUTPUT}'
     settings = {'protocol': PROTOCOL, 'transcript': TRANSCRIPT, 'doctor_protocol': doctor.protocol,
                 'model': doctor.model, 'system_sha256': sha256_text(combined),
@@ -146,6 +149,17 @@ def local_doctor_feedback(doctor, system: str, max_tokens: int, run_seed: int = 
                     'status': 'ok' if attempt == 0 else 'repaired', 'valid': True, 'kind': PROTOCOL,
                     'raw': raw, 'reflection': result, 'evidence': evidence, 'settings': dict(settings),
                     'protocol': sha256_json(settings), 'leakage': {'first': [], 'final': []}}
+        if invalid_output_policy == 'exclude_trajectory':
+            # Preserve both attempts and exclude only this trajectory from
+            # rubric mapping; this is neither a score nor a task failure.
+            failure = {'error': 'doctor_reflection_validation_failed',
+                       'validation_error': errors[-1]}
+            return {'text': json.dumps(failure, ensure_ascii=False),
+                    'target_reply_id': None, 'status': 'invalid', 'valid': False,
+                    'kind': PROTOCOL, 'raw': raw, 'reflection': None,
+                    'evidence': evidence, 'settings': dict(settings),
+                    'protocol': sha256_json(settings),
+                    'leakage': {'first': [], 'final': []}}
         raise DoctorReflectionError('Doctor post-FINAL reflection failed local validation after one repair: ' + errors[-1],
                                     raw=raw, evidence=evidence, settings=dict(settings))
 

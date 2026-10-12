@@ -198,6 +198,35 @@ def contract_scorer(behavior, applicable=True):
         model='contract-test', protocol='contract-test-v1')
 
 
+def test_fused_state_applicability_and_behavior_use_one_call_per_state():
+    nodes = [node(i) for i in range(4)]
+    kept = [replace(KEPT, rubric_id=f'r{i}', rubric={**RUBRIC, 'rubric_id': f'r{i}'})
+            for i in range(13)]
+    calls = {'app': 0, 'behavior': 0}
+
+    def review(view, prefix, rubrics):
+        calls['app'] += 1
+        return {r['rubric_id']: {'applicable': True} for r in rubrics}
+
+    def behavior(view, prefix, rubrics, responses):
+        calls['behavior'] += 1
+        return {row['response_id']: {
+            r['rubric_id']: {'hard': 2, 'scoring_status': 'scored'} for r in rubrics
+        } for row in responses}
+
+    scorer = contract_scorer(behavior)
+    scorer.review_state_batch = review
+    scorer.state_batch_contract = 'test-fused-v1'
+    cache = CallCache(None)
+    scores = score_nodes(CASE, nodes, kept, scorer, cache)
+    assert len(scores) == 52 and all(row.score == 1.0 for row in scores)
+    assert calls == {'app': 1, 'behavior': 1}
+    assert cache.calls == {
+        'rubric_state_applicability_bundle': 1,
+        'rubric_behavior_batch': 1,
+    }
+
+
 @pytest.mark.parametrize('bad', [
     {},
     {'c1/0': {}},

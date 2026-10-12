@@ -800,6 +800,8 @@ def main(argv=None):
     parser.add_argument('--priority-dir')
     parser.add_argument('--doctor-executable')
     parser.add_argument('--doctor-port', type=int)
+    parser.add_argument('--no-training-required', action='store_true',
+                        help='run against an immutable checkpoint while no trainer owns the GPU')
     args = parser.parse_args(argv)
     if args.doctor_guardian:
         return _doctor_guardian(args.doctor_guardian)
@@ -807,7 +809,8 @@ def main(argv=None):
         if getattr(args, name) is None:
             parser.error(f'--{name.replace("_", "-")} is required')
     result = run_worker(args.config, args.snapshot, args.eval_root, args.gpu,
-                        args.priority_dir, args.doctor_executable, args.doctor_port)
+                        args.priority_dir, args.doctor_executable, args.doctor_port,
+                        require_training=not args.no_training_required)
     print(json.dumps(result), flush=True)
     return 0
 

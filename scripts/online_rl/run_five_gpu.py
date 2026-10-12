@@ -47,16 +47,23 @@ def preflight(cfg):
         errors.append('Unknown common P1 seed mode')
     if cfg['prompt_update'].get('candidate_seed') and not shared:
         errors.append('The staged batch P0/P1 workflow requires shared five-GPU execution')
-    batch_cases = 5 if shared else 4
+    lane_counts=fg.get('lanes_per_gpu_by_gpu',[fg['lanes_per_gpu']]*len(fg['rollout_gpus']))
+    doctor_counts=fg.get('doctor_concurrency_by_gpu',[fg.get('doctor_concurrency',1)]*len(fg['rollout_gpus']))
+    batch_cases = sum(lane_counts) if shared else 4
     if shared and fg.get('base_evaluation', {}).get('enabled'):
         errors.append('Shared five-GPU checkpoint evaluation cannot run BASE evaluation concurrently')
-    if shared and (fg.get('agent_batch_size') != 4 or fg.get('doctor_concurrency') != 1 or
-                   os.environ.get('SHERPA_AGENT_BATCH_SIZE','4') != '4' or os.environ.get('SHERPA_DOCTOR_CONCURRENCY','1') != '1'):
-        errors.append('Shared mode requires the measured Agent4 / Doctor1 configuration')
-    if fg['rollout_gpus'] != (list(range(5)) if shared else [0,1,2,3]) or fg['update_gpu'] != 4 or fg['lanes_per_gpu'] != 1 or fg.get('batch_cases') != batch_cases:
-        errors.append(f'Need {batch_cases} case coordinators, one lane each, updater GPU4')
-    if fg['checkpoint_every_cases'] != (30 if shared else 24) or len(fg['doctor_urls']) != 5 or len(set(fg['doctor_urls'])) != 5:
-        errors.append('Need the declared snapshot interval and five distinct Doctor endpoints')
+    if shared and (fg.get('agent_batch_size') != 4 or
+                   os.environ.get('SHERPA_AGENT_BATCH_SIZE','4') != '4'):
+        errors.append('Shared mode requires the measured Agent4 configuration')
+    gpu_count=len(fg['rollout_gpus'])
+    if shared and (gpu_count not in (4,5) or len(lane_counts)!=gpu_count or len(doctor_counts)!=gpu_count or
+                   any(x not in (1,2,4,8) for x in doctor_counts)):
+        errors.append('Shared mode needs four or five valid per-GPU lane/Doctor capacities')
+    expected_gpus=list(range(gpu_count)) if shared else [0,1,2,3]
+    if fg['rollout_gpus'] != expected_gpus or fg['update_gpu'] != expected_gpus[-1] or fg.get('batch_cases') != batch_cases:
+        errors.append(f'Need {batch_cases} case coordinators and updater on the final rollout GPU')
+    if fg['checkpoint_every_cases'] != (30 if shared else 24) or len(fg['doctor_urls']) != gpu_count or len(set(fg['doctor_urls'])) != gpu_count:
+        errors.append('Need the declared snapshot interval and one distinct Doctor endpoint per GPU')
     if cfg.get('evaluation'):
         errors.append('Use the asynchronous evaluation queue in this runner')
     if cfg['prompt_update']['enabled']:
@@ -83,7 +90,7 @@ def preflight(cfg):
                   'missing_direction':'keep_parent','training_rubrics':'union_both_kept_deduplicated_v1'}
         if any(pu.get(k)!=v for k,v in required.items()):
             errors.append('Batch prompt aggregation, tie, missing-direction or union policy differs')
-    if cfg['schedule']['cases']%batch_cases:
+    if not shared and cfg['schedule']['cases']%batch_cases:
         errors.append(f'Training case count must be a multiple of {batch_cases}')
     opening=fg.get('opening_identity',{})
     if opening.get('system_prompt_sha256')!=cfg['rollout'].get('doctor_system_prompt_sha256'):
@@ -164,8 +171,9 @@ def prompt_round(batch,jobs,state,collect,store,backend,cache,history,batchdir):
 
 def run(cfg, max_batches=None, eval_only=False):
     import torch
-    if not torch.cuda.is_available() or torch.cuda.device_count() < 5:
-        raise RuntimeError('CUDA GPUs 0..4 must be visible')
+    required_gpus=len(cfg['five_gpu']['rollout_gpus'])
+    if not torch.cuda.is_available() or torch.cuda.device_count() < required_gpus:
+        raise RuntimeError(f'CUDA GPUs 0..{required_gpus-1} must be visible')
     from scripts.online_rl.run_tree import load_key
     from src.online_rl.runtime import SharedPolicy
     from src.online_rl.integrated.grpo import make_updater
@@ -176,6 +184,8 @@ def run(cfg, max_batches=None, eval_only=False):
     from src.online_rl.tree.effectiveness import RERUN_CONTINUATION_PROTOCOL, RERUN_OUTCOME_POLICY
     from src.online_rl.tree import five_gpu_worker as worker
     fg = cfg['five_gpu']; out = (ROOT/cfg['output_dir']).resolve(); out.mkdir(parents=True,exist_ok=True)
+    lane_counts = fg.get('lanes_per_gpu_by_gpu', [fg['lanes_per_gpu']] * len(fg['rollout_gpus']))
+    doctor_counts = fg.get('doctor_concurrency_by_gpu', [fg.get('doctor_concurrency', 1)] * len(fg['rollout_gpus']))
     from src.online_rl.tree.gpu_pool import MODE as POOL_MODE, create_pool, assert_idle
     shared = fg.get('execution_mode') == POOL_MODE
     evaluation_enabled = fg.get('checkpoint_evaluation_enabled', True)
@@ -183,13 +193,13 @@ def run(cfg, max_batches=None, eval_only=False):
         raise RuntimeError('Evaluation is disabled in this training configuration')
     lock = (out/'runner.lock').open('a')
     try: fcntl.flock(lock, fcntl.LOCK_EX|fcntl.LOCK_NB)
-    except BlockingIOError: raise RuntimeError('Another runner owns this output directory/GPU4')
+    except BlockingIOError: raise RuntimeError('Another runner owns this output directory/updater GPU')
     # Lock the updater's physical GPU.
     gpu_lock = Path(f"/tmp/sherpa_tree_physical_gpu{physical_gpus()[fg['update_gpu']]}.lock").open('a')
     try: fcntl.flock(gpu_lock, fcntl.LOCK_EX|fcntl.LOCK_NB)
     except BlockingIOError:
         lock.close(); gpu_lock.close()
-        raise RuntimeError('GPU4 is already owned by another five-GPU runner')
+        raise RuntimeError('Updater GPU is already owned by another runner')
     # Keep both locks open throughout training and evaluation.
     os.environ['SHERPA_AGENT_REPLICAS'] = '1'
     os.environ.pop('SHERPA_DOCTOR_ENDPOINTS', None)
@@ -204,16 +214,16 @@ def run(cfg, max_batches=None, eval_only=False):
         guardian_call = gemini_model_call(key, model=guardian_spec['model'],
                                            max_tokens=guardian_spec['max_tokens'])
     local = copy.deepcopy(cfg)
-    local['rollout']['doctor_backend']['endpoint'] = fg['doctor_urls'][4]
+    update_gpu=fg['update_gpu']; local['rollout']['doctor_backend']['endpoint'] = fg['doctor_urls'][update_gpu]
     torch.manual_seed(cfg['schedule']['seed'])
     from src.common.live_gpu import configure, activity, note
     from src.online_rl.tree.idle_eval_hooks import register_worker, training_guard
-    register_worker(4)
-    configure(out,4)
-    with training_guard(4, 'model_load', release_memory=True), activity('model_load'):
-        policy = SharedPolicy(local,key,device='cuda:4')
+    register_worker(update_gpu)
+    configure(out,update_gpu)
+    with training_guard(update_gpu, 'model_load', release_memory=True), activity('model_load'):
+        policy = SharedPolicy(local,key,device=f'cuda:{update_gpu}')
     problems = policy.doctor.verify()['problems']
-    if problems: raise RuntimeError('GPU4 Doctor identity: '+'; '.join(problems))
+    if problems: raise RuntimeError(f'GPU{update_gpu} Doctor identity: '+'; '.join(problems))
     if not shared:
         cache_openings(policy.doctor,out/'openings/eval.jsonl',fg['opening_identity'])
     updater = make_updater(policy,cfg)
@@ -355,7 +365,7 @@ def run(cfg, max_batches=None, eval_only=False):
                 run_manifest['protocol_sha256'] = protocol
                 atomic_write_json(manifest_path, run_manifest)
         experiment.check_resume(cfg,out,state,theta0)
-        with training_guard(4, 'resume_checkpoint', release_memory=True):
+        with training_guard(update_gpu, 'resume_checkpoint', release_memory=True):
             load_checkpoint(updater,state['checkpoint'])
         if adapter_sha256(policy.model) != state['policy_sha256']: raise RuntimeError('Resume adapter mismatch')
         manifest_path = out/'run_manifest.json'
@@ -429,11 +439,11 @@ def run(cfg, max_batches=None, eval_only=False):
         if queue is None:
             return False
         if shared:
-            if len(executors) != 5 or parent_actor is None:
-                raise RuntimeError('Shared checkpoint evaluation requires all five GPU actors')
+            if len(executors) != len(fg['rollout_gpus']) or parent_actor is None:
+                raise RuntimeError('Shared checkpoint evaluation requires all configured GPU actors')
             def load_eval_snapshot(manifest):
                 assert_idle(pool_spec)
-                prepared=[executors[w].submit(worker.prepare,manifest['checkpoint'],manifest['policy_sha256']) for w in range(5)]
+                prepared=[executors[w].submit(worker.prepare,manifest['checkpoint'],manifest['policy_sha256']) for w in range(len(executors))]
                 wait_with_evaluation(prepared,lambda:False)
                 if adapter_sha256(policy.model) != manifest['policy_sha256']:
                     raise RuntimeError('Evaluation policy differs from its committed checkpoint')
@@ -445,7 +455,7 @@ def run(cfg, max_batches=None, eval_only=False):
             finally:
                 # Restore the latest committed training weights and actor hashes,
                 # even when catching up an older interrupted evaluation fails.
-                prepared=[executors[w].submit(worker.prepare,state['checkpoint'],state['policy_sha256']) for w in range(5)]
+                prepared=[executors[w].submit(worker.prepare,state['checkpoint'],state['policy_sha256']) for w in range(len(executors))]
                 wait_with_evaluation(prepared,lambda:False)
                 if adapter_sha256(policy.model) != state['policy_sha256']:
                     raise RuntimeError('Failed to restore the current training checkpoint after evaluation')
@@ -462,10 +472,10 @@ def run(cfg, max_batches=None, eval_only=False):
             order = training_order(cfg,cases,ROOT)
             if shared:
                 manager = multiprocessing.get_context('spawn').Manager()
-                pool_spec = create_pool(manager, list(range(5)), fg['agent_batch_size'], fg['doctor_concurrency'])
-                worker.initialize(cfg, 4, key, pool_spec, existing_policy=policy)
+                pool_spec = create_pool(manager, list(range(len(fg['rollout_gpus']))), fg['agent_batch_size'], doctor_counts)
+                worker.initialize(cfg, update_gpu, key, pool_spec, existing_policy=policy)
                 parent_actor = policy.pool_actor
-            for w in range(4):
+            for w in range(update_gpu):
                 executors.append(ProcessPoolExecutor(max_workers=1,mp_context=multiprocessing.get_context('spawn'),
                                  initializer=worker.initialize,initargs=(cfg,w,key,pool_spec)))
             if shared:
@@ -478,7 +488,7 @@ def run(cfg, max_batches=None, eval_only=False):
                 batchdir = out/'batches'/f'batch_{batch:06d}'
                 slots = batch_slots(state['case_cursor'],cfg['schedule']['cases'],
                                     interval=fg['checkpoint_every_cases'],
-                                    workers=len(fg['rollout_gpus']),lanes=fg['lanes_per_gpu'])
+                                    workers=len(fg['rollout_gpus']),lanes=lane_counts)
                 jobs = [{**s,'case':byid[order[s['index']]],
                          'out':str(batchdir/f'case_{s["index"]:06d}')} for s in slots]
                 manifest={'source_policy_sha256':state['policy_sha256'],
@@ -493,7 +503,7 @@ def run(cfg, max_batches=None, eval_only=False):
                 def collect(phase=None,prompt=None,selected_case_cursors=None):
                     if shared:
                         assert_idle(pool_spec)
-                        prepared=[executors[w].submit(worker.prepare,state['checkpoint'],state['policy_sha256']) for w in range(5)]
+                        prepared=[executors[w].submit(worker.prepare,state['checkpoint'],state['policy_sha256']) for w in range(len(executors))]
                         wait_with_evaluation(prepared,lambda:False)
                     futures=[]
                     selected = set(selected_case_cursors) if selected_case_cursors is not None else None
@@ -527,7 +537,8 @@ def run(cfg, max_batches=None, eval_only=False):
                 if shared:
                     assert_idle(pool_spec)
                     with parent_actor.changing_policy():pass
-                reward_rows = experiment.check_batch(cfg,records)
+                bank_only = fg.get('offline_bank_only') is True
+                reward_rows = [] if bank_only else experiment.check_batch(cfg,records)
                 if reward_rows:
                     atomic_write_json(out/'reward_components'/f'batch_{batch:06d}.json',reward_rows)
                 digest = sha256_json(records); cursor = state['case_cursor']+len(records)
@@ -542,28 +553,37 @@ def run(cfg, max_batches=None, eval_only=False):
                         raise RuntimeError('Recovery receipt prompt winner differs')
                     if next_bank is not None and any(proof.get(k)!=v for k,v in cumulative_run.bank_fields(next_bank).items()):
                         raise RuntimeError('Recovery receipt cumulative bank differs')
-                    with training_guard(4, 'recovery_checkpoint', release_memory=True):
+                    with training_guard(update_gpu, 'recovery_checkpoint', release_memory=True):
                         load_checkpoint(updater,ckpt)
                     update = proof['update']
                 else:
-                    print(json.dumps({'stage':'agent_update','gpu':4,'batch':batch,'cases':len(records)}),flush=True)
-                    # The optional independent evaluator must release GPU4's
-                    # model residency before backward can allocate memory.
-                    with training_guard(4, 'agent_update', release_memory=True):
-                        policy.doctor.http(fg['doctor_urls'][4]+'/api/generate',
-                            {'model':cfg['rollout']['doctor_backend']['model'],'keep_alive':0},60)
-                        note(phase='agent_update',batch=batch)
-                        with activity('agent_update'):
-                            update = update_batch(updater,records,state['policy_sha256'],lambda:adapter_sha256(policy.model))
+                    if bank_only:
+                        update = {'mode':'offline_bank_only','optimizer_steps':0,'groups_used':0,
+                                  'note':'Policy and optimizer unchanged; batch exists only to extend the verified KEEP bank.'}
                         proof = {'records_sha256':digest,'source_policy_sha256':state['policy_sha256'],
-                            'policy_sha256':adapter_sha256(policy.model),'completed_cases':cursor,
+                            'policy_sha256':state['policy_sha256'],'completed_cases':cursor,
                             'protocol_sha256':protocol,'update':update,**experiment.receipt_fields(cfg)}
-                        if evolving:proof['next_prompt']=next_prompt
                         if next_bank is not None:proof.update(cumulative_run.bank_fields(next_bank))
                         save_checkpoint(updater,ckpt,proof)
-                        if os.environ.get('SHERPA_IDLE_EVAL_PRIORITY_DIR'):
-                            torch.cuda.synchronize(policy.model.device)
-                            torch.cuda.empty_cache()
+                    else:
+                        print(json.dumps({'stage':'agent_update','gpu':update_gpu,'batch':batch,'cases':len(records)}),flush=True)
+                        # The optional independent evaluator must release GPU4's
+                        # model residency before backward can allocate memory.
+                        with training_guard(update_gpu, 'agent_update', release_memory=True):
+                            policy.doctor.http(fg['doctor_urls'][update_gpu]+'/api/generate',
+                                {'model':cfg['rollout']['doctor_backend']['model'],'keep_alive':0},60)
+                            note(phase='agent_update',batch=batch)
+                            with activity('agent_update'):
+                                update = update_batch(updater,records,state['policy_sha256'],lambda:adapter_sha256(policy.model))
+                            proof = {'records_sha256':digest,'source_policy_sha256':state['policy_sha256'],
+                                'policy_sha256':adapter_sha256(policy.model),'completed_cases':cursor,
+                                'protocol_sha256':protocol,'update':update,**experiment.receipt_fields(cfg)}
+                            if evolving:proof['next_prompt']=next_prompt
+                            if next_bank is not None:proof.update(cumulative_run.bank_fields(next_bank))
+                            save_checkpoint(updater,ckpt,proof)
+                            if os.environ.get('SHERPA_IDLE_EVAL_PRIORITY_DIR'):
+                                torch.cuda.synchronize(policy.model.device)
+                                torch.cuda.empty_cache()
                 previous = Path(state['checkpoint'])
                 state = {**state,'case_cursor':cursor,'batch_cursor':batch,
                          'checkpoint':str(ckpt),'policy_sha256':adapter_sha256(policy.model)}
@@ -607,7 +627,7 @@ def main():
     args = parser.parse_args()
     cfg = experiment.load_config(args.config)
     errors = preflight(cfg)
-    print(json.dumps({'training_cases':cfg['schedule']['cases'],'rollout_gpus':cfg['five_gpu']['rollout_gpus'],'lanes_per_gpu':cfg['five_gpu']['lanes_per_gpu'],'batch_cases':cfg['five_gpu']['batch_cases'],'update_gpu':4,
+    print(json.dumps({'training_cases':cfg['schedule']['cases'],'rollout_gpus':cfg['five_gpu']['rollout_gpus'],'lanes_per_gpu':cfg['five_gpu']['lanes_per_gpu'],'batch_cases':cfg['five_gpu']['batch_cases'],'update_gpu':cfg['five_gpu']['update_gpu'],
                       'checkpoint_every_cases':cfg['five_gpu']['checkpoint_every_cases'],'evaluation_cases':cfg['five_gpu']['eval_cases'] if cfg['five_gpu'].get('checkpoint_evaluation_enabled',True) else 0,
                       'execution_mode':cfg['five_gpu'].get('execution_mode','fixed_case_v1'),
                       'output_dir':cfg['output_dir'],'experiment':cfg.get('experiment'),

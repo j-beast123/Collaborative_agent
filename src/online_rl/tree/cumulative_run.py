@@ -18,13 +18,18 @@ def config_identity(cfg, root):
         return None
     from src.online_rl.tree.cumulative_bank import VERSION, validate_snapshot
     required = {'protocol', 'retrieval_top_k', 'matcher_prompt_file', 'matcher_prompt_sha256'}
-    optional = {'initial_snapshot_file', 'initial_snapshot_sha256', 'scoring_scope', 'working_bank_protocol', 'guardian'}
+    optional = {'initial_snapshot_file', 'initial_snapshot_sha256', 'scoring_scope', 'working_bank_protocol', 'guardian',
+                'force_generate_each_trajectory', 'frozen_scoring_only'}
     if not isinstance(spec, dict) or not required <= set(spec) or set(spec) - required - optional:
         raise ValueError('Invalid cumulative rubric bank configuration')
     if spec['protocol'] != VERSION or type(spec['retrieval_top_k']) is not int or not 1 <= spec['retrieval_top_k'] <= 32:
         raise ValueError('Cumulative bank requires its versioned protocol and retrieval_top_k 1..32')
     if spec.get('scoring_scope', 'top_k') not in ('top_k', 'all'):
         raise ValueError('Cumulative bank scoring_scope must be top_k or all')
+    if not isinstance(spec.get('force_generate_each_trajectory', False), bool):
+        raise ValueError('force_generate_each_trajectory must be boolean')
+    if not isinstance(spec.get('frozen_scoring_only', False), bool):
+        raise ValueError('frozen_scoring_only must be boolean')
     if spec.get('working_bank_protocol') not in (None, ONLINE_WORKING_BANK_PROTOCOL):
         raise ValueError('Unknown cumulative working-bank protocol')
     guardian = spec.get('guardian')
@@ -64,12 +69,19 @@ def config_identity(cfg, root):
     if spec.get('scoring_scope', 'top_k') == 'all':
         identity.update(scoring_scope='all', scoring='full_bank_shared_state_applicability_v1',
                         retrieval='generation_reuse_trajectory_shortlist_v1')
+    if spec.get('force_generate_each_trajectory'):
+        identity.update(force_generate_each_trajectory=True,
+                        generation_assignment='one_new_candidate_per_trajectory_v1',
+                        prior_bank_generation_reuse='disabled')
     if exact:
         identity.update(assignment_protocol=EXACT_ASSIGNMENT_PROTOCOL,
                         generation_assignment='all_eligible_trajectories_then_exact_public_content_dedup_v1',
                         semantic_matcher='disabled', reuse_effect_verification='new_source_witness_only',
                         retrieval='disabled_for_generation_full_bank_for_scoring_v1',
                         matcher_model=None, matcher_generation=None)
+    if spec.get('frozen_scoring_only'):
+        identity.update(frozen_scoring_only=True,
+                        bank_mutation='disabled_fixed_initial_snapshot_v1')
     if guardian is not None:
         identity['guardian'] = guardian
     if spec.get('working_bank_protocol') == ONLINE_WORKING_BANK_PROTOCOL:
@@ -177,6 +189,23 @@ def round_records(cfg, root, out, state, batch, batchdir, collect, guardian_call
               'id': cfg['rubric']['prompt_id'], 'sha256': cfg['rubric']['prompt_sha256'],
               'snapshot': before}
     timings = {}
+    fixed = cfg['rubric']['cumulative_bank'].get('frozen_scoring_only') is True
+    if fixed:
+        print(json.dumps({'stage':'bank_fixed_rollout','batch':batch,'bank_version':before['version'],
+                          'bank_rubrics':len(before['entries'])}),flush=True)
+        started=time.monotonic(); records=collect('bank_fixed',prompt); timings['bank_fixed']=time.monotonic()-started
+        after=before
+        publish_snapshot(out,after)
+        frozen_path=batchdir/'bank_frozen.json'
+        if frozen_path.exists() and _read(frozen_path)!=after: raise RuntimeError('Frozen scoring bank changed')
+        if not frozen_path.exists(): atomic_write_json(frozen_path,after)
+        print(json.dumps({'stage':'bank_score','batch':batch,'bank_version':after['version'],
+                          'bank_rubrics':len(after['entries'])}),flush=True)
+        started=time.monotonic(); scored=collect('bank_score',{**prompt,'snapshot':after}); timings['bank_score']=time.monotonic()-started
+        atomic_write_json(batchdir/'bank_metrics.json',{**identity,'scoring_bank_sha256':after['sha256'],
+            'before_rubrics':len(before['entries']),'after_rubrics':len(after['entries']),
+            'added_unique_rubrics':0,'frozen_scoring_only':True,'timings_wall_seconds':timings})
+        return scored,after
     online = cfg['rubric']['cumulative_bank'].get('working_bank_protocol') == ONLINE_WORKING_BANK_PROTOCOL
     if online:
         from src.online_rl.tree.online_working_bank import VERSION as JOURNAL_VERSION
@@ -221,8 +250,19 @@ def round_records(cfg, root, out, state, batch, batchdir, collect, guardian_call
         started = time.monotonic()
         records = collect(phase, prompt)
         timings[phase] = time.monotonic() - started
-        if len(records) != cfg['five_gpu']['batch_cases'] or len({r['case_id'] for r in records}) != len(records):
-            raise RuntimeError('Cumulative bank requires all five distinct case records')
+        # Checkpoint boundaries and the final batch can contain fewer cases than
+        # the configured ready-work capacity.  The immutable batch manifest is
+        # the authority for this round; requiring the nominal capacity here
+        # made a valid 3-case C27->C30 boundary restart forever.
+        manifest_path = batchdir / 'manifest.json'
+        expected_case_ids = (json.loads(manifest_path.read_text())['case_ids']
+                             if manifest_path.exists()
+                             else [r['case_id'] for r in records])
+        actual_case_ids = [r['case_id'] for r in records]
+        if (len(actual_case_ids) != len(expected_case_ids) or
+                len(set(actual_case_ids)) != len(actual_case_ids) or
+                set(actual_case_ids) != set(expected_case_ids)):
+            raise RuntimeError('Cumulative bank records do not match the immutable batch manifest')
         if any(r['policy_sha256'] != state['policy_sha256'] or
                r['cumulative_bank_input']['sha256'] != before['sha256'] for r in records):
             raise RuntimeError('Case preparation used a different policy or bank snapshot')
@@ -230,6 +270,11 @@ def round_records(cfg, root, out, state, batch, batchdir, collect, guardian_call
             raise RuntimeError('Exact-generated assignment cannot inherit a semantic bank match')
     if not online:
         registration_records = records
+        if (cfg.get('five_gpu', {}).get('offline_bank_only') is True and
+                cfg.get('judges', {}).get('gate_enabled', True) is False):
+            from src.online_rl.tree.cumulative_bank import OFFLINE_NO_GATE_ADMISSION
+            registration_records = [{**record, 'bank_admission_contract': OFFLINE_NO_GATE_ADMISSION}
+                                    for record in records]
         guardian_audit = None
         guardian_spec = cfg['rubric']['cumulative_bank'].get('guardian')
         if guardian_spec is not None:
@@ -245,13 +290,22 @@ def round_records(cfg, root, out, state, batch, batchdir, collect, guardian_call
                                   'error_type': type(exc).__name__, 'error': str(exc)}
                 registration_records = records
             atomic_write_json(batchdir / 'bank_guardian.json', guardian_audit)
-        after = extend_snapshot(before, registration_records)
+        after = (before if cfg['rubric']['cumulative_bank'].get('frozen_scoring_only')
+                 else extend_snapshot(before, registration_records))
     publish_snapshot(out, after)
     frozen_path = batchdir / 'bank_frozen.json'
     if frozen_path.exists() and _read(frozen_path) != after:
         raise RuntimeError('Frozen batch scoring bank changed')
     if not frozen_path.exists():
         atomic_write_json(frozen_path, after)
+    if cfg.get('five_gpu', {}).get('offline_bank_only') is True:
+        atomic_write_json(batchdir / 'bank_metrics.json', {
+            **identity, 'scoring_bank_sha256': after['sha256'],
+            'before_rubrics': len(before['entries']), 'after_rubrics': len(after['entries']),
+            'added_unique_rubrics': len(after['entries']) - len(before['entries']),
+            'offline_bank_only': True, 'scoring_skipped': True,
+            'timings_wall_seconds': timings})
+        return records, after
     print(json.dumps({'stage': 'bank_score', 'batch': batch, 'bank_version': after['version'],
                       'bank_rubrics': len(after['entries'])}), flush=True)
     started = time.monotonic()

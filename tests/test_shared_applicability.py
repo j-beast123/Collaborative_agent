@@ -201,3 +201,22 @@ def test_random5_rejected_instructions_do_not_resample_or_execute_reruns():
 def test_malformed_intervention_audit_is_an_operational_error(bad):
     with pytest.raises(ScoringContractError, match='instruction audit'):
         _verify(lambda *args: bad)
+
+
+def test_unavailable_intervention_audit_skips_support_without_crashing_worker():
+    from src.common.config import IntegrationUnavailable
+
+    def unavailable(*args):
+        error = IntegrationUnavailable('invalid exact quote')
+        error.audit = {'raw': 'bad evidence'}
+        raise error
+
+    result, cache = _verify(unavailable)
+    assert result.decision == 'INCOMPLETE'
+    assert result.num_valid_supports == result.num_reruns_executed == 0
+    assert all(row['result'] == 'instruction_audit_error' for row in result.tested)
+    assert all(row['error_type'] == 'IntegrationUnavailable' for row in result.tested)
+    assert all(row['audit'] == {'raw': 'bad evidence'} for row in result.tested)
+    telemetry = W.witness_telemetry({'R': result})
+    assert telemetry['instruction_audit_errors'] == len(result.tested)
+    assert telemetry['incomplete_supports'] == len(result.tested)

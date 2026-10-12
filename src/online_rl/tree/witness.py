@@ -27,6 +27,7 @@ import dataclasses
 import hashlib
 import random
 from typing import Callable, Optional
+from src.common.config import IntegrationUnavailable
 from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.effectiveness import intervention_level, reaches_target, run_interventions
 from src.online_rl.tree.member_intervention import resolve_member_intervention
@@ -185,7 +186,17 @@ def verify_witness(case: dict, nodes: dict[str, AgentNode], leaves: dict[str, Le
             row['applicability_provenance'] = stage1['provenance']
             if not ok: tested.append({**row, 'result': 'no_match'}); continue
             if intervention_audit is not None:
-                audit = intervention_audit(case_view(case), to_dialogue(node.prefix), visible_rubric(rub.rubric), member_spec)
+                try:
+                    audit = intervention_audit(case_view(case), to_dialogue(node.prefix), visible_rubric(rub.rubric), member_spec)
+                except IntegrationUnavailable as exc:
+                    # A malformed/unavailable judge response is an operational failure of
+                    # this support, not evidence against the rubric and not a reason to
+                    # terminate the training worker. Preserve it distinctly and try the
+                    # remaining supports.
+                    tested.append({**row, 'result': 'instruction_audit_error',
+                                   'error_type': type(exc).__name__, 'error': str(exc),
+                                   'audit': getattr(exc, 'audit', None)})
+                    continue
                 if not isinstance(audit, dict) or type(audit.get('passed')) is not bool or audit.get('error'):
                     raise ScoringContractError('Invalid intervention instruction audit result')
                 row['intervention_audit'] = audit
@@ -209,7 +220,9 @@ def verify_witness(case: dict, nodes: dict[str, AgentNode], leaves: dict[str, Le
                            'result': 'PASS' if passed is True else 'FAIL' if passed is False else 'INCOMPLETE'})
             if passed is True: by = lf.leaf_id; break
         stop = 'witness_found' if by else ('max_valid_supports' if max_valid_supports is not None and valid >= max_valid_supports else 'candidates_exhausted')
-        decision = 'KEEP' if by else 'INCOMPLETE' if any(t['result'] == 'INCOMPLETE' for t in tested) else 'NOT_VALIDATED'
+        decision = ('KEEP' if by else 'INCOMPLETE'
+                    if any(t['result'] in ('INCOMPLETE', 'instruction_audit_error') for t in tested)
+                    else 'NOT_VALIDATED')
         return cid, WitnessVerification(cid, ms[0].stratum, len(ms), tuple(a.leaf_id for a in ms), tuple(l.leaf_id for l in order),
                                         tuple(tested), valid, n_reruns, by, decision, stop, protocol)
     ids = [cid for cid, r in canon.items() if r.valid]
@@ -227,7 +240,8 @@ def witness_telemetry(verifications: dict[str, WitnessVerification]) -> dict:
     return {'protocol': next(iter(protocols), PROTOCOL), 'rubrics': len(v), 'keep': sum(x.decision == 'KEEP' for x in v),
             'not_validated': sum(x.decision == 'NOT_VALIDATED' for x in v),
             'incomplete': sum(x.decision == 'INCOMPLETE' for x in v),
-            'incomplete_supports': sum(t['result'] == 'INCOMPLETE' for x in v for t in x.tested),
+            'incomplete_supports': sum(t['result'] in ('INCOMPLETE', 'instruction_audit_error') for x in v for t in x.tested),
+            'instruction_audit_errors': sum(t['result'] == 'instruction_audit_error' for x in v for t in x.tested),
             'kept_success': sum(x.decision == 'KEEP' and x.stratum == 'success' for x in v),
             'kept_failure': sum(x.decision == 'KEEP' and x.stratum == 'failure' for x in v),
             'valid_supports': sum(x.num_valid_supports for x in v), 'reruns': sum(x.num_reruns_executed for x in v),

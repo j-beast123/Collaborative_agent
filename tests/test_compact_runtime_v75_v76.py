@@ -235,9 +235,12 @@ def test_selector_gate_and_sibling_scoring_preserve_real_zero():
     assert [row.score for row in scores] == [0, 1]
     app_calls = [p for p in transport.calls if 'responses' not in json.loads(p['messages'][1]['content'])]
     behavior_calls = [p for p in transport.calls if 'responses' in json.loads(p['messages'][1]['content'])]
-    assert len(app_calls) == 1 and len(behavior_calls) == 2
-    assert all('relation_audit' in p['response_format']['json_schema']['schema'][
-        'properties']['answers']['properties']['criterion']['required'] for p in app_calls)
+    # One shared prefix produces one applicability request and one fused
+    # sibling behavior request.
+    assert len(app_calls) == 1 and len(behavior_calls) == 1
+    assert all(all('relation_audit' in item['required'] for item in
+                   p['response_format']['json_schema']['schema']['properties']
+                    ['answers']['properties'].values()) for p in app_calls)
 
 
 def test_uncertain_stage1_blocks_scoring_without_na_or_behavior_call():
@@ -275,4 +278,7 @@ def test_full_bank_path_uses_same_versioned_scorer_and_checks_every_item():
     assert not any(row.scoring_status == 'not_retrieved' for row in scores)
     assert [row.score for row in scores if row.response_node_id == 'c1/0'] == [0, 0]
     app_calls = [p for p in transport.calls if 'responses' not in json.loads(p['messages'][1]['content'])]
-    assert len(app_calls) == 2
+    # All bank criteria for the same visible state are judged together.
+    assert len(app_calls) == 1
+    packet = json.loads(app_calls[0]['messages'][1]['content'])
+    assert len(packet['items']) == 2

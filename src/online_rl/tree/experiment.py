@@ -246,11 +246,17 @@ def check_batch(cfg: dict, records: list[dict]) -> list[dict]:
         if not rubric_on and any(r.get(k) for k in RUBRIC_ARTIFACTS): raise RuntimeError(f"Rubric pipeline ran with zero rubric weight (case {r['case_id']})")
         t = r['agent_targets']
         if t.get('reward_weights') != w: raise RuntimeError(f"Record reward weights {t.get('reward_weights')} differ from config {w}")
-        for nid, x in sorted(t['nodes'].items()):
+        trajectory_level = t.get('mode') == 'trajectory_level'
+        target_key = 'trajectories' if trajectory_level else 'nodes'
+        if target_key not in t:
+            raise RuntimeError(f"Agent targets missing {target_key!r} for case {r['case_id']}")
+        for nid, x in sorted(t[target_key].items()):
             if not rubric_on and x['R_A'] is not None: raise RuntimeError(f'R_rubric computed with zero rubric weight at {nid}')
             if not _same(x['reward'], compose_reward(x['outcome_component'], x['R_A'], **w)):
                 raise RuntimeError(f'Reward of {nid} differs from the configured mixture')
-            rows.append({'case_cursor': r['case_cursor'], 'case_id': r['case_id'], 'node_id': nid,
+            rows.append({'case_cursor': r['case_cursor'], 'case_id': r['case_id'],
+                         ('trajectory_id' if trajectory_level else 'node_id'): nid,
+                         'training_unit': 'trajectory' if trajectory_level else 'response',
                          'R_outcome': x['outcome_component'], 'R_rubric': x['R_A'],
                          'R_rubric_status': NOT_COMPUTED if not rubric_on else NA if x['R_A'] is None else SCORED,
                          'final_reward': x['reward'], 'rubric_weight': w['w_rubric'], 'outcome_weight': w['w_outcome']})

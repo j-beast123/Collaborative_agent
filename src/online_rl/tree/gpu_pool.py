@@ -20,17 +20,21 @@ MODE = 'shared_ready_tasks_v1'
 
 
 def create_pool(manager, gpus, agent_capacity=4, doctor_capacity=1):
+    def capacity_for(spec, gpu):
+        if isinstance(spec, dict): return int(spec[gpu])
+        if isinstance(spec, (list, tuple)): return int(spec[gpu])
+        return int(spec)
     directory = tempfile.mkdtemp(prefix='sherpa_pool_')
     os.chmod(directory, 0o700)
     spec = {'addresses': {g: str(Path(directory)/f'gpu{g}.sock') for g in gpus},
             'directory': directory, 'authkey': os.urandom(32),
-            'request_workers': {'agent_workers': len(gpus)*agent_capacity,
-                                'doctor_workers': len(gpus)*doctor_capacity},
+            'request_workers': {'agent_workers': sum(capacity_for(agent_capacity,g) for g in gpus),
+                                'doctor_workers': sum(capacity_for(doctor_capacity,g) for g in gpus)},
             'lock': manager.RLock(), 'leases': manager.dict(),
             'agent': manager.Queue(), 'doctor': manager.Queue()}
     for role, capacity in (('agent', agent_capacity), ('doctor', doctor_capacity)):
-        for _ in range(capacity):
-            for gpu in gpus:
+        for gpu in gpus:
+            for _ in range(capacity_for(capacity, gpu)):
                 spec[role].put(gpu)
     return spec
 

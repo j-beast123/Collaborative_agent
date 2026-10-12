@@ -21,7 +21,10 @@ def start(cfg, *, require_model=True, selected_gpus=None):
     for gpu,url in zip(gpu_ids,cfg['five_gpu']['doctor_urls']):
         if gpu not in requested:continue
         device=physical[gpu]  # logical Doctor GPU -> physical
-        parallelism=int(os.environ.get('SHERPA_DOCTOR_CONCURRENCY',cfg['five_gpu'].get('doctor_concurrency',cfg['five_gpu']['lanes_per_gpu']))) if gpu in (0,1,2,3) else 1
+        per_gpu=cfg['five_gpu'].get('doctor_concurrency_by_gpu')
+        configured=(per_gpu[gpu] if per_gpu is not None else
+                    cfg['five_gpu'].get('doctor_concurrency',cfg['five_gpu']['lanes_per_gpu']))
+        parallelism=int(os.environ.get('SHERPA_DOCTOR_CONCURRENCY',configured))
         if parallelism not in (1,2,4,8):raise ValueError('Doctor concurrency must be 1, 2, 4 or 8')
         # A live foreign server is never adopted merely because its port matches.
         pidfile=out/f'gpu{gpu}.pid'

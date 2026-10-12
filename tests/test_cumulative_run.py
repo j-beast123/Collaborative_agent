@@ -30,12 +30,12 @@ def transaction(tmp_path):
     return cfg, tmp_path, out, state
 
 
-def collector(events, *, wrong_score=False):
+def collector(events, *, wrong_score=False, count=5):
     def collect(phase, payload):
         events.append((phase, payload['snapshot']['sha256']))
         rows = [{'case_id': str(i), 'case_cursor': i, 'policy_sha256': 'policy',
                  'cumulative_bank_input': payload['snapshot'], 'selection': [],
-                 'cumulative_reuse': []} for i in range(5)]
+                 'cumulative_reuse': []} for i in range(count)]
         if phase == 'bank_score':
             for row in rows:
                 row['cumulative_bank_scoring'] = {'snapshot_sha256': payload['snapshot']['sha256']}
@@ -59,6 +59,19 @@ def test_all_five_verify_before_single_frozen_bank_scoring(transaction):
     assert state == before
     assert json.loads((out/'run_state.json').read_text()) == before
     assert run.committed_snapshot(cfg, root, out, state)['sha256'] != frozen['sha256']
+
+
+def test_checkpoint_boundary_partial_batch_uses_manifest_cardinality(transaction):
+    cfg, root, out, state = transaction
+    batchdir = out/'batches/batch_000001'
+    atomic_write_json(batchdir/'manifest.json', {
+        'source_policy_sha256': 'policy',
+        'assignments': [],
+        'case_ids': ['0', '1', '2'],
+    })
+    records, _ = run.round_records(cfg, root, out, state, 1, batchdir,
+                                   collector([], count=3))
+    assert [r['case_id'] for r in records] == ['0', '1', '2']
 
 
 def test_exact_retry_does_not_create_another_bank_version(transaction):
