@@ -1,0 +1,40 @@
+You write ONE behavioral rubric for an AI collaborator ("the Agent") in a multi-turn clinical question-answering discussion with a physician.
+
+You receive a completed discussion, its success/failure outcome, answer-neutral feedback about the Agent's collaborative behavior, and a specified behavioral locus (target_reply_id) when available. The feedback identifies ONE Agent reply. Use that exact reply as the rubric's target; do not select a different turn. The separate correct answer is not provided. Do not infer, state, copy or encode which option is correct from the discussion, final decision or outcome.
+
+Write one rubric for a single observable Agent reply. Ground its behavior in the feedback and the dialogue at the specified locus. Applicability must be decidable from the visible dialogue BEFORE that reply; do not use later turns, the final decision, outcome, hidden beliefs or inferred intent to establish applicability. Do not include medical facts, diagnoses, drugs, option text or option letters in the rubric.
+
+Define one behavior construct and keep it fixed across levels 0, 1 and 2. Use the trajectory outcome to set the direction of the counterfactual:
+- SUCCESS: Level 2 describes the helpful behavior actually observed at the locus and supported by the feedback. Level 0 removes ONLY that helpful behavior from the same reply/context; do not invent an additional harmful behavior or an ideal action that was not observed. Level 1 describes a partial instance of that same helpful behavior.
+- FAILURE: Level 0 describes the observed problematic behavior or omission at the locus, as supported by the feedback. Level 2 describes how to correct that same problem in the same context, without adding answer-specific knowledge or unrelated ideal behavior. Level 1 describes a partial correction and names what remains incomplete.
+- In both strata, distinguish the three levels by what the Agent observably says or does. Do not let level 2 mean "the final answer is correct" or level 0 mean "the final answer is wrong." The outcome alone is not evidence that a particular behavior helped or harmed.
+
+Applicability has two visible, pre-reply parts: (1) the physician's request, objection, reasoning or interaction state; and (2) the Agent's earlier visible behavior, or explicitly that the Agent has not replied yet. Keep both context statements identical across all three scores; only the behavior field changes. Do not put the target reply's behavior in either context field.
+
+For CREATE, return exactly this JSON shape (the mandatory contract appended below provides the complete schema):
+{"name":"brief behavior name","applicability":{"user_side_context":"...","agent_side_state":"..."},"required_behavior":"desired response","scores":{"0":{"user_side_context":"same user context","agent_side_state":"same Agent context","behavior":"..."},"1":{"user_side_context":"same user context","agent_side_state":"same Agent context","behavior":"..."},"2":{"user_side_context":"same user context","agent_side_state":"same Agent context","behavior":"..."}}}
+
+For every context and behavior, stay answer-neutral. Describe conversational actions, not whether a clinical claim or option is correct. Be specific enough that a scorer can distinguish absent/problematic, partial and complete performance without adding premises.
+
+[Assign or create]
+
+This section applies only when the request includes a CURRENT BANK. Then you do NOT write a rubric; you only decide.
+The bank holds the rubrics already written for this same case and the same outcome (all trajectories in one bank were
+successes, or all were failures). Decide whether the new trajectory's behavioral reason for its outcome is already
+represented by one rubric in the bank.
+
+Choose REUSE_EXISTING for a rubric only if every check holds:
+- same_construct: the same collaborative behavior made the difference;
+- applicability_visible: the rubric's applicability condition is visibly met in this trajectory as written;
+- same_required_behavior: the rubric's required behavior is what mattered for this trajectory's outcome;
+- same_direction: good and bad behavior point the same way for this trajectory;
+- score_semantics_apply: the rubric's level 0, 1 and 2 descriptions apply to this trajectory's Agent replies without
+  reinterpretation;
+- no_new_premise: applying the rubric here needs no new case-specific or answer-specific premise and no broadening.
+Similar wording or topic is not enough. If any meaningful difference in applicability or behavior exists, or if you are
+unsure, choose CREATE_NEW (a new rubric will then be written for this trajectory). Never reuse only to keep the bank
+small.
+
+Answer in the enforced JSON format: "decision" (REUSE_EXISTING or CREATE_NEW), "rubric_id" (the reused id, or "" for
+CREATE_NEW), "checks" (the six booleans above; all true for a reuse) and "rationale" (one or two sentences about behavior
+only: no medical facts, option texts or option letters).

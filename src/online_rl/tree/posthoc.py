@@ -1,7 +1,7 @@
 """After a trajectory's FINAL and outcome: Doctor post-hoc feedback, the frozen post-hoc rubric input, and the ONE
 rubric per trajectory. Neither the Doctor feedback nor the Rubric Generator receives the gold answer."""
 from __future__ import annotations
-import json, re
+import re
 from typing import Callable, Optional
 from src.online_rl.integrated.records import sha256_json
 from src.online_rl.tree.cache import CallCache
@@ -27,25 +27,12 @@ def doctor_feedback(case: dict, leaf: Leaf, feedback_fn: Callable, prompt_sha256
     if leaf.outcome is None: raise ValueError(f'{leaf.leaf_id}: no outcome, so no post-hoc feedback')
     model = model if model is not None else getattr(feedback_fn, 'model', None)
     label = outcome_label(leaf.outcome)
-    identity = {'leaf': leaf.leaf_id, 'dialogue': sha256_json(leaf.dialogue), 'outcome': label, 'prompt': prompt_sha256,
-                'transcript': getattr(feedback_fn, 'transcript', TRANSCRIPT_FORMAT), 'model': model}
-    if getattr(feedback_fn, 'protocol', None) is not None:
-        identity.update(protocol=feedback_fn.protocol, settings=getattr(feedback_fn, 'settings', None))
-    try:
-        value = cache.call('feedback', identity,
-                           lambda: feedback_fn(case_view(case), to_dialogue(leaf.dialogue), label))
-    except Exception as exc:
-        # A malformed local post-FINAL reflection is an ineligible trajectory,
-        # not a fabricated empty reflection and not a reason to abort the run.
-        from src.online_rl.tree.doctor_reflection import DoctorReflectionError
-        if not isinstance(exc, DoctorReflectionError):
-            raise
-        return DoctorFeedback(leaf.leaf_id, leaf.outcome, '', prompt_sha256, None,
-                              {'status': 'reflection_invalid', 'error': str(exc), **exc.audit},
-                              False, 'physician_post_final_reflection_v1')
+    value = cache.call('feedback', {'leaf': leaf.leaf_id, 'dialogue': sha256_json(leaf.dialogue), 'outcome': label, 'prompt': prompt_sha256,
+                                    'transcript': getattr(feedback_fn, 'transcript', TRANSCRIPT_FORMAT), 'model': model},
+                       lambda: feedback_fn(case_view(case), to_dialogue(leaf.dialogue), label))
     if isinstance(value, dict):                                     # feedback v3 / v4: text without the locus line + the behavioral locus
         return DoctorFeedback(leaf.leaf_id, leaf.outcome, value['text'], prompt_sha256, value.get('target_reply_id'),
-                              {k: v for k, v in value.items() if k not in ('text', 'target_reply_id', 'valid', 'kind')}, bool(value.get('valid', True)),
+                              {k: value.get(k) for k in ('status', 'raw', 'leakage')}, bool(value.get('valid', True)),
                               value.get('kind', 'physician_after_decision'))
     return DoctorFeedback(leaf.leaf_id, leaf.outcome, value, prompt_sha256)
 
@@ -132,20 +119,16 @@ def generate_rubric(prompt_text: str, prompt_sha256: str, tin: TrajectoryRubricI
     rubric = g.get('rubric'); problems = rubric_problems(rubric)
     rid = f'{prompt_sha256[:12]}-{tin.sha256[:12]}'
     if rubric is not None: rubric = {**rubric, 'rubric_id': rid, 'scores': {str(a): b for a, b in (rubric.get('scores') or {}).items()}}
-    instruction = g.get('intervention_instruction')
     source_check, raw = None, g.get('raw')
     if source_stage1 is not None and not problems:                 # v2.1: source-self-applicability before the quality gate
         source_check, rubric, raw, problems = _source_consistency(prompt_text, prompt_sha256, tin, generate_fn, cache, source_stage1, rubric, raw, rid)
         rid = rubric['rubric_id'] if rubric else rid
-        if problems: return TrajectoryRubric(rid, tin.leaf_id, prompt_sha256, raw, rubric, False, tuple(problems), None, source_check, instruction)
-    gate_identity = {'tin': tin.sha256, 'rubric': sha256_json(rubric), 'model': getattr(gate_fn, 'model', None),
-                     'protocol': getattr(gate_fn, 'protocol', None)}
-    if getattr(gate_fn, 'settings', None) is not None:
-        gate_identity['settings'] = gate_fn.settings
-    gate = cache.call('posthoc_gate', gate_identity,
+        if problems: return TrajectoryRubric(rid, tin.leaf_id, prompt_sha256, raw, rubric, False, tuple(problems), None, source_check)
+    gate = cache.call('posthoc_gate', {'tin': tin.sha256, 'rubric': sha256_json(rubric), 'model': getattr(gate_fn, 'model', None),
+                                       'protocol': getattr(gate_fn, 'protocol', None)},
                       lambda: gate_fn(tin, rubric)) if (gate_fn and not problems) else None
     valid = not problems and (gate is None or bool(gate['passed']))
-    return TrajectoryRubric(rid, tin.leaf_id, prompt_sha256, raw, rubric, valid, tuple(problems), gate, source_check, instruction)
+    return TrajectoryRubric(rid, tin.leaf_id, prompt_sha256, raw, rubric, valid, tuple(problems), gate, source_check)
 
 
 REPAIR_PRINCIPLE = ('Keep the same behavioral concept and source feedback. Rewrite only what is necessary so that the rubric is genuinely '
@@ -162,16 +145,8 @@ def _source_consistency(prompt_text, prompt_sha256, tin, generate_fn, cache, sou
     No locus -> NO_SOURCE_LOCUS. The locus is never changed."""
     first = source_stage1(rubric)
     if first is None: return {'status': 'NO_SOURCE_LOCUS', 'locus': None}, rubric, raw, ['source_inconsistent: no behavioral locus']
-    check = {'locus': first.get('target_reply_id', tin.target_reply_id), 'node_id': first.get('node_id'), 'first': first}
-    if first['applicable'] is None:                               # no verdict: this rubric / source pair is skipped
-        if first.get('execution_unresolved'):                    # no judge verdict exists: the admission proof is missing, nothing negative was judged
-            return {**check, 'status': 'EXECUTION_UNRESOLVED'}, rubric, raw, ['execution_unresolved: source applicability judgment invalid after every local retry']
-        return {**check, 'status': 'APPLICABILITY_UNRESOLVED'}, rubric, raw, ['source_unresolved: Stage-1 applicability unresolved (abstain) at the selected turn']
+    check = {'locus': tin.target_reply_id, 'node_id': first.get('node_id'), 'first': first}
     if first['applicable']: return {**check, 'status': 'PASS'}, rubric, raw, []
-    if (rubric.get('source_provenance') or {}).get('selected_turn_policy') == 'generator_v1':
-        # Jointly generated instructions are fixed experimental inputs. A separate
-        # condition-only rewrite would no longer validate that same contract.
-        return {**check, 'status': 'SOURCE_INCONSISTENT'}, rubric, raw, ['source_inconsistent: joint rubric is not applicable at its selected turn']
     rep = cache.call('rubric_repair', {'tin': tin.sha256, 'prompt': prompt_sha256, 'rubric': sha256_json(rubric), 'model': getattr(generate_fn, 'model', None),
                                        'settings': getattr(generate_fn, 'settings', None), 'principle': sha256_json(REPAIR_PRINCIPLE)},
                      lambda: generate_fn.repair(prompt_text, tin, rubric, first.get('stage1') or {}))
@@ -197,22 +172,8 @@ def trajectory_message(tin: TrajectoryRubricInput) -> str:
     """Generator user message: case, full trajectory with the FINAL, outcome and Doctor feedback (no gold answer)."""
     from src.collaboration.generator import case_text
     view = {'scenario': tin.scenario, 'question': tin.question, 'options': dict(tin.options)}
-    # Expose stable source identifiers required by the trajectory-analysis P0. Agent reply IDs
-    # are the same 1-based IDs used by feedback.target_reply_id; Doctor turn IDs are 1-based
-    # within this transcript. Speaker is part of each ID's identity.
-    transcript_lines, agent_id, doctor_id = [], 0, 0
-    for turn in to_dialogue(tin.dialogue):
-        if turn['speaker'] == 'agent':
-            agent_id += 1
-            transcript_lines.append(f"Agent reply {agent_id} [turn_id={agent_id}]: {turn['text']}")
-        else:
-            doctor_id += 1
-            stage = ' (final decision)' if turn.get('stage') == 'FINAL' else ''
-            transcript_lines.append(f"Doctor turn {doctor_id} [turn_id={doctor_id}]{stage}: {turn['text']}")
-    transcript = '\n\n'.join(transcript_lines)
-    return (f'Source case ID (JSON value; preserve type): {json.dumps(tin.case_id, ensure_ascii=False)}\n'
-            f'Source trajectory ID (JSON value; preserve type): {json.dumps(tin.leaf_id, ensure_ascii=False)}\n\n'
-            f'{case_text(view)}\n\nCompleted discussion, including the Doctor FINAL:\n{transcript}\n\n'
+    transcript, _ = labeled_dialogue(to_dialogue(tin.dialogue))                  # same Agent reply labels as the Doctor feedback
+    return (f'{case_text(view)}\n\nCompleted discussion, including the physician\'s final decision:\n{transcript}\n\n'
             f'Outcome: the final decision was a {tin.outcome}.\n\n{FEEDBACK_HEADERS[getattr(tin, "feedback_kind", "physician_after_decision")]}\n{tin.feedback}\n\n'
             + locus_section(tin) + 'Write ONE behavioral rubric for the Agent\'s replies in this discussion.')
 
@@ -241,7 +202,6 @@ def locus_section(tin: TrajectoryRubricInput) -> str:
 
 
 FEEDBACK_HEADERS = {'physician_after_decision': 'Physician feedback after the decision:',
-                    'physician_post_final_reflection_v1': 'The participating Doctor\'s own post-FINAL reflection (the same pinned Doctor model, without ground truth or the outcome label). Treat this as reported experience to investigate, not proof of appropriate behavior or correctness:',
                     'behavior_observer_v4': 'Observer feedback on the Agent\'s collaborative behavior (written from the dialogue only, without the question, options, final decision or outcome):',
                     'behavior_observer_v5': 'Behavioral observation linking the physician\'s visible request, the Agent\'s response, and the physician\'s later response or unresolved need (dialogue only; no question, options, final decision or outcome):'}
 

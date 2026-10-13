@@ -1,0 +1,21 @@
+{
+  "extends": "v5_agentclinic_full.json",
+  "notes": "Main protocol (decided 2026-10-02): at most 7 Doctor-Agent collaboration turns with early stopping. After every Agent turn before the seventh the Doctor decides from the conversation alone whether to give its final diagnosis or to continue; the same criterion at every turn, and the Doctor is not told the turn or how many are left. After A7 the controller asks for the final diagnosis. The Agent has one neutral task and a neutral system prompt at every turn A1 ... A7: no instruction about keeping or changing a position, reporting or asking; which behavior is appropriate is left to the rubrics and the reward. Same cases, case-level split, models and decoding as the first label run (v5). D1 is reused from v5's frozen histories (same Doctor model, decoding, system prompt and opening prompt; provenance.json); the Agent's standalone assessment is asked again because the Agent's system prompt differs. Nothing of v5 or v6 is written to, and their labels are not mixed with labels of this protocol: the downstream environment differs. TEST is never used. DEV collaborations are generated and not read for any decision about the protocol.",
+  "version": "v7_agentclinic_max7",
+  "protocol": {
+    "max_turns": 7,
+    "early_stopping": true,
+    "notes": "A collaboration turn is one Doctor -> Agent pair. The Doctor's decision after an Agent turn is one JSON object: {action: finalize, final_diagnosis} or {action: continue, provisional_assessment, message_to_agent} (src/agentclinic/protocol.py: NEXT_STEP). It sees its own case information and the conversation only, and nothing about the turn limit. The Agent's task is NEUTRAL_AGENT_TASK at every turn.",
+    "status": "frozen after the TRAIN reach report; a later change of a prompt or of the stopping semantics is a new protocol version with its own outputs"
+  },
+  "output_dir": "outputs/effectiveness/v7_agentclinic_max7",
+  "source_histories": "outputs/effectiveness/v5_agentclinic_full/histories.jsonl",
+  "prompts": {
+    "consultant": "prompts/agentclinic/consultant_main.txt",
+    "state": "prompts/agentclinic/state_elicitation.txt"
+  },
+  "base_trajectories": {
+    "max_attempts": 3,
+    "notes": "one natural collaboration of the base Agent per TRAIN and DEV case, with the Agent-side state elicited before every Agent turn; a Doctor output that is not valid JSON is rerun up to max_attempts times"
+  }
+}

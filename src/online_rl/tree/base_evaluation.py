@@ -1,7 +1,7 @@
 """Resumable original-base-model dialogue evaluation: no LoRA, belief, rubric or learning."""
 import json
 import time
-from contextlib import contextmanager, ExitStack
+from contextlib import contextmanager
 from pathlib import Path
 from src.online_rl.integrated.records import atomic_write_json, sha256_json, sha256_text
 from src.online_rl.environment import final_outcome
@@ -9,27 +9,17 @@ from src.online_rl.environment import final_outcome
 
 @contextmanager
 def original_base_policy(policy):
-    """Borrow every local replica with adapters disabled; restore modes and RNG state."""
-    if getattr(policy, 'original_base_only', False):
-        yield
-        return
+    """Borrow the one GPU4 model without changing the learned adapter or RNG state."""
     torch=policy.torch
     cpu=torch.get_rng_state();gpu=torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
-    models=getattr(policy,'models',[policy.model])
-    states=[(model.training,model.config.use_cache) for model in models]
-    precommit=policy.precommit
+    mode=policy.model.training;cache=policy.model.config.use_cache;precommit=policy.precommit
     try:
         policy.precommit=False
-        with ExitStack() as stack:
-            for model in models:
-                model.eval()
-                model.config.use_cache=True
-                stack.enter_context(model.disable_adapter())
-            yield
+        policy.model.eval()
+        # PEFT disables every adapter in this context; frozen base weights stay original.
+        with policy.model.disable_adapter():yield
     finally:
-        policy.precommit=precommit
-        for model,(mode,cache) in zip(models,states):
-            model.train(mode);model.config.use_cache=cache
+        policy.precommit=precommit;policy.model.train(mode);policy.model.config.use_cache=cache
         torch.set_rng_state(cpu)
         if gpu is not None:torch.cuda.set_rng_state_all(gpu)
 

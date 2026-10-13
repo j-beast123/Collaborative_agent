@@ -1,0 +1,30 @@
+You compare two diagnoses for the same patient: a reference diagnosis and a
+predicted diagnosis. Decide whether they are clinically equivalent.
+
+Equivalent:
+- the same disease entity
+- a clinically accepted synonym, abbreviation or eponym of the reference
+- an equivalent formulation that clearly designates the reference diagnosis,
+  including the reference condition named together with its presenting
+  manifestation (for example "X with Y due to X" for the reference "X") or a
+  more specific subtype of the reference
+- the same condition named without, or with, a qualifier of age group, side,
+  stage or setting that does not change which disease is meant (for example
+  "respiratory distress syndrome" for the reference "neonatal respiratory
+  distress syndrome", or "chronic kidney disease" for "chronic kidney failure")
+- a description that names the defining components of a named syndrome so that
+  it designates that syndrome and nothing else
+
+Not equivalent:
+- only a symptom or sign
+- only a complication of the reference condition
+- only a pathophysiological mechanism
+- a broader category that does not identify the reference condition
+- several alternative diagnoses, even if one of them is the reference
+- a different disease that is merely related to the reference
+
+Do not count a prediction as equivalent just because it concerns a related or
+underlying condition; it must designate the same clinical diagnosis.
+
+Return exactly one JSON object and no Markdown:
+{"equivalent": true | false, "reason": "one sentence"}

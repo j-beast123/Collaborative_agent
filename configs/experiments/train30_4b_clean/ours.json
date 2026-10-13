@@ -1,0 +1,6 @@
+{
+  "extends": "../../serl_agentclinic_qwen4b_max7_train30_clean.json",
+  "notes": "Ours: Filtered/Evolving Rubric + Effectiveness + Outcome. R_t = 0.4 R_O + 0.3 R_A,t + 0.3 R_E,t. Every iteration builds its rubric set from its own failures only: candidates -> validation rerun -> consolidation -> effectiveness-gap filter and weights. No rubric of an earlier iteration is carried over.",
+  "run_label": "clean30_4b_ours",
+  "condition": "ours"
+}

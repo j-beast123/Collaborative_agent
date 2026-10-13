@@ -28,6 +28,7 @@ def evaluate_prompt_record(trainer, record):
     tested_by_leaf={}
     for item in witness:
         for test in item.get('tested',[]):
+            if not test.get('used_for_decision', True):continue
             if test.get('reruns',0):tested_by_leaf[test['leaf_id']]=(item,test)
             elif test.get('result') in ('no_match','no_locus'):
                 tested_by_leaf[test['leaf_id']]=(item,test)
@@ -167,8 +168,9 @@ def score_union(trainer,parent,candidate,candidate_prompt):
     if sha256_json(parent['tree'])!=sha256_json(candidate['tree']):raise RuntimeError('Cannot merge different trees')
     pool,lineage=union_kept(trainer,parent,candidate,candidate_prompt)
     tree=from_dict(Tree,parent['tree']); weights={r.rubric_id:1.0 for r in pool}
-    # P0/P1 score each phase immediately after its KEEP set is finalized. Reuse
-    # those scores for the final union instead of making a third scoring pass.
+    # Production P0/P1 records defer response scoring until the full-batch KEEP
+    # sets are finalized. Score the deduplicated union exactly once here. The
+    # merge path below remains for backward-compatible resumed phase records.
     sources={}
     for item in lineage:
         rid=item['rubric_id']; target=item['used_as']; side=item['side']
@@ -203,7 +205,7 @@ def score_union(trainer,parent,candidate,candidate_prompt):
 
 
 def batch_reflection_view(records,max_examples=24):
-    """All-unit summaries plus bounded examples; each case has 32 independent continuations.
+    """All-unit summaries plus bounded examples; full trees can contain 4096 leaves.
 
     Only reflection context is bounded, never the scoring mask or rerun evidence.
     Round-robin across case/outcome buckets, alternating low/high effects.

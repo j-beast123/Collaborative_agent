@@ -1,0 +1,13 @@
+{
+  "extends": "../../serl_agentclinic_qwen4b_max7_train30_clean.json",
+  "notes": "Component ablation, Ours - Outcome: R_t = 0.3 R_A,t + 0.3 R_E,t. The rubric pipeline is that of Ours (it still starts from failed collaborations: the outcome decides which collaborations are analysed, and is not part of the reward).",
+  "run_label": "clean30_4b_minus_outcome",
+  "condition": "minus_outcome",
+  "reward": {
+    "weights": {
+      "outcome": 0.0,
+      "appropriateness": 0.3,
+      "effectiveness": 0.3
+    }
+  }
+}

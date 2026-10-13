@@ -1,0 +1,40 @@
+{
+  "extends": "v11_qwen4b_gemma12b_max7_train30.json",
+  "version": "v12_qwen4b_gemma12b_max7_train30_clean",
+  "notes": "Clean TRAIN30 environment (user decision of 2026-10-02): the v11 environment with the diagnosis judge corrected. Outcomes are read by one automatic judge with explicit equivalence rules (gpt-4o-mini, diagnosis_equivalence_v4.txt: lowered certainty keeps the diagnosis; a diagnosis only to be ruled out or one of several alternatives is not a commitment), frozen in diagnosis_judge_frozen; one decision per normalized pair. No human adjudication; Sol with the same prompt is an independent audit only. Every dialogue of v11 (D1, base collaborations, candidates, label continuations) is reused unchanged (scripts/derive_clean_environment.py); labels, predictor, rubrics and all GRPO runs are made again. Nothing of the pilot (v11 predictor, R_0, runs) is used. TEST is not used.",
+  "prompts": {
+    "diagnosis_equivalence": "prompts/agentclinic/diagnosis_equivalence_v4.txt"
+  },
+  "output_dir": "outputs/effectiveness/v12_qwen4b_gemma12b_max7_train30_clean",
+  "labels_dir": "outputs/effectiveness/v12_qwen4b_gemma12b_max7_train30_clean/effectiveness_oof_v1/labels",
+  "diagnosis_equivalence_frozen": "outputs/effectiveness/v12_qwen4b_gemma12b_max7_train30_clean/diagnosis_equivalence.frozen.jsonl",
+  "models": {
+    "judge": {
+      "model_id": "openai/gpt-4o-mini",
+      "revision": "openrouter-unpinned"
+    }
+  },
+  "diagnosis_judge_params": {
+    "temperature": 0,
+    "max_tokens": 200
+  },
+  "diagnosis_judge_frozen": {
+    "model": "openai/gpt-4o-mini",
+    "prompt": "prompts/agentclinic/diagnosis_equivalence_v4.txt",
+    "prompt_sha256": "0a836c884d0b6089307eb67a930a02f4654017a6ace96300f89f999bc686e426",
+    "params": {
+      "temperature": 0,
+      "max_tokens": 200
+    },
+    "frozen": "2026-10-02 13:47:50",
+    "decided_by": "user decision of 2026-10-02 (option B): the judge model of the runs so far with the revised, explicit equivalence rules; Sol is an independent audit only",
+    "human_adjudication": "none",
+    "audit": {
+      "judge": "openai/gpt-6.1-sol, same prompt",
+      "hard_pairs": 378,
+      "inter_judge_agreement": 0.8253968253968254,
+      "file": "outputs/audit/equivalence_adjudication_20261002/judge_disagreements_primary_vs_audit.json",
+      "note": "agreement on hard cases selected on purpose; not an accuracy"
+    }
+  }
+}

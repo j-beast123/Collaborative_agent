@@ -23,19 +23,6 @@ def current_stage():
 _case: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("api_usage_case", default=None)
 
 
-def event(event_type: str, **fields) -> None:
-    """Operational API events without request text or credential values."""
-    path = os.environ.get('API_EVENT_LOG')
-    if not path:
-        return
-    row = {'timestamp': time.time(), 'event': event_type, 'case_id': _case.get(),
-           'stage': current_stage(), **fields}
-    with _lock:
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with Path(path).open('a') as handle:
-            handle.write(json.dumps(row) + '\n')
-
-
 def openrouter(base_url: str) -> bool:
     return "openrouter.ai" in base_url
 

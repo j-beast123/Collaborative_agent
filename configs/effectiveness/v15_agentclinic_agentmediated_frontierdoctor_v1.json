@@ -1,0 +1,12 @@
+{
+  "extends": "v13_qwen4b_gemma12b_max7_train30_clean_majority.json",
+  "version": "agentclinic_agentmediated_frontierdoctor_v1",
+  "notes": "NEW PROTOCOL (user decision 2026-10-03, after the full-case ceiling of v14): the clean TRAIN30 environment v13 with (1) Doctor openai/gpt-6.1-sol (temperature 0.4, max_tokens 512 as v13) and (2) the agent-first order with an agent-mediated Doctor: the Agent sees the whole case and opens (A1, D1, A2, ...); the Doctor sees no case information, only the dialogue (its own messages and the Agent's), so every clinical fact reaches it through the Agent. Prompts: prompts/agentclinic/doctor_agentmediated_v1.txt, prompts/agentclinic/consultant_agentmediated_v1.txt; the Agent's first turn has protocol.AGENT_FIRST_OPENING. Agent Qwen3-4B, split, max 7 turns with early stopping and the judge (majority-v1; the v13 mapping copied here) unchanged. Histories are empty prefixes. Nothing of v13 or v14 is reused.",
+  "output_dir": "outputs/effectiveness/v15_agentclinic_agentmediated_frontierdoctor_v1",
+  "labels_dir": "outputs/effectiveness/v15_agentclinic_agentmediated_frontierdoctor_v1/labels",
+  "diagnosis_equivalence_frozen": "outputs/effectiveness/v15_agentclinic_agentmediated_frontierdoctor_v1/diagnosis_equivalence.frozen.jsonl",
+  "models": {"doctor": {"model_id": "openai/gpt-6.1-sol", "revision": "openrouter openai/gpt-6.1-sol (pinned version id)", "checkpoint": null,
+                        "backend": "openrouter", "tokenizer": "provider-managed"}},
+  "prompts": {"doctor": "prompts/agentclinic/doctor_agentmediated_v1.txt", "consultant": "prompts/agentclinic/consultant_agentmediated_v1.txt"},
+  "protocol": {"agent_first": true, "doctor_view": "none"}
+}

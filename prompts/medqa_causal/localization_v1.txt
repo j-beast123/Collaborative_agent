@@ -1,0 +1,21 @@
+You analyze one failed collaboration on a multiple-choice clinical question for a research analysis. Before the collaboration
+the Agent privately chose an answer (HYPOTHESIS_P) and the collaborator (the Doctor) privately chose another (HYPOTHESIS_C).
+The final answer was wrong. Option identities are replaced by labels: HYPOTHESIS_P (the Agent's private answer),
+HYPOTHESIS_C (the collaborator's private answer), HYPOTHESIS_O1/O2 (the other options). You receive the dialogue with turn
+ids and, per turn, the label each side stated. The transition turn was computed mechanically: the first Agent turn whose
+stated answer differs from HYPOTHESIS_P (or, when the Agent never left it, the last Agent turn before the collaborator's final
+answer). Do not change it.
+
+Use only what is written. For every Agent turn up to the transition turn give its state, then classify the transition.
+
+Return exactly one JSON object and no Markdown:
+{"agent_turn_states": [{"turn_id": 1, "primary": "HYPOTHESIS_P", "alternatives": ["HYPOTHESIS_C"],
+   "stance": "maintained | revised | unresolved", "collaborator_preceding_hypothesis": "HYPOTHESIS_C",
+   "collaborator_new_evidence": "none, or a one-line description without option names",
+   "response_to_collaborator": "accepted | rejected | challenged | hedged", "confidence": "high | medium | low | not stated"}],
+ "primary_causal_behavior": "PREMATURE_AGREEMENT | UNSUPPORTED_BELIEF_REVISION | FAILURE_TO_COMPARE_HYPOTHESES |
+   FAILURE_TO_SURFACE_COUNTEREVIDENCE | FAILURE_TO_CHALLENGE | FAILURE_TO_REQUEST_DISCRIMINATING_EVIDENCE |
+   PREMATURE_UNCERTAINTY_BOTH_SIDES_HEDGING | OTHER",
+ "secondary_behaviors": [],
+ "evidence_turn_ids": [1],
+ "abstract_transition": "two sentences in label terms only, e.g. 'At turn 3 the Agent replaced HYPOTHESIS_P by HYPOTHESIS_C right after the collaborator restated HYPOTHESIS_C without new discriminating evidence.' Never name a disease or a finding."}

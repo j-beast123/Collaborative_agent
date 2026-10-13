@@ -19,12 +19,11 @@ import uuid
 MODE = 'shared_ready_tasks_v1'
 
 
-def create_pool(manager, gpus, agent_capacity=4, doctor_capacity=50):
+def create_pool(manager, gpus, agent_capacity=4, doctor_capacity=1):
     directory = tempfile.mkdtemp(prefix='sherpa_pool_')
     os.chmod(directory, 0o700)
     spec = {'addresses': {g: str(Path(directory)/f'gpu{g}.sock') for g in gpus},
             'directory': directory, 'authkey': os.urandom(32),
-            'actor_workers': max(8, agent_capacity + doctor_capacity),
             'request_workers': {'agent_workers': len(gpus)*agent_capacity,
                                 'doctor_workers': len(gpus)*doctor_capacity},
             'lock': manager.RLock(), 'leases': manager.dict(),
@@ -88,7 +87,7 @@ class Actor:
         self.lock = threading.RLock()
         self.active = 0
         self.listener = Listener(spec['addresses'][gpu], family='AF_UNIX', authkey=spec['authkey'])
-        self.executor = ThreadPoolExecutor(max_workers=spec.get('actor_workers', 8), thread_name_prefix=f'gpu{gpu}-actor')
+        self.executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix=f'gpu{gpu}-actor')
         self.thread = threading.Thread(target=self._listen, daemon=True)
         self.thread.start()
 
@@ -130,8 +129,7 @@ class Actor:
             note(pool_last_source_gpu=request['source_gpu'],
                  pool_last_case_id=request['context'].get('case_id'),
                  pool_last_operation=request['op'])
-            from src.online_rl.tree.idle_eval_hooks import training_guard
-            with training_guard(self.gpu, request['op']), activity('pool.execute.' + request['op']):
+            with activity('pool.execute.' + request['op']):
                 value = self.handlers[request['op']](*request['args'])
             result = {'ok': True, 'value': value}
         except Exception as exc:
@@ -147,11 +145,6 @@ class Actor:
             if request['op'] in ('agent', 'doctor'):
                 row['seed'] = request['args'][2 if request['op']=='agent' else 1]
                 row['input_sha256'] = hashlib.sha256(request['args'][0].encode()).hexdigest()
-                if request['op'] == 'doctor' and len(request['args']) > 3 and request['args'][3] is not None:
-                    row['system_override_sha256'] = hashlib.sha256(request['args'][3].encode()).hexdigest()
-                if request['op'] == 'doctor' and len(request['args']) > 4 and request['args'][4] is not None:
-                    row['format_schema_sha256'] = hashlib.sha256(
-                        json.dumps(request['args'][4], sort_keys=True).encode()).hexdigest()
             try:
                 with self.lock:
                     with self.audit.open('a') as file:
@@ -187,42 +180,13 @@ def attach(policy, cfg, spec, gpu):
     def generate(prompt, max_new_tokens, seed, segment='agent'):
         return client.call('agent', prompt, max_new_tokens, seed, segment)
     policy._generate = generate
-    def chat(user, seed, max_tokens=None, system_override=None, format_schema=None):
-        args = ((user, seed, max_tokens, system_override, format_schema) if format_schema is not None else
-                (user, seed, max_tokens, system_override) if system_override is not None else
-                ((user, seed) if max_tokens is None else (user, seed, max_tokens)))
+    def chat(user, seed, max_tokens=None):
+        args = (user, seed) if max_tokens is None else (user, seed, max_tokens)
         return client.call('doctor', *args)
     policy.doctor._chat = chat
     policy.pool_behavior_logprobs = lambda traces: client.call('teacher', traces)
     policy.pool_actor, policy.pool_client = actor, client
     # Case submission windows span the whole pool; native per-GPU capacity stays
-    # Agent4 / Doctor50. These runtime fields never alter config/cache identity.
+    # Agent4 / Doctor1. These runtime fields never alter config/cache identity.
     policy.pool_execution = dict(spec['request_workers'])
     return actor
-
-
-def case_policy_view(policy, context):
-    """Share frozen weights/actors, isolate each case's RPC context and Doctor proxy."""
-    import copy
-    view = copy.copy(policy)
-    view.doctor = copy.copy(policy.doctor)
-    parent = policy.pool_client
-    client = PoolClient(parent.spec,parent.expected,parent.source_gpu,parent.timeout)
-    client.context = dict(context)
-    view.pool_client = client
-    view._generate = lambda prompt,max_new_tokens,seed,segment='agent': client.call('agent',prompt,max_new_tokens,seed,segment)
-    def chat(user,seed,max_tokens=None,system_override=None,format_schema=None):
-        args=((user,seed,max_tokens,system_override,format_schema) if format_schema is not None else
-              (user,seed,max_tokens,system_override) if system_override is not None else
-              (user,seed) if max_tokens is None else (user,seed,max_tokens))
-        return client.call('doctor',*args)
-    view.doctor._chat = chat
-    if hasattr(policy.doctor, '_shared_opening_cache'):
-        from src.online_rl.tree.five_gpu import cache_openings
-        # Rebind the native method to this case's Doctor before wrapping D1;
-        # copying the old closure would retain another case's RPC client.
-        view.doctor.turn = type(view.doctor).turn.__get__(view.doctor, type(view.doctor))
-        cache_openings(view.doctor, policy.doctor._shared_opening_path,
-                       policy.doctor._shared_opening_identity, cache=policy.doctor._shared_opening_cache)
-    view.pool_behavior_logprobs = lambda traces: client.call('teacher',traces)
-    return view

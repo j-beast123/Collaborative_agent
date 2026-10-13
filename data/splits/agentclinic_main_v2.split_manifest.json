@@ -1,0 +1,1287 @@
+{
+  "algorithm": "external-assignment-v1",
+  "assignment": "src/agentclinic/selection.py:split_cases (sha256 of seed and case id)",
+  "duplicate_groups": [],
+  "group_counts": {
+    "dev": 31,
+    "eval": 60,
+    "train": 90
+  },
+  "manifest_hash": "1c8d07cf7df594e2725e4986579a2747da6809b5288a93ef2238273fdcc6d76b",
+  "members": {
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0000\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0000\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0000\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0003\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0003\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0003\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0004\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0004\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0004\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0005\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0005\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0005\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0006\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0006\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0006\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0007\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0007\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0007\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0008\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0008\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0008\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0009\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0009\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0009\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0011\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0011\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0011\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0014\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0014\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0014\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0015\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0015\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0015\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0016\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0016\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0016\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0018\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0018\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0018\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0020\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0020\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0020\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0021\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0021\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0021\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0023\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0023\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0023\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0024\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0024\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0024\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0025\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0025\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0025\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0026\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0026\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0026\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0027\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0027\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0027\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0028\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0028\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0028\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0029\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0029\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0029\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0030\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0030\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0030\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0031\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0031\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0031\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0032\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0032\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0032\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0034\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0034\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0034\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0035\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0035\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0035\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0036\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0036\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0036\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0037\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0037\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0037\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0039\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0039\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0039\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0040\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0040\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0040\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0041\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0041\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0041\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0042\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0042\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0042\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0043\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0043\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0043\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0044\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0044\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0044\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0045\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0045\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0045\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0046\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0046\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0046\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0048\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0048\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0048\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0049\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0049\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0049\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0050\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0050\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0050\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0052\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0052\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0052\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0054\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0054\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0054\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0055\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0055\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0055\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0056\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0056\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0056\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0057\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0057\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0057\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0058\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0058\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0058\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0059\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0059\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0059\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0060\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0060\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0060\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0062\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0062\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0062\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0063\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0063\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0063\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0064\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0064\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0064\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0065\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0065\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0065\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0066\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0066\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0066\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0067\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0067\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0067\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0068\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0068\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0068\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0069\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0069\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0069\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0070\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0070\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0070\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0071\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0071\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0071\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0072\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0072\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0072\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0073\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0073\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0073\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0074\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0074\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0074\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0075\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0075\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0075\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0076\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0076\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0076\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0077\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0077\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0077\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0078\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0078\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0078\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0079\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0079\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0079\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0080\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0080\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0080\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0081\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0081\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0081\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0082\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0082\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0082\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0083\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0083\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0083\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0084\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0084\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0084\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0087\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0087\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0087\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0088\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0088\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0088\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0089\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0089\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0089\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0090\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0090\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0090\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0091\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0091\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0091\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0092\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0092\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0092\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0093\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0093\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0093\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0094\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0094\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0094\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0095\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0095\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0095\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0096\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0096\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0096\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0097\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0097\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0097\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0098\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0098\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0098\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0099\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0099\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0099\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0100\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0100\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0100\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0102\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0102\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0102\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0104\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0104\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0104\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0105\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0105\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0105\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0108\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0108\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0108\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0109\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0109\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0109\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0110\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0110\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0110\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0111\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0111\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0111\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0112\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0112\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0112\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0113\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0113\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0113\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0114\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0114\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0114\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0115\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0115\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0115\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0116\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0116\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0116\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0117\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0117\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0117\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0119\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0119\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0119\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0120\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0120\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0120\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0121\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0121\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0121\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0122\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0122\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0122\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0123\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0123\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0123\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0124\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0124\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0124\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0125\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0125\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0125\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0126\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0126\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0126\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0127\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0127\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0127\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0128\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0128\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0128\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0129\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0129\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0129\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0130\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0130\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0130\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0131\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0131\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0131\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0132\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0132\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0132\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0134\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0134\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0134\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0135\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0135\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0135\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0136\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0136\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0136\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0137\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0137\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0137\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0138\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0138\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0138\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0139\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0139\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0139\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0140\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0140\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0140\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0141\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0141\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0141\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0142\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0142\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0142\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0144\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0144\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0144\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0145\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0145\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0145\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0146\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0146\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0146\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0147\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0147\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0147\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0148\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0148\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0148\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0149\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0149\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0149\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0150\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0150\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0150\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0151\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0151\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0151\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0152\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0152\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0152\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0155\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0155\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0155\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0156\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0156\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0156\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0157\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0157\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0157\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0158\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0158\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0158\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0159\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0159\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0159\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0161\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0161\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0161\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0163\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0163\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0163\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0164\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0164\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0164\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0166\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0166\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0166\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0167\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0167\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0167\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0168\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0168\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0168\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0169\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0169\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0169\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0170\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0170\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0170\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0171\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0171\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0171\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0172\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0172\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0172\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0174\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0174\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0174\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0175\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0175\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0175\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0176\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0176\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0176\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0177\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0177\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0177\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0178\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0178\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0178\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0179\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0179\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0179\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0180\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0180\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0180\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0181\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0181\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0181\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0182\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0182\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0182\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0183\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0183\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0183\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0185\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0185\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0185\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0186\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0186\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0186\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0187\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0187\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0187\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0188\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0188\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0188\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0189\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0189\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0189\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0190\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0190\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0190\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0191\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0191\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0191\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0192\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0192\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0192\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0193\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0193\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0193\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0194\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0194\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0194\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0195\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0195\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0195\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0197\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0197\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0197\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0199\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0199\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0199\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0200\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0200\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0200\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0201\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0201\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0201\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0202\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0202\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0202\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0203\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0203\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0203\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0204\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0204\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0204\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0205\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0205\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0205\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0206\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0206\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0206\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0208\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0208\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0208\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0209\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0209\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0209\"]",
+      "split": "eval",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0210\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0210\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0210\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0211\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0211\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0211\"]",
+      "split": "dev",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0212\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0212\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0212\"]",
+      "split": "train",
+      "synthetic": false
+    },
+    "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0213\"]": {
+      "dataset_version": "sha256:54a024eb2705c6c5",
+      "group": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0213\"]",
+      "original_key": "[\"agentclinic_medqa_extended\",\"agentclinic_medqa_extended_0213\"]",
+      "split": "train",
+      "synthetic": false
+    }
+  },
+  "proportions": {
+    "dev": 0.1712707182320442,
+    "eval": 0.3314917127071823,
+    "train": 0.4972375690607735
+  },
+  "schema_version": 1,
+  "seed": 0
+}

@@ -1,7 +1,6 @@
 """Agent reward inputs: a response-level rubric component (R_A) and a final-outcome component. Rerun effectiveness
 enters only as the weights of the rubric scores inside R_A, never as its own reward term."""
 from __future__ import annotations
-import dataclasses
 import re
 from typing import Optional
 from src.online_rl.tree.decisions import Strategies
@@ -20,37 +19,6 @@ def descendant_outcomes(tree: Tree) -> dict[str, dict[str, float]]:
         if l.outcome is None: continue
         for nid in l.path: out[nid][l.leaf_id] = l.outcome
     return out
-
-
-def reflection_failure_ids(feedback) -> set[str]:
-    """Leaf IDs whose local post-FINAL Doctor reflection failed its format contract."""
-    return {item.leaf_id for item in feedback
-            if (getattr(item, 'locus', None) or {}).get('status') == 'reflection_invalid'}
-
-
-def exclude_reflection_failure_trajectories(tree: Tree, feedback) -> Tree:
-    """Remove reflection-failure leaves from outcome credit assignment.
-
-    The full rollout tree remains available for audit; only valid-feedback
-    leaves with a failed Doctor reflection are excluded from Agent targets.
-    """
-    excluded = reflection_failure_ids(feedback)
-    if not excluded:
-        return tree
-    return dataclasses.replace(tree, leaves=tuple(leaf for leaf in tree.leaves if leaf.leaf_id not in excluded))
-
-
-def scoring_execution_failure_ids(tree: Tree, scores: list[ResponseRubricScore]) -> set[str]:
-    """Exclude every rollout path containing a response with an invalid judge execution."""
-    failed_nodes = {row.response_node_id for row in scores if row.scoring_status == 'execution_unresolved'}
-    if not failed_nodes:
-        return set()
-    return {leaf.leaf_id for leaf in tree.leaves if any(node_id in failed_nodes for node_id in leaf.path)}
-
-
-def exclude_trajectories(tree: Tree, leaf_ids) -> Tree:
-    excluded = set(leaf_ids or ())
-    return dataclasses.replace(tree, leaves=tuple(leaf for leaf in tree.leaves if leaf.leaf_id not in excluded)) if excluded else tree
 
 
 def response_r_a(scores: list[ResponseRubricScore], rubric_weights: dict[str, float], strategies: Strategies) -> dict[str, Optional[float]]:

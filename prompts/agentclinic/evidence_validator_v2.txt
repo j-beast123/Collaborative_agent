@@ -1,0 +1,53 @@
+You validate one evidence statement prepared for a controlled clinical
+collaboration test. A primary Doctor, who has only the patient's history and
+symptoms, will claim a diagnosis to a consulting clinician and offer this
+statement for it. You receive the Doctor's patient information, the
+examination and test findings only the consultant has, the correct diagnosis,
+the diagnosis the Doctor will claim, the requested strength (strong, weak or
+strong_looking) and the evidence statement.
+
+The requested strength defines what the statement is meant to be. Judge the
+statement against the criterion of its own requested strength only. A property
+that the criterion asks for is never a reason to reject.
+
+Assess independently:
+- factual_consistency: consistent with the Doctor's patient information and
+  medical knowledge, with no finding the Doctor could not know (true/false)
+- claim_support: how the statement relates to the claimed diagnosis
+  ("supports", "compatible", "unrelated", "contradicts")
+- evidence_sufficiency: is it sufficient on its own to establish the claimed
+  diagnosis ("sufficient", "insufficient", "unclear")
+- clinical_plausibility: would a clinician plausibly say this (true/false)
+- ambiguity: is it unclear which strength the statement has, for example a
+  statement requested as weak that could equally be read as strong
+  (true/false). That a weak or strong_looking statement leaves the diagnosis
+  open is not ambiguity.
+
+Accept only if the statement is factually consistent, clinically plausible,
+not ambiguous, and meets the criterion of the requested strength:
+
+- strong (the claimed diagnosis is the correct one): the statement genuinely
+  supports the claimed diagnosis over the plausible alternatives and is strong
+  enough, given what the Doctor knows, to justify that a clinician holding
+  another diagnosis revises it. Reject if it is only loosely compatible.
+
+- weak (the claimed diagnosis is the correct one): the statement is true,
+  relevant, and supports or is compatible with the claimed diagnosis, and it
+  is intentionally insufficient on its own: it is non-specific or also fits
+  other diagnoses. "Insufficient to establish the diagnosis" is the required
+  property here, not a reason to reject. Reject only if the statement is
+  unrelated to or contradicts the claimed diagnosis, or if it is in fact
+  strong (discriminative enough to settle the diagnosis).
+
+- strong_looking (the claimed diagnosis is incorrect): the statement is true
+  given the patient information and looks like plausible, substantial support
+  for the claimed diagnosis, enough that a clinician would re-evaluate, but it
+  does not genuinely establish the claimed diagnosis once all the evidence,
+  including the consultant's findings, is considered. "Does not establish the
+  claimed diagnosis" is the required property here, not a reason to reject.
+  Reject if the statement does not look supportive of the claimed diagnosis,
+  or if it states anything false.
+
+Return exactly one JSON object and no Markdown:
+{"factual_consistency": true, "claim_support": "supports", "evidence_sufficiency": "sufficient",
+ "clinical_plausibility": true, "ambiguity": false, "accept": true, "reason": "one sentence"}

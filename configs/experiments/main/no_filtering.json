@@ -1,0 +1,14 @@
+{
+  "extends": "../../serl_agentclinic_qwen4b_max7.json",
+  "notes": "No-filtering Rubric + Effectiveness + Outcome: R_t = 0.4 R_O + 0.3 R_A,t(all raw rubrics so far) + 0.3 R_E,t. Every iteration runs the same failure analysis as Ours on its own failures; every valid candidate is scored as it is, together with all candidates of the earlier iterations (cumulative, causal), each with weight 1. No validation rerun, no consolidation, no effectiveness-gap filter. Iteration 0 takes its candidates from the Ours run's iteration-0 analysis of the same base failures (INITIAL_RUBRICS). The Weighted SoftMin, the NA handling and the group-mean rule are those of Ours; a response is scored in calls of max_rubrics_per_call rubrics. Training samples, steps and GRPO settings are those of Ours.",
+  "run_label": "main_no_filtering",
+  "condition": "no_filtering",
+  "rubric_registry": {
+    "schedule": "no_filtering"
+  },
+  "rubrics": {
+    "scorer": {
+      "max_rubrics_per_call": 8
+    }
+  }
+}

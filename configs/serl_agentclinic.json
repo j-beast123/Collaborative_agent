@@ -1,0 +1,204 @@
+{
+  "extends": "judges/serl_roles.json",
+  "notes": "Main SERL pipeline on AgentClinic-MedQA. One protocol for every stage: D1 -> A1 -> D2 -> A2 -> Doctor FINAL (two collaboration turns, the Doctor decides). Collaboration, failure analysis, rerun validation, consolidation, rubric scoring, GRPO (TRL GRPOTrainer + SERL reward) and the RQ1-3 evaluation all read the same trajectories (src/agentclinic/trajectory.py). Rubric roles, prompts and method settings are inherited from judges/serl_roles.json; values here override them.",
+  "pipeline": "serl_agentclinic_main",
+  "seed": 0,
+  "cache_dir": "outputs/serl/_cache",
+  "data": {
+    "split_manifest": "outputs/effectiveness/v5_agentclinic_full/split_manifest.json",
+    "source_dataset": "agentclinic_medqa_extended"
+  },
+  "collaboration": {
+    "protocol": "agentclinic_two_turn",
+    "max_rounds": 2,
+    "final_decision_role": "doctor",
+    "notes": "Two collaboration turns (D1-A1, D2-A2), then the Doctor's final diagnosis. The same protocol produced the Effectiveness labels.",
+    "max_rounds_status": "decided 2026-10-01: AgentClinic two-turn protocol for the whole pipeline",
+    "final_decision_role_status": "decided 2026-10-01: the Doctor makes the final decision",
+    "state_elicitation": "independent call before A1 and before A2 (environment.state_prompt); stored with the trajectory, never part of a response prompt"
+  },
+  "scoring": {
+    "include_initial_turn": true,
+    "notes": "A1 and A2 are both scored and may both be named as failure turns."
+  },
+  "environment": {
+    "config": "configs/effectiveness/v5_agentclinic_full.json",
+    "histories": "outputs/effectiveness/v5_agentclinic_full/histories.jsonl",
+    "train_split": "train",
+    "notes": "Dataset, case split, Doctor and judge models, decoding and prompts come from the label run's config. Training prompts are that run's frozen D1 histories (TRAIN). TEST cases have no frozen history. state_prompt is the system prompt of the Agent-side state elicitation: an independent call before A1 and before A2 whose result is stored and never shown to a response prompt.",
+    "state_prompt": "prompts/agentclinic/state_elicitation.txt"
+  },
+  "policy": {
+    "model_id": "Qwen/Qwen3-8B",
+    "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "checkpoint": "${MODEL_ROOT}/Qwen3-8B",
+    "torch_dtype": "bfloat16",
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.05,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "use_rslora": true
+    }
+  },
+  "roles": {
+    "failure_analyzer": {
+      "backend": "openai_compatible",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "prompt_addendum": "prompts/agentclinic/rubric_agent_state_addendum.txt",
+      "prompt_version": "rubric-evaluator-v1+agentclinic-state-v1",
+      "model_id": "openai/gpt-4o-mini",
+      "revision": "openrouter-unpinned",
+      "model_id_status": "pilot choice (user, 2026-10-02): gpt-4o-mini for the rubric pilot; the model for the main experiment is not decided"
+    },
+    "rubric_manager": {
+      "backend": "openai_compatible",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model_id": "openai/gpt-4o-mini",
+      "revision": "openrouter-unpinned",
+      "model_id_status": "pilot choice (user, 2026-10-02): gpt-4o-mini for the rubric pilot; the model for the main experiment is not decided"
+    }
+  },
+  "roles_notes": "failure_analyzer and rubric_manager (Sol) call OpenRouter with gpt-4o-mini for the rubric pilot (user decision 2026-10-02). Models named for the main experiment but not in use: Doctor = a Gemma model (would replace gpt-4o-mini as the Doctor; the Effectiveness labels and predictor were made with the gpt-4o-mini Doctor and would have to be regenerated), rubric scorer = Jev (its transport is not implemented: endpoint and access are not available yet).",
+  "validation": {
+    "notes": "Rerun from the failed Agent turn (A1 or A2) with the candidate's ideal behavior, 3 times; keep at 2 correct final diagnoses. The Agent is the iteration's checkpoint."
+  },
+  "rubrics": {
+    "rubric_set": "iter{iteration}/rubrics/rubric_set.json",
+    "prompt": "prompts/rubric_scorer.txt",
+    "prompt_addendum": "prompts/agentclinic/rubric_scorer_addendum.txt",
+    "prompt_version": "rubric-scorer-v1+agentclinic-state-v1",
+    "scorer": {
+      "name": "jev",
+      "backend": "jev",
+      "endpoint": "https://openrouter.ai/api/alpha/decisions",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model_id": "typesafe/jev-1.13",
+      "revision": "openrouter-unpinned"
+    },
+    "notes": "rubric_set is the active rubric set of the iteration, relative to the run directory ({iteration} is replaced). The scorer has the same settings as scorers.candidates in configs/judges/serl_roles.json; backend jev selects the Jev scorer."
+  },
+  "rubric_registry": {
+    "max_active_categories": 8,
+    "schedule": "evolving",
+    "fixed_rubric_set": null,
+    "max_active_categories_status": "starting value; whether 8 is the right size is decided after the first real rubric generation (how many categories consolidation yields)",
+    "notes": "The registry (iter<i>/rubrics/categories.json) keeps every validated, consolidated category with its source candidates and variants. At most max_active_categories categories are active, and each active category gives the scorer exactly one rubric, its canonical rubric. Eligible categories (validated candidates observed in this iteration's failures) are taken in the order current failure frequency, rerun success rate, historical frequency, category id. Fewer eligible categories give a smaller set; it is not filled up. The others stay in the registry as inactive and compete again in the next iteration; a return to the active set is counted as a reactivation. A rubric's weight in the reward is its category's share of the iteration's failures; effectiveness or task-success gaps are recorded as diagnostics only (reward_report.json) and are not used for selection or weights. schedule evolving: the reward of iteration i uses R_i, rebuilt from theta_i's failures. schedule fixed (RQ3 Fixed condition): the reward of every iteration uses fixed_rubric_set as it is, content and weights; the iteration's failures are recorded, and no rubric generation, validation or consolidation is run."
+  },
+  "rubric_aggregation": {
+    "method": "weighted_softmin",
+    "temperature": 0.5,
+    "notes": "How the active rubrics that apply to ONE Agent response are combined into its R_A: s_k in {0, 0.5, 1}, alpha_k = w_k / sum of the weights of the applicable rubrics, R_A = -tau * log(sum_k alpha_k * exp(-s_k / tau)). A rubric that does not apply is left out before the weights are normalized; one applicable rubric gives its score exactly. The soft-min leans toward the lowest score, more strongly the lower the temperature. It is not a soft-min across A1 and A2."
+  },
+  "rubric_importance": {
+    "strategy": "failure_frequency",
+    "status": "provisional",
+    "notes": "The source of the rubric weights w_k is not decided. failure_frequency (a category's share of the iteration's failures) is the baseline in use; uniform gives every active rubric the same weight. The method deck also proposes weights from the task-success gap or the effectiveness gap of a rubric; these gaps, with the applicability rate, are computed per rubric as diagnostics (reward_report.json: rubric_weight_diagnostics) and are not used as weights. The choice among uniform, failure_frequency and a gap-based weight is made by a person after the rubric pilot."
+  },
+  "training_samples": {
+    "stages": [
+      "A1",
+      "A2"
+    ],
+    "notes": "Agent turns trained as GRPO completions by the same adapter. A1 sample: prompt D1, completion A1, continuation D2 -> A2 -> FINAL. A2 sample: prompt D1 -> A1 -> D2 of the iteration's own collaboration (base/trajectories.jsonl for iteration 0, iter<i-1>/trajectories.jsonl after), completion A2, continuation FINAL. The loss covers the completion only; turns written inside a continuation carry no gradient."
+  },
+  "grpo": {
+    "num_generations": 4,
+    "per_device_train_batch_size": 4,
+    "max_completion_length": 400,
+    "num_train_epochs": 1,
+    "learning_rate": 1e-05,
+    "beta": 0.04,
+    "loss_type": "grpo",
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "bf16": true,
+    "gradient_checkpointing": true,
+    "logging_steps": 1,
+    "save_strategy": "steps",
+    "save_steps": 25,
+    "save_total_limit": 2,
+    "seed": 0
+  },
+  "grpo_notes": "Passed to trl.GRPOConfig as is. Values are starting points for one 24 GB GPU and have not been tuned. per_device_train_batch_size counts completions: 4 with num_generations 4 is one sample per optimizer step. The dataset holds the A1 samples and the A2 samples (training_samples.stages), so one epoch is about twice the number of TRAIN histories.",
+  "reward": {
+    "weights": {
+      "outcome": 0.4,
+      "appropriateness": 0.3,
+      "effectiveness": 0.0
+    },
+    "scored_stages": [
+      "A1",
+      "A2"
+    ],
+    "effectiveness": {
+      "provider": "grpc",
+      "checkpoint": "outputs/effectiveness/v5_agentclinic_full/model_lora/v1_epoch3",
+      "expected_continuation_protocol_hash": "644213402004b0c7f0fcd85d0fab77c7c21cf3c398076c59a6b11f8ee4598a74",
+      "transform": "identity",
+      "stages": [
+        "A1"
+      ],
+      "softmin_temperature": null,
+      "checkpoint_by_iteration": {},
+      "calibration": "outputs/effectiveness/v5_agentclinic_full/model_lora/v1_epoch3/calibration_temperature.json",
+      "endpoint": "127.0.0.1:50551",
+      "timeout_s": 120,
+      "retries": 2,
+      "model_version": "effectiveness-v1-lora-epoch3-T2.97",
+      "expected_temperature": 2.97,
+      "available": {
+        "A1": true,
+        "A2": false
+      },
+      "notes": "Effectiveness v1: Qwen3-8B + LoRA epoch 3 with temperature scaling T = 2.97 (p = sigmoid(logit / T)); delta = calibrated P(after) - calibrated P(before). It is a predictor of A1 interventions. available says which Agent turns have an Effectiveness value: A2 has no predictor, so A2 has no R_E (it is logged as unavailable, never as 0 and never with the A1 predictor). provider grpc: the predictor runs as scripts/serve_effectiveness.py at endpoint, and its model_version, calibration temperature, protocol hash and turns are checked when the client connects. provider local loads it in this process on `device`. checkpoint_by_iteration ({\"<iteration>\": path}) can name a refitted predictor for a later iteration; by default the iteration-0 predictor is used throughout.",
+      "transform_status": "decided: calibrated P(after) - P(before), without affine shift",
+      "parity_tolerance": 0.01,
+      "parity_logit_tolerance": 0.15
+    },
+    "notes": "Turn-local credit: a response is rewarded for its own turn. R = w_O*R_Outcome + w_A*R_A + w_E*R_E, each term only when it has a value; an unavailable component adds nothing and the other weights are not rescaled (missing_component_policy omit). R_A: the active rubrics scored on the response itself, combined by rubric_aggregation (weighted soft-min over the applicable rubrics; scores 0/1/2 -> 0/0.5/1; No Match left out) with the weights of rubric_importance. A response without an applicable rubric gets its group's mean R_A (no_applicable_rubric_policy group_mean); when no response of the group has one, R_A is unavailable for the group. A1 sample: R = 0.4 R_O + 0.3 R_A(A1) + 0.3 R_E(A1). A2 sample: R = 0.4 R_O + 0.3 R_A(A2), plus 0.3 R_E(A2) only when a predictor covers A2 (effectiveness.stages). There is no soft-min across A1 and A2. softmin_temperature is the cross-turn temperature of the MedMCQA protocol and has no effect with turn-local credit. scored_stages: the Agent turns that can be trained and scored.",
+    "no_applicable_rubric_policy": "group_mean",
+    "missing_component_policy": "omit",
+    "credit_assignment": "turn_local"
+  },
+  "rollout": {
+    "workers": 8,
+    "agent_batch_size": 8,
+    "max_attempts": 3,
+    "max_failed_share": 0.5
+  },
+  "trajectories": {
+    "split": "train"
+  },
+  "run_label": "serl_agentclinic",
+  "output_root": "outputs/serl",
+  "output_root_notes": "Every run writes to <output_root>/<run_id> (run_id = <label>_<YYYYmmdd-HHMMSS>), with resolved_config.json, environment.json and manifest.json. A run directory is never overwritten; continuing one needs its run id and the same configuration.",
+  "devices": {
+    "placement": "concurrent",
+    "policy": "cuda:0",
+    "effectiveness_service": "cuda:0",
+    "physical_gpus": {
+      "policy": null,
+      "effectiveness_service": null
+    },
+    "notes": "The policy (Qwen3-8B) and the Effectiveness predictor (Qwen3-8B + LoRA) each need about 16 GB and do not fit together on one 24 GB GPU. They are separate processes, each started with CUDA_VISIBLE_DEVICES set to its physical GPU, so inside each process the device is cuda:0. physical_gpus records which GPU each process gets (two different ones for placement concurrent, which GRPO training with w_E > 0 requires; they are null until two GPUs are assigned). placement sequential (one GPU, the two processes take turns) exists only for the end-to-end pipeline check. Neither process falls back to CPU or to another device."
+  },
+  "rollout_notes": "max_failed_share: a reward batch in which more than this share of responses has no computed reward (environment, outcome judge or rubric scorer failed) is an error; below it those responses get their group's mean reward and are logged as such.",
+  "rubric_pilot": {
+    "max_failures": 12,
+    "score_trajectories": 40,
+    "score_candidate_histories": 30,
+    "failure_sample": {
+      "seed": 0,
+      "stratify_by": "collaboration_state"
+    },
+    "notes": "Fixed on 2026-10-02 before the pilot was run. Which failed TRAIN trajectories are analysed: a seeded sample (seed 0), taken in turn from each collaboration state so that no state fills the sample; the state is used for this choice only and is not shown to the analyzer. score_trajectories: natural TRAIN trajectories whose A1 and A2 are scored (the first in id order). score_candidate_histories: TRAIN histories (the first in id order) whose A1 label candidates are scored for the gap and weighting diagnostics."
+  }
+}

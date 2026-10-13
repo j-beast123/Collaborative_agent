@@ -1,0 +1,108 @@
+{
+  "notes": "First effectiveness PILOT on the bundled MedMCQA file (pilot_only: unverified data, not a paper result). Agent/continuation policy and backbone: Qwen3-8B (local, NAS). Doctor and reconstructor: openai/gpt-4o-mini via OpenRouter (API sampling is not seedable; revision is not pinnable). 3 rounds, doctor makes the final decision. Decoding follows configs/effectiveness_pilot.yaml (continuation temperature 0.7, top_p 0.9); doctor temperature 0.4 as in generation. K=4. API key: OPENROUTER_API_KEY environment variable.",
+  "mode": "production",
+  "predictor": {
+    "role": "effectiveness_predictor",
+    "backbone_source": "huggingface",
+    "model_id": "${MODEL_ROOT}/Qwen3-8B",
+    "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "model_id_status": "Qwen/Qwen3-8B loaded from the NAS copy; revision = HF commit",
+    "torch_dtype": "bfloat16",
+    "trust_remote_code": false,
+    "max_length": 2048,
+    "training_mode": "frozen_backbone_scalar_head",
+    "design_status": "METHOD_TBD",
+    "pilot_decision": null,
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.05,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "use_rslora": true
+    },
+    "lora_notes": "Used only with training_mode lora_scalar_head (optional fallback; requires pilot_decision)."
+  },
+  "training": {
+    "seed": 0,
+    "epochs": 20,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0,
+    "batch_size": 8,
+    "grad_clip": 1.0,
+    "selection_metric": "binomial_nll",
+    "cache_features": true,
+    "require_k_equals_spec": true
+  },
+  "continuation": {
+    "agent_model": {
+      "model_id": "Qwen/Qwen3-8B",
+      "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+      "checkpoint": "${MODEL_ROOT}/Qwen3-8B"
+    },
+    "doctor_model": {
+      "model_id": "openai/gpt-4o-mini",
+      "revision": "openrouter-unpinned",
+      "checkpoint": null
+    },
+    "reconstructor_model": {
+      "model_id": "openai/gpt-4o-mini",
+      "revision": "openrouter-unpinned",
+      "checkpoint": null
+    },
+    "model_status": "pilot: agent Qwen3-8B, doctor/reconstructor gpt-4o-mini (OpenRouter)",
+    "turn_order": [
+      "doctor",
+      "agent"
+    ],
+    "max_rounds": 3,
+    "max_rounds_status": "pilot choice (earlier SERL: 3-turn); confirm with the SERL training pipeline",
+    "stopping_rule": "generator_stop_reason",
+    "final_decision_role": "doctor",
+    "final_decision_role_status": "pilot choice; confirm with the SERL training pipeline",
+    "decoding": {
+      "agent": {
+        "do_sample": true,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "max_new_tokens": 512
+      },
+      "doctor": {
+        "temperature": 0.4,
+        "max_tokens": 512
+      }
+    },
+    "decoding_status": "pilot values from configs/effectiveness_pilot.yaml",
+    "success_criterion": "final_option_matches_ground_truth",
+    "k": 4,
+    "seed_policy": {
+      "mode": "paired_by_history",
+      "base_seed": 0
+    },
+    "prompt_versions": {
+      "agent": "sha256:9dfe5fd02f587074",
+      "doctor": "sha256:a630e805133dcf87",
+      "judgment": "sha256:c60f2fc16e1ccde3",
+      "generator": "grounded-collaboration-v2"
+    },
+    "prompt_versions_status": "content hashes of the prompt files"
+  },
+  "labels": {
+    "turn_scope": "first_collaboration_turn",
+    "include_initial_turn": false,
+    "include_initial_turn_status": "METHOD_TBD; pilot uses collaboration turns only (round >= 2)",
+    "max_histories": 30,
+    "include_original_response": true,
+    "candidate_files": [],
+    "max_rollout_attempts": 3,
+    "max_rollout_attempts_notes": "reruns a rollout (same seed) that ended in a format failure; outcomes are never retried"
+  },
+  "data": {
+    "split_manifest": "data/pilot/split_manifest.json",
+    "source_dataset": "medmcqa_pilot"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "extends": "../../serl_agentclinic_qwen4b_max7_train30_clean.json",
+  "notes": "Ours (Filtered/Evolving Rubric + Effectiveness + Outcome, R_t = 0.4 R_O + 0.3 R_A,t + 0.3 R_E,t) with the corrected implementation of the causal validation's intervention. Nothing else differs from ours.json: same failures, candidates, 3 reruns, keep at 2, weights, diagnosis-equivalence mapping.",
+  "run_label": "clean30_4b_ours_frozenint",
+  "condition": "ours",
+  "validation": {
+    "intervention": {
+      "mode": "frozen_compliant",
+      "generator": "agent",
+      "compliance": "rubric_scorer",
+      "required_score": 2,
+      "max_attempts": 3,
+      "notes": "The response of the failed turn is written by the iteration's Agent under the candidate's ideal behavior; the run's rubric scorer (Jev), which wrote neither the candidate nor the response, scores it against the candidate rubric. The first of at most 3 attempts at score 2 is frozen and is the failed turn of all reruns as it is; only what follows is generated. No score-2 attempt: intervention_generation_failure, the candidate is not rerun and counts neither as pass nor as fail."
+    }
+  }
+}

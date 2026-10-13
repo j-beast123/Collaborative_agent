@@ -1,0 +1,83 @@
+
+
+---
+
+## ADDENDUM: THIS COLLABORATION AND THE AGENT-SIDE PRE-RESPONSE STATE
+
+The trajectory is a diagnostic collaboration between a primary Doctor (the
+collaborator, speaker `doctor`) and a consulting Agent (speaker `agent`). The
+two hold different information: `doctor_information` is what the Doctor has
+(the patient's history and symptoms), and `scenario` is what the Agent has,
+which additionally contains physical examination findings and test results
+the Doctor has not seen. The turns are Doctor D1, Agent A1, Doctor D2, Agent
+A2 and the Doctor's final diagnosis (`final_diagnosis`); the Doctor decides.
+The task fails when the final diagnosis is not the correct one, so the Agent
+can only change the outcome through what it communicates to the Doctor.
+
+Each agent turn carries `pre_response_state`, the Agent's own judgment of the
+situation immediately before that response:
+- `agent_current_assessment`: the Agent's own most likely diagnosis at that
+  moment;
+- `doctor_current_assessment`: the Doctor's diagnosis in the message the Agent
+  answers;
+- `better_supported_position`: which of the two the Agent judged better
+  supported by the evidence it had (agent, doctor, aligned or unclear);
+- `evidence_sufficient`: whether the Agent judged that evidence sufficient to
+  commit to that assessment;
+- `supporting_evidence_summary`: the findings that decided those two judgments;
+- `clinical_information_available_to_agent`: everything the Agent was given.
+The state was produced by a separate call before the response; the response
+was written without seeing it. A `state_status` of `elicitation_failed` means
+the state is unavailable for that turn.
+
+Use it to describe the agent side of the failure: what the Agent held, which
+position it judged better supported and whether it judged the evidence
+sufficient, and how the response then departed from that state (for example,
+it judged its own assessment better supported with sufficient evidence, yet
+adopted the Doctor's diagnosis without reporting the findings). Do not treat
+the Agent's judgment as correct by definition; it is the Agent's own
+assessment at that moment. Do not use the ground truth to define
+the situation.
+
+The user message lists the agent turns that may be named in
+`intervention_turn_id` and `failure_turn_ids`; choose only from those. Other
+turns may still be quoted as context.
+
+Add these fields to the JSON object (in addition to all required fields):
+
+  "user_side_context": "what the Doctor did and the resulting interaction situation, abstracted",
+  "agent_side_state": "which position the Agent judged better supported before responding and whether it judged the evidence sufficient, abstracted",
+
+These two fields are the rubric's applicability condition. Write `score_0`,
+`score_1` and `score_2` as the agent's behavior in exactly that same
+Doctor-side context and agent-side state, in the form "In this situation, the
+agent ...". The three levels differ only in behavior quality: `score_2` is
+what the agent should do, `score_1` the observable partial version, `score_0`
+the failure. Do not describe a different situation in any level. Do not name
+diseases, tests or findings of this case in the rubric.
+
+
+---
+
+## ADDENDUM: DECISION-FOCUSED INTERACTION RUBRIC (DIAGNOSTIC PILOT)
+
+This rubric is not a rubric that teaches diagnostic knowledge, and it is not a rubric about process alone. It describes
+how the Agent should update the shared diagnostic decision with the collaborator, using evidence it already holds or can
+reach in the conversation.
+
+Score 2 must require the whole chain, in one reply at the intervention turn:
+1. explicitly surface the evidence the Agent holds that conflicts with the collaborator's current hypothesis or that
+   discriminates between the hypotheses under discussion;
+2. compare the hypotheses against that evidence: which one it supports, which one it weakens, and how well each
+   explains it;
+3. explicitly propose whether the shared diagnosis should be maintained, challenged or revised;
+4. if decisive evidence is missing, name concretely which evidence is needed and how it would change the decision.
+A reply that only checks, cautions or distinguishes, without going from evidence to a comparison of hypotheses to an
+explicit decision update, is not score 2. Score 0 and score 1 describe the reply that stops earlier in this chain.
+
+Not allowed in any field (name, applicability, score levels, ideal_response_behavior):
+- the name of the correct diagnosis or of any disease;
+- a disease-specific fact or finding, or a diagnostic tip that depends on knowledge of a particular condition;
+- anything that tells which hypothesis is right in this case.
+Write the behavior so that it is reusable in another case with another disease: refer to "the collaborator's
+hypothesis", "the alternative", "the conflicting finding", never to named conditions or findings.

@@ -1,0 +1,198 @@
+{
+  "name": "train30_4b_clean",
+  "notes": "CLEAN rerun (corrected diagnosis judge). TRAIN30 / DEV31 / TEST60 (dataset version agentclinic_main_v2_train30). Experiment matrix of the main table and the component ablation. One Agent backbone (Qwen3-4B), Doctor google/gemma-3-12b-it. Every trained condition is an independent run from the same pretrained model: three SERL iterations (run iteration index 0, 1, 2 = table column Iter 1, 2, 3), the same TRAIN cases, protocol, Effectiveness model, GRPO settings, training samples and seeds; only reward.weights and the rubric schedule differ (allowed_differences). No condition's checkpoint initializes another. Tables are filled from DEV until the final evaluation; TEST is not read here.",
+  "model": "Qwen3-4B",
+  "base_config": "configs/serl_agentclinic_qwen4b_max7_train30_clean.json",
+  "iterations": 3,
+  "table_iteration_of_run_iteration": {
+    "0": 1,
+    "1": 2,
+    "2": 3
+  },
+  "seeds": [
+    0
+  ],
+  "seeds_status": "OPEN DECISION: the number of training seeds",
+  "evaluation": {
+    "split": "dev",
+    "rollouts_per_case": 1,
+    "rollouts_status": "OPEN DECISION: natural collaborations per case and checkpoint (same for every condition)",
+    "final_split": "test",
+    "final_split_notes": "opened once, after every setting is frozen; not produced by this code without --allow-test",
+    "appropriateness_status": "OPEN DECISION: the behavior-appropriateness column needs one definition that is the same for every condition (conditions have different rubric sets). Candidates: the RQ2 state-based behavior judge (scripts/run_eval.py rq2-states; it reads the first Agent turn) or scoring every reached turn against one frozen reference rubric set. tables reads eval_dev/appropriateness.json {value} once a producer is chosen; until then the column is empty.",
+    "effectiveness_status": "OPEN DECISION: the effectiveness column. Candidates: mean calibrated delta of the frozen predictor over the reached turns of the evaluation collaborations, or matched continuations (K = 9, scripts/run_eval.py rq2-effectiveness). tables reads eval_dev/effectiveness.json {value}; it needs the predictor of this protocol, which does not exist yet."
+  },
+  "allowed_differences": [
+    "notes",
+    "run_label",
+    "condition",
+    "reward.weights",
+    "rubric_registry.schedule",
+    "rubric_registry.fixed_rubric_set",
+    "rubric_registry.initial_rubrics",
+    "rubrics.scorer.max_rubrics_per_call"
+  ],
+  "conditions": {
+    "baseline": {
+      "label": "Baseline (no training)",
+      "config": "configs/serl_agentclinic_qwen4b_max7_train30_clean.json",
+      "training": false,
+      "rubric_source": "none",
+      "filtering": null,
+      "evolving": null,
+      "cumulative": null,
+      "shares_initial_rubrics_with": null,
+      "regenerated_each_iteration": null,
+      "carries_over_earlier_rubrics": null,
+      "weights": null
+    },
+    "outcome": {
+      "label": "Outcome",
+      "config": "configs/experiments/train30_4b_clean/outcome.json",
+      "training": true,
+      "rubric_source": "none",
+      "filtering": null,
+      "evolving": null,
+      "cumulative": null,
+      "shares_initial_rubrics_with": null,
+      "regenerated_each_iteration": null,
+      "carries_over_earlier_rubrics": null,
+      "weights": null
+    },
+    "effectiveness_outcome": {
+      "label": "Effectiveness + Outcome",
+      "config": "configs/experiments/train30_4b_clean/effectiveness_outcome.json",
+      "training": true,
+      "rubric_source": "none",
+      "filtering": null,
+      "evolving": null,
+      "cumulative": null,
+      "shares_initial_rubrics_with": null,
+      "regenerated_each_iteration": null,
+      "carries_over_earlier_rubrics": null,
+      "weights": null
+    },
+    "static_rubric": {
+      "label": "Static Rubric + Effectiveness + Outcome",
+      "config": "configs/experiments/train30_4b_clean/static_rubric.json",
+      "training": true,
+      "rubric_source": "R_0 of the Ours run (base failures: validated, consolidated, effectiveness-gap filtered and weighted), unchanged in every iteration",
+      "filtering": true,
+      "evolving": false,
+      "cumulative": false,
+      "shares_initial_rubrics_with": "ours",
+      "regenerated_each_iteration": false,
+      "carries_over_earlier_rubrics": true,
+      "weights": "effectiveness gap of R_0, fixed"
+    },
+    "no_filtering": {
+      "label": "No-filtering Rubric + Effectiveness + Outcome",
+      "config": "configs/experiments/train30_4b_clean/no_filtering.json",
+      "training": true,
+      "rubric_source": "every raw candidate of the failure analysis, iterations 0..i, no validation / consolidation / effectiveness filter",
+      "filtering": false,
+      "evolving": true,
+      "cumulative": true,
+      "shares_initial_rubrics_with": "ours",
+      "regenerated_each_iteration": true,
+      "carries_over_earlier_rubrics": true,
+      "weights": "1 per raw candidate"
+    },
+    "ours": {
+      "label": "Ours: Filtered/Evolving Rubric + Effectiveness + Outcome",
+      "config": "configs/experiments/train30_4b_clean/ours.json",
+      "training": true,
+      "rubric_source": "this iteration's failures only: candidates -> validation -> consolidation -> effectiveness-gap filter",
+      "filtering": true,
+      "evolving": true,
+      "cumulative": false,
+      "shares_initial_rubrics_with": null,
+      "regenerated_each_iteration": true,
+      "carries_over_earlier_rubrics": false,
+      "weights": "effectiveness gap, recomputed every iteration"
+    },
+    "minus_outcome": {
+      "label": "Ours - Outcome",
+      "config": "configs/experiments/train30_4b_clean/minus_outcome.json",
+      "training": true,
+      "rubric_source": "as Ours",
+      "filtering": true,
+      "evolving": true,
+      "cumulative": false,
+      "shares_initial_rubrics_with": "ours",
+      "regenerated_each_iteration": true,
+      "carries_over_earlier_rubrics": false,
+      "weights": "effectiveness gap, recomputed every iteration"
+    },
+    "minus_effectiveness": {
+      "label": "Ours - Effectiveness",
+      "config": "configs/experiments/train30_4b_clean/minus_effectiveness.json",
+      "training": true,
+      "rubric_source": "as Ours",
+      "filtering": true,
+      "evolving": true,
+      "cumulative": false,
+      "shares_initial_rubrics_with": "ours",
+      "regenerated_each_iteration": true,
+      "carries_over_earlier_rubrics": false,
+      "weights": "effectiveness gap, recomputed every iteration",
+      "description": "Ours - Effectiveness removes the direct effectiveness reward term while retaining effectiveness-gap-based rubric filtering and weighting."
+    }
+  },
+  "main_table": [
+    "baseline",
+    "outcome",
+    "effectiveness_outcome",
+    "static_rubric",
+    "no_filtering",
+    "ours"
+  ],
+  "ablation_table": {
+    "reference": "ours",
+    "table_iteration": 3,
+    "rows": [
+      {
+        "label": "Ours",
+        "condition": "ours"
+      },
+      {
+        "label": "- Outcome",
+        "condition": "minus_outcome"
+      },
+      {
+        "label": "- Effectiveness",
+        "condition": "minus_effectiveness"
+      },
+      {
+        "label": "- Rubric",
+        "condition": "effectiveness_outcome",
+        "reused_from": "main table: Effectiveness + Outcome (same config and run)"
+      }
+    ]
+  },
+  "rubric_behavior": {
+    "failure_scores": [
+      0
+    ],
+    "failure_scores_status": "OPEN DECISION: which scorer levels count as a behavior failure (0 only, or 0 and 1). The repository has no earlier binary definition: scores are used as 0 / 0.5 / 1. Every level's count is stored, so the table can be recomputed.",
+    "fully_satisfied_score": 2,
+    "mismatch": "score == fully_satisfied_score and Effectiveness delta < 0 (no epsilon: the repository defines none)",
+    "population": "the sampled responses of the iteration's GRPO training (iter<i>/reward_log.jsonl), each scored on its own turn against the iteration's active rubrics"
+  },
+  "output_dir": "outputs/main_experiments_train30_4b_clean",
+  "initial_rubrics_status": "OPEN DECISION: every rubric-using condition takes its iteration-0 rubric step from the Ours run (same base failures -> same R_0 and the same raw candidates), instead of asking the rubric models again per run. Implemented as the default; leaving INITIAL_RUBRICS unset makes a run build its own.",
+  "no_filtering_weights_status": "OPEN DECISION: weight of a raw rubric in the Weighted SoftMin. Implemented: 1 per candidate (each was written from one failure, so its failure frequency is 1), normalized over the applicable ones as in Ours.",
+  "rubric_method_status": "OPEN DECISION: see rubric_registry.selection in the main config (population of the effectiveness gap; minimum support, now 1 per group, to be fixed from TRAIN support counts before the real rubrics, never from DEV or TEST; no cap).",
+  "minus_effectiveness_status": "Displayed as 'Ours - Effectiveness'. It removes the direct effectiveness reward term (0.3 R_E) while retaining effectiveness-gap-based rubric filtering and weighting, so the rubric step still uses the predictor.",
+  "empty_rubric_set_status": "OPEN DECISION: an iteration in which no rubric has a positive effectiveness gap trains with an empty rubric set (R_A unavailable for every response; the other weights are not rescaled). Implemented as that, with a warning in the iteration's summary.",
+  "scorer_audit_status": "OPEN DECISION: size and auditor of the scorer validation sample (Jev against a human or an independent model on a stratified sample of scored responses). scripts/scorer_audit_sample.py draws the sample; no audit has been run.",
+  "research_questions": {
+    "RQ1": "collaborative task performance: the main table (task success of Baseline, Outcome, Effectiveness + Outcome, Static, No-filtering, Ours at Iter 1 / 2 / 3)",
+    "RQ2": "interaction behavior quality: behavior appropriateness, effectiveness, controlled evidence (separate evaluation; columns not defined yet)",
+    "RQ3": "why it works: Static vs Evolving, No-filtering, the component ablation, the rubric behavior analysis"
+  },
+  "scale_replication": {
+    "status": "not started",
+    "plan": "a larger Qwen backbone with Baseline and Ours only; it needs its own base collaborations, Effectiveness labels and predictor. It is not part of this matrix and shares nothing with it."
+  }
+}

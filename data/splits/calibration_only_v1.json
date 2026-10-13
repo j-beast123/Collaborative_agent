@@ -1,0 +1,20 @@
+{
+ "name": "calibration_only_v1",
+ "pool": "data/interim/medmcqa/train_random500_seed20261006.jsonl",
+ "pool_sha256": "5307963d7d05fc1adbe918ba0bffa1041effffdf35bfdea5bb295dad8a3492fe",
+ "schedule_seed": 0,
+ "positions_1_indexed": {
+  "401": "medmcqa_eda5f31a-9eac-42a8-8ce3-5b233cb3eb90",
+  "402": "medmcqa_507feb54-647f-46c5-906b-4b2233c59ddf",
+  "403": "medmcqa_dfe8b671-5d53-4cf8-832a-c5bae5fb36c7",
+  "404": "medmcqa_52673829-5fed-493c-9c73-7f998842e442",
+  "405": "medmcqa_2335f0d1-c480-409a-a022-b7c84eca71ca",
+  "406": "medmcqa_858f875a-344d-45da-bf0a-7f2b7fc93bac",
+  "407": "medmcqa_899e79e3-37f6-46e1-ab3c-d585647f4d96",
+  "408": "medmcqa_5855dbc9-15c4-4305-8c7c-8cfd659b4f7b",
+  "409": "medmcqa_1b8e64f8-bbec-496b-8460-3359bd24d326",
+  "410": "medmcqa_1d184378-ee3b-46c9-8391-3557e141e653"
+ },
+ "rule": "positions 401-410 of the seeded main-pool order are used only for the bounded_witness_v1 calibration; they are excluded from any training run (TreeTrainer refuses cursors 400-409 without schedule.positions).",
+ "fixed_before_results": true
+}

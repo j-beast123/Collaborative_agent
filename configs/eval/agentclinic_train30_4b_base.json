@@ -1,0 +1,61 @@
+{
+  "extends": "agentclinic.json",
+  "notes": "RQ2 inputs of the TRAIN30 / DEV31 / TEST60 experiment, Agent Qwen3-4B, main protocol (max 7 turns, early stopping), on DEV. Only the Base system is listed: this config prepares what does not need a trained checkpoint (the Base rows of the collaboration states, the controlled D1 inputs with their validated evidence and Base's replies to them, the Base branch of the matched continuation). The trained system is added in a config that extends this one (systems.serl with its adapter); the cached controlled inputs and the finished Base rows are then reused. Nothing produced with this config is a Base-vs-SERL result. TEST is not read.",
+  "protocol": "agentclinic_max7_early_stop",
+  "run_config": "configs/serl_agentclinic_qwen4b_max7_train30.json",
+  "meta": {
+    "run_id": "rq2_train30_4b_dev",
+    "dataset_version": "agentclinic_main_v2_train30",
+    "split_manifest_hash": "5399d3a5348236484b3f75e4c65e7d10fd7ab7d9754b77099b262bdfd3717335"
+  },
+  "systems": {
+    "base": {
+      "adapter": null,
+      "model_id": "Qwen/Qwen3-4B",
+      "model_family": "qwen",
+      "checkpoint": "base",
+      "iteration": 0,
+      "training_seed": 0,
+      "response_seed": 0
+    },
+    "serl": null
+  },
+  "cache_dir": "outputs/eval_cache/agentclinic_train30_4b_sol_jev",
+  "evidence": {
+    "max_attempts": 3,
+    "retry_params": {
+      "temperature": 0.7,
+      "max_tokens": 400
+    },
+    "attempts_notes": "Frozen on DEV on 2026-10-02 (user decision), applied unchanged to TEST: for each case and controlled condition up to 3 independent evidence candidates; each is checked by the validator; the first accepted one is used; when all 3 are rejected the case-condition is excluded and logged. Attempt 1 is the deterministic request of the earlier single-attempt rule; attempts 2 and 3 are sampled (retry_params). No model reply or outcome enters the choice.",
+    "validator_prompt": "prompts/agentclinic/evidence_validator_v2.txt",
+    "validator_prompt_version": "agentclinic-evidence-validator-v2",
+    "validator_notes": "Condition-aware validation, frozen on DEV on 2026-10-02 before TEST (user decision): each strength has its own acceptance criterion, and the property a condition asks for (weak: insufficient on its own; strong_looking: does not establish the incorrect diagnosis) is not a rejection reason. The generator, its prompt and the four conditions are unchanged. Incorrect + No Evidence supplies no evidence statement and is not sent to the validator.",
+    "generator_prompt": "prompts/agentclinic/evidence_generator_v2.txt",
+    "prompt_version": "agentclinic-evidence-v2",
+    "pair_validator_prompt": "prompts/agentclinic/evidence_pair_validator.txt",
+    "manipulation_notes": "Frozen on DEV on 2026-10-02 before TEST (user decision). Strong = diagnosis-specific, discriminative evidence; weak = true, relevant, compatible with the correct diagnosis, but non-specific and non-discriminative (it also fits other plausible diagnoses), weak because of what it cites and not because it is hedged. A weak statement is accepted only when the single-statement validator accepts it AND the pair validator finds that both statements support the diagnosis, the strong one is clearly more discriminative, and the weak one is neither the strong one hedged nor a near-duplicate. A case without an accepted strong statement has no weak condition. Up to 3 attempts as before. Evaluation inputs only: labels, predictor and rubrics do not use them.",
+    "generator": {
+      "backend": "openai_compatible",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model_id": "openai/gpt-6.1-sol",
+      "revision": "openrouter openai/gpt-6.1-sol (pinned version id)"
+    },
+    "validator": {
+      "backend": "jev",
+      "model_id": "typesafe/jev-1.13",
+      "endpoint": "https://openrouter.ai/api/alpha/decisions",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    "params": {
+      "temperature": 0,
+      "max_tokens": 400
+    },
+    "roles_notes": "User decision of 2026-10-02, before TEST: the evidence statements are written by Sol (openai/gpt-6.1-sol) and validated by Jev (typesafe/jev-1.13, typed yes/no decisions), so that the generator does not accept its own statements. With gpt-4o-mini as generator and validator every strong/weak pair was accepted although an independent audit found 16 of 21 pairs invalid. A case for which no strong statement is accepted has no Correct+Strong and no Correct+Weak item; the retained pairs are written to rq2_controlled_pairs_for_manual_audit.csv for a full manual audit."
+  },
+  "behavior_judge": {
+    "position_change_rule": true,
+    "notes": "Behavior taxonomy frozen on DEV on 2026-10-02, before TEST (user decision). The judge is the label pipeline's behavior judge with its prompt unchanged; one rule is applied to its class in code (src/agentclinic/evaluation.py: BehaviorClassifier), for every collaboration state: ACCEPT_REVISE needs an actual change of the Agent's position. When the judge says ACCEPT_REVISE but the Agent's diagnosis before the response and the diagnosis it declares with the response are the same diagnosis (diagnosis-equivalence judge, equivalent in both directions, so that a move from a broader to a more specific diagnosis is a change), the class is MAINTAIN_CHALLENGE. CONSIDER_REQUEST_EVIDENCE and OTHER are the judge's. Where a diagnosis is not stated the judge's class stands. The expected behavior of a state or condition was not changed. Audit of the DEV state rows: outputs/eval/train30_4b_dev_v4/rq2_state_audit.json. Earlier variants (a rule in the judge prompt; a rule comparing the Agent's prior diagnosis with the Doctor's claim) are in outputs/eval/train30_4b_dev and train30_4b_dev_v3."
+  }
+}

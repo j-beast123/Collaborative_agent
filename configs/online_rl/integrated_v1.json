@@ -1,0 +1,119 @@
+{
+  "name": "sherpa_v1",
+  "output_dir": "outputs/sherpa_v1",
+  "condition": "integrated_evolving",
+  "policy": {
+    "base_model": "Qwen/Qwen3-8B",
+    "init_adapter": null,
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.0,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "use_rslora": true
+    }
+  },
+  "data": {
+    "train": "data/interim/medmcqa/medicine_train_grpo100_seed20261004.jsonl",
+    "train_sha256": "885378702994e6dd"
+  },
+  "rollout": {
+    "group_size": 4,
+    "rounds": 7,
+    "doctor_model": "google/gemma-3-12b-it",
+    "max_tokens_doctor": 512,
+    "max_completion_length": 400,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": null,
+    "turn_sampling": "uniform_reached",
+    "outcome_continuations_K": "CALIBRATION_REQUIRED",
+    "min_usable_responses": 2
+  },
+  "optimizer": {
+    "learning_rate": "CALIBRATION_REQUIRED",
+    "beta": 0.04,
+    "clip_epsilon": 0.2,
+    "grad_clip": 1.0,
+    "logprob_token_chunk_size": 16,
+    "pre_update_ratio_tolerance": 0.001
+  },
+  "advantage_normalization": {
+    "mode": "mean_center"
+  },
+  "schedule": {
+    "seed": 0,
+    "stages": "CALIBRATION_REQUIRED",
+    "steps_per_stage": "CALIBRATION_REQUIRED"
+  },
+  "reward": {
+    "w_O": 0.4,
+    "w_A": "CALIBRATION_REQUIRED"
+  },
+  "rubric": {
+    "enabled": true,
+    "prompt_file": "prompts/sherpa/rubric_generator_P0.txt",
+    "prompt_id": "P0",
+    "prompt_sha256": "TBD",
+    "max_attempts": 2
+  },
+  "state_elicitation": {
+    "reconstructor_model": "google/gemini-2.5-flash-lite",
+    "reconstruction_max_tokens": 4096,
+    "judgment_system_prompt": "prompts/local_epistemic_judgment.txt",
+    "judgment_max_tokens": 384
+  },
+  "metrics": {
+    "epsilon_O": "CALIBRATION_REQUIRED",
+    "epsilon_score": "CALIBRATION_REQUIRED"
+  },
+  "effectiveness": {
+    "baseline_mode": "diagnostic_subset",
+    "diagnostic_fraction": "CALIBRATION_REQUIRED"
+  },
+  "diagnostics": {
+    "high_score": 0.75,
+    "severe_effect": 0.6667
+  },
+  "prompt_update": {
+    "enabled": true,
+    "every_n_steps": "CALIBRATION_REQUIRED",
+    "minimum_raw_states": "CALIBRATION_REQUIRED",
+    "minimum_informative_states": "CALIBRATION_REQUIRED",
+    "acceptance_fraction": 0.5,
+    "candidate_count": 4,
+    "retain_top_k": 2,
+    "refinement_depth": 2,
+    "rubric_samples_per_state": 1,
+    "feedback_prompt_file": "prompts/prompt_opt/feedback_generator_online_v1.txt",
+    "feedback_prompt_sha256": "c78fb68fb834d3d6188d061d85859ba3b2cbe90eeb9edae6ee39536aca93af40",
+    "refiner_prompt_file": "prompts/prompt_opt/prompt_refiner_directions_v1.txt",
+    "refiner_prompt_sha256": "bf3aff4f3660ed956fd12a4a4a880054bf48463c9fe4793098ef4a7dfb522ba0"
+  },
+  "acceptance": {
+    "delta_Q": "CALIBRATION_REQUIRED",
+    "p_min": "CALIBRATION_REQUIRED",
+    "delta_C": "CALIBRATION_REQUIRED",
+    "max_validity_drop": 0.05,
+    "max_leakage_rise": 0.02,
+    "max_new_premise_rise": 0.02,
+    "max_observability_drop": "CALIBRATION_REQUIRED",
+    "bootstrap_n": 2000,
+    "bootstrap_seed": 0
+  },
+  "notes": {
+    "calibration": "CALIBRATION_REQUIRED / TBD values must be set before launch; the launcher refuses otherwise",
+    "conditions": "outcome_only, integrated_fixed and integrated_evolving are derived from this file by src/online_rl/integrated/conditions.py and written to <output_dir>/<condition>",
+    "P0": "initial Rubric-Generator prompt shared by the fixed and evolving conditions; set rubric.prompt_sha256 to its sha256 to approve it",
+    "search_structure": "candidate_count, retain_top_k, refinement_depth, rubric_samples_per_state and acceptance_fraction are configurable starting values",
+    "gate_tolerances": "max_validity_drop, max_leakage_rise and max_new_premise_rise bound gate regressions of a candidate prompt",
+    "diagnostics": "diagnostic thresholds only; never used for training or acceptance",
+    "state_elicitation": "reconstruction model plus the current policy's Q1/Q2 judgment; consumed only by the Rubric Generator",
+    "checkpoints": "one adapter+optimizer checkpoint per optimizer step is kept"
+  }
+}

@@ -1,0 +1,14 @@
+Before your next reply you re-assess the case privately. Nothing of this is shown to the Doctor.
+
+Assess the evidence yourself, from the clinical information available to you and from the findings reported in the
+conversation. The Doctor's own diagnostic conclusions are withheld here on purpose: weigh only evidence, not who said what.
+A finding the Doctor reported is evidence; a diagnosis the Doctor stated is not.
+
+Reply with exactly one JSON object and nothing else:
+{"current_leading_assessment": "<one diagnosis>",
+ "supporting_evidence": "<the findings that support it>",
+ "strongest_competing_explanation": "<one diagnosis>",
+ "discriminating_evidence": "<the findings that would separate the two>",
+ "decision": "MAINTAIN | REVISE | UNRESOLVED",
+ "decision_meaning": "MAINTAIN = the evidence does not justify changing the assessment you held before this turn; REVISE = new evidence justifies changing it; UNRESOLVED = the available evidence cannot separate the alternatives",
+ "missing_evidence": "<what would resolve it, if UNRESOLVED; otherwise empty>"}

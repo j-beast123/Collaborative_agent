@@ -1,0 +1,88 @@
+{
+  "extends": "serl_agentclinic_gemma_max7.json",
+  "run_label": "serl_qwen4b_gemma12b_max7",
+  "notes": "Main SERL configuration: Agent (policy) Qwen3-4B with LoRA, Doctor google/gemma-3-12b-it, max 7 turns with early stopping, dataset agentclinic_main_v2. The Effectiveness predictor is a separate Qwen3-8B + LoRA + scalar head trained on this environment's labels; until it exists R_E is unavailable at every turn and GRPO with w_E > 0 does not start. Rubric method: per-iteration regeneration, validation, consolidation, effectiveness-gap filter and weights.",
+  "roles_notes": "Agent local Qwen3-4B; Doctor google/gemma-3-12b-it (OpenRouter); outcome judge openai/gpt-4o-mini; Effectiveness predictor backbone Qwen3-8B; Sol = openai/gpt-6.1-sol (candidate generation, failure analysis, consolidation); Jev = typesafe/jev-1.13 (rubric scoring, candidate compliance).",
+  "policy": {
+    "model_id": "Qwen/Qwen3-4B",
+    "revision": "1cfa9a7208912126459214e8b04321603b3df60c",
+    "checkpoint": "${MODEL_ROOT}/Qwen3-4B"
+  },
+  "environment": {
+    "config": "configs/effectiveness/v10_qwen4b_gemma12b_max7.json",
+    "histories": "outputs/effectiveness/v10_qwen4b_gemma12b_max7/histories.jsonl",
+    "base_trajectories": "outputs/effectiveness/v10_qwen4b_gemma12b_max7/base_trajectories.jsonl"
+  },
+  "devices": {
+    "notes": "The policy is Qwen3-4B (about 8 GB in bf16, more while training) and the Effectiveness predictor is Qwen3-8B + LoRA (about 16 GB). Whether the two fit on one 24 GB GPU has not been measured; the configuration keeps them as two processes on two GPUs (placement concurrent) for GRPO with w_E > 0."
+  },
+  "reward": {
+    "effectiveness": {
+      "provider": null,
+      "checkpoint": null,
+      "calibration": null,
+      "model_version": null,
+      "expected_temperature": null,
+      "expected_continuation_protocol_hash": null,
+      "stages": [],
+      "available": {
+        "A1": false,
+        "A2": false,
+        "A3": false,
+        "A4": false,
+        "A5": false,
+        "A6": false,
+        "A7": false
+      },
+      "notes": "No Effectiveness predictor exists for this environment yet. It will be ONE turn-conditioned predictor (Qwen3-8B + LoRA + scalar head, intervention turn A1 ... A7) trained on this environment's labels at every reached turn (scripts/train_max7.py: TRAIN case-level CV, calibration chosen on TRAIN out-of-fold logits between identity and one global temperature, DEV evaluated once, offline/gRPC parity). The predictor then serves every turn A1 ... A7; there is no per-turn gate, and turns with little support are reported as such. Until then R_E is unavailable at every turn (never 0), the other weights are not rescaled, and GRPO with w_E > 0 does not start. scripts/train_max7.py parity fills this section in after parity passes."
+    }
+  },
+  "role_models": {
+    "agent": "Qwen3-4B (local, LoRA policy)",
+    "doctor": "google/gemma-3-12b-it (OpenRouter)",
+    "outcome_judge": "openai/gpt-4o-mini (OpenRouter)",
+    "effectiveness_predictor": "Qwen3-8B + LoRA + scalar head (separate process)",
+    "effectiveness_candidate_generator": "Sol",
+    "effectiveness_compliance_judge": "Jev",
+    "failure_analyzer": "Sol",
+    "rubric_manager": "Sol",
+    "rubric_scorer": "Jev",
+    "status": "Connected: Sol = openai/gpt-6.1-sol (candidate generator, failure analyzer, rubric manager), Jev = typesafe/jev-1.13 through OpenRouter's Decisions API (rubric scorer, compliance judge). Both verified with fixture calls on 2026-10-02. The pinned ids are used, not the latest aliases.",
+    "connected": {
+      "Sol": true,
+      "Jev": true
+    },
+    "decision_outputs": {
+      "rubric_scorer": "per rubric: applicable / No Match, score 0 | 1 | 2, confidence / probabilities",
+      "effectiveness_compliance_judge": "compliant / non-compliant, confidence / probabilities",
+      "notes": "Sol generates (candidates, failure analysis, rubrics, consolidation); Jev makes bounded decisions (scores, compliance). A written reason is not part of a decision and no model writes one for Jev's decision afterwards. The scorer's input, the rubric, the decision and its probabilities are stored with every score (reward_log.jsonl, gap_scores.jsonl) and with every candidate judgment, so that a stratified sample can be audited by a human or an independent model (scripts/scorer_audit_sample.py)."
+    }
+  },
+  "rubrics": {
+    "scorer": {
+      "name": "jev",
+      "backend": "jev",
+      "endpoint": "https://openrouter.ai/api/alpha/decisions",
+      "model_id": "typesafe/jev-1.13",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "revision": "openrouter typesafe/jev-1.13",
+      "max_rubrics_per_call": 8,
+      "notes": "Rubric scorer: Jev 1.13 through OpenRouter's Decisions API. One choice per rubric (NA / 0 / 1 / 2) with a probability for every option; no text. The scorer's input, the rubric and the decision with its probabilities are stored with every score. At most max_rubrics_per_call rubrics per call (Jev's context is 32K tokens). rubrics.prompt and prompt_addendum belong to the chat scorer and are not used by this backend."
+    }
+  },
+  "roles": {
+    "failure_analyzer": {
+      "model_id": "openai/gpt-6.1-sol",
+      "revision": "openrouter openai/gpt-6.1-sol (pinned version id)",
+      "family": "gpt",
+      "alias": "sol"
+    },
+    "rubric_manager": {
+      "model_id": "openai/gpt-6.1-sol",
+      "revision": "openrouter openai/gpt-6.1-sol (pinned version id)",
+      "family": "gpt",
+      "alias": "sol",
+      "model_id_status": "main: GPT-6.1 Sol (user decision 2026-10-02)"
+    }
+  }
+}

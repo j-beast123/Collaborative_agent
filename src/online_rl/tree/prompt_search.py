@@ -194,8 +194,19 @@ def reflection_view(units: list[EvidenceUnit], results: dict[str, dict], reruns:
     for u in units:
         r = results[u.leaf.leaf_id]; c, e = r['rubric'], r['effectiveness']
         gate=c.gate or {}
-        gate_evidence={k:gate.get(k) for k in ('passed','schema','leakage_deterministic','answer_presupposition',
+        gate_evidence={k:gate.get(k) for k in ('passed','schema','answer_presupposition',
                                                 'new_domain_premise','observable') if k in gate}
+        # Keep the feedback/refiner evidence answer-neutral. The deterministic
+        # checker distinguishes the correct option internally, but that label
+        # must not be visible to prompt optimization.
+        if 'leakage_deterministic' in gate:
+            leak=gate.get('leakage_deterministic') or []
+            gate_evidence['leakage_deterministic'] = [
+                label for label, present in (
+                    ('option_letter', 'mentions_option_letter' in leak),
+                    ('option_text', any(x == 'gold_option_text' or x.startswith('option_text_') for x in leak)),
+                ) if present
+            ]
         source=c.source_check or {}
         source_stage1=source.get('stage1') or {}
         source_evidence={k:source.get(k) for k in ('status','repaired') if k in source}

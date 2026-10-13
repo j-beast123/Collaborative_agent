@@ -1,0 +1,1017 @@
+You analyze one failed multi-turn collaboration trajectory and extract exactly one reusable interaction-behavior rubric.
+
+Every failed trajectory must produce exactly one rubric.
+
+The goal is NOT to explain why the final task answer was wrong.
+
+The goal is to discover:
+
+1. what observable interaction situation the collaborator created,
+2. how the collaborator's contribution shaped the reasoning or decision process,
+3. how the agent handled that structure inadequately,
+4. what a better but incomplete response behavior would look like,
+5. what ideal observable interaction behavior would look like.
+
+The final rubric must represent:
+
+**User-side Situation → [0] Interaction Failure Cause → [1] Better Interaction Behavior → [2] Ideal Interaction Behavior**
+
+The rubric evaluates interaction behavior, not task correctness.
+
+Do not begin from a predefined taxonomy.
+
+Do not choose a rubric first and then search for evidence that matches it.
+
+Always analyze in this direction:
+
+**exact interaction evidence  
+→ collaborator-created interaction structure  
+→ decision-shaping structure  
+→ agent handling of that structure  
+→ interaction failure  
+→ ideal response behavior  
+→ abstract reusable rubric**
+
+---
+
+## 1. STRICT EVIDENCE-FIRST ANALYSIS
+
+Before identifying any interaction failure, locate:
+
+- the relevant collaborator utterance,
+- the relevant agent response,
+- their speaker identities,
+- their temporal order.
+
+Only after these are fixed may you infer the interaction pattern.
+
+Do not interpret the trajectory through a rubric category before examining the actual exchange.
+
+Do not first decide that the failure is about agreement, uncertainty, framing, evidence, comparison, or any other behavior and then search for matching evidence.
+
+The interaction failure must emerge from the conversation itself.
+
+---
+
+## 2. STRICT TEMPORAL GROUNDING
+
+Every claim about the collaborator must be supported by collaborator speech that occurs before the selected agent response.
+
+Never use a future turn to explain what the collaborator supposedly contributed earlier.
+
+Do not use:
+
+- later agreement,
+- later repetition,
+- later clarification,
+- later reasoning,
+- later correction
+
+to reinterpret an earlier collaborator turn.
+
+The interaction failure must be identifiable using only information available up to the selected agent response.
+
+---
+
+## 3. STRICT SPEAKER ATTRIBUTION
+
+Never attribute information, reasoning, distinctions, evidence, assumptions, or arguments to the collaborator merely because the agent introduced them.
+
+A concept belongs to the collaborator side only if the collaborator actually expressed it before the selected agent response.
+
+If the agent introduces a concept first, that concept must NOT later be described as:
+
+- the collaborator's reasoning,
+- the collaborator's concern,
+- the collaborator's evidence,
+- the collaborator's argument,
+- the collaborator's assumption,
+- the collaborator's framing,
+- the collaborator's distinction.
+
+This remains true even if the collaborator agrees with or repeats the concept in a later turn.
+
+---
+
+## 4. CLAIM–EVIDENCE ALIGNMENT
+
+Every substantive claim about the collaborator must be traceable to exact collaborator evidence.
+
+For each element of:
+
+- `surface_request`,
+- `decision_shaping_contribution`,
+- `user_side_behavior`,
+- `user_contribution`,
+
+internally ask:
+
+**Which exact collaborator words support this claim?**
+
+If no exact support exists, remove or revise the claim.
+
+Do not infer a richer collaborator contribution than the evidence supports.
+
+If a description contains several judgments, premises, comparisons, or constraints, the cited collaborator evidence must support those elements rather than only the final question or request.
+
+---
+
+## 5. IGNORE GROUND TRUTH
+
+If ground truth is provided, do not use it when identifying or scoring the interaction behavior.
+
+Do not use ground truth to:
+
+- determine which participant is correct,
+- determine which premise is factually correct,
+- decide which alternative should be preferred,
+- select the interaction failure,
+- select the intervention point,
+- construct the ideal response,
+- define score 0, 1, or 2,
+- favor a particular conclusion.
+
+Ask:
+
+**Would I identify the same interaction failure if the correct answer were hidden?**
+
+If not, revise the interaction failure.
+
+The rubric must evaluate how the interaction is handled, independently of whether the final conclusion is correct.
+
+---
+
+## 6. ABSTRACT DOMAIN CONTENT
+
+Except for exact quotations inside `evidence_spans`, generated descriptions must not contain case-specific clinical or domain entities.
+
+Do not include:
+
+- disease names,
+- diagnosis names,
+- syndrome names,
+- treatment names,
+- medication names,
+- test names,
+- procedure names,
+- named clinical findings,
+- option labels,
+- specific answer-choice content,
+- named case-specific entities.
+
+Use abstract relational descriptions instead, such as:
+
+- an alternative,
+- a proposed hypothesis,
+- a stated premise,
+- supplied evidence,
+- competing alternatives,
+- a collaborator-provided judgment,
+- a decision criterion,
+- a narrowed set of possibilities,
+- a proposed comparison.
+
+Exact evidence quotations are exempt because they must preserve the original trajectory.
+
+---
+
+## 7. DECOMPOSE THE COLLABORATOR CONTRIBUTION
+
+Analyze the collaborator contribution at two different levels.
+
+### surface_request
+
+Identify the explicit request, question, challenge, or requested action expressed by the collaborator.
+
+If none exists, set this field to null.
+
+Do not substitute the original task question for the collaborator's actual conversational request.
+
+Describe the request abstractly.
+
+---
+
+### decision_shaping_contribution
+
+Identify what the collaborator contributes beyond the literal surface request that changes how the current reasoning or decision is structured.
+
+Do NOT merely state that the collaborator:
+
+- provides reasoning,
+- discusses alternatives,
+- asks about an option,
+- seeks clarification.
+
+Instead, reconstruct the observable decision structure introduced by the collaborator.
+
+Internally determine:
+
+1. What judgments, premises, evidence, or assumptions does the collaborator explicitly introduce?
+2. How do those contributions affect the relationship among the alternatives or possibilities?
+3. Does the collaborator narrow, prioritize, eliminate, group, compare, challenge, redirect, or otherwise reorganize the decision space?
+4. Does the collaborator introduce or rely on a criterion for comparing the alternatives?
+5. Does the collaborator's contribution cause attention to shift toward a particular unresolved part of the decision?
+
+Only include structure directly supported by collaborator speech.
+
+Do not infer whether the collaborator's reasoning is correct.
+
+Do not infer hidden intentions or internal states.
+
+Before finalizing this field, ask:
+
+**If all domain-specific nouns were removed, could I still describe what the collaborator did to the structure of the decision?**
+
+The answer should be yes.
+
+---
+
+## 8. OBSERVABLE-STATE HARD CONSTRAINT
+
+Do not infer not only epistemic states, but also unexpressed positions or conclusions.
+Do not describe the collaborator as having a "concern," "conclusion," "preference," "rejection," or "stance" unless that position is explicitly stated.
+A question about an alternative does not establish a conclusion about that alternative.
+
+The following terms, and semantically equivalent terms, are prohibited unless directly supported by explicit collaborator wording:
+
+- uncertain,
+- uncertainty,
+- doubtful,
+- skeptical,
+- concerned,
+- confused,
+- confident,
+- convinced,
+- hesitant,
+- prefers,
+- favors,
+- rejects,
+- distrusts.
+
+A question such as:
+
+**"What about X?"**
+
+must be interpreted only as an observable conversational action, such as:
+
+- directing attention toward X,
+- requesting further evaluation of X,
+- introducing X into the current comparison.
+
+It must NOT by itself be interpreted as:
+
+- uncertainty about X,
+- doubt about X,
+- skepticism toward X,
+- concern about X,
+- preference for or against X,
+- rejection of X.
+
+Before returning the output, scan all generated fields.
+
+If an internal-state term is not directly supported by explicit collaborator wording, rewrite the field using only observable interaction behavior.
+
+---
+
+## 9. IDENTIFY THE USER-SIDE BEHAVIOR
+
+Describe what the collaborator is doing interactionally.
+
+Do NOT merely summarize the topic.
+
+Ask:
+
+**What observable feature of the collaborator's behavior changes what kind of response the agent now needs to provide?**
+
+The description should capture the interaction structure at a level deeper than simply:
+
+- asking a question,
+- requesting clarification,
+- discussing alternatives,
+- providing reasoning.
+
+Use the most specific interaction-level abstraction supported by the evidence.
+
+Do not infer:
+
+- hidden intention,
+- hidden belief,
+- motivation,
+- correctness,
+- reliability.
+
+Do not include domain-specific entities.
+
+---
+
+## 10. DECOMPOSE THE AGENT RESPONSE
+
+Analyze the agent response at two levels.
+
+### surface_handling
+
+Determine whether the agent directly addresses the collaborator's explicit surface request.
+
+If the agent answers or fulfills the request, do NOT later describe the central failure as:
+
+- failure to answer,
+- failure to engage,
+- failure to respond,
+- failure to acknowledge.
+
+A response may successfully address the surface request while still mishandling the deeper reasoning or decision structure.
+
+---
+
+### reasoning_handling
+
+Determine how the agent handles the collaborator's `decision_shaping_contribution`.
+
+Evaluate only structure actually introduced by the collaborator.
+
+Do not evaluate the agent against reasoning, distinctions, or evidence introduced later by the agent itself.
+
+Describe observable behavior only.
+
+Ask:
+
+1. Does the agent adopt or rely on the collaborator's proposed structure?
+2. Does the agent preserve a comparison, narrowing, prioritization, elimination, premise, or criterion introduced by the collaborator?
+3. Does the agent examine whether the structure is sufficiently supported before relying on it?
+4. Does the agent modify or revisit the structure when its supporting premises have not been established?
+
+Do not include domain-specific entities.
+
+Do not infer hidden internal states.
+
+---
+
+## 11. IDENTIFY THE AGENT-SIDE BEHAVIOR
+
+Describe how the agent observably responds to the collaborator-created interaction structure.
+
+Focus on:
+
+**collaborator structure → agent handling**
+
+rather than merely summarizing the agent's final conclusion.
+
+The description should make clear:
+
+- what collaborator-provided structure the agent responds to,
+- whether the agent follows, accepts, modifies, questions, ignores, or evaluates it,
+- and what observable handling occurs.
+
+Do not include case-specific domain entities.
+
+---
+
+## 12. DECISION-STRUCTURE HANDLING TEST
+
+Before selecting the interaction failure, explicitly separate surface response from decision-structure handling.
+
+### A. Surface response
+
+Did the agent answer the collaborator's explicit question or request?
+
+If yes, do not use failure-to-answer or failure-to-engage as the primary failure.
+
+Continue to the deeper structure.
+
+### B. Structure uptake
+
+Did the agent rely on, preserve, or follow the way the collaborator structured the decision?
+
+This may include reliance on:
+
+- stated premises,
+- a comparison,
+- a narrowed set of possibilities,
+- prioritization,
+- elimination,
+- a proposed criterion,
+- an attention shift.
+
+### C. Premise-to-criterion check
+
+If the agent relies on the collaborator's structure, does the response examine whether the collaborator-provided judgments or premises actually support the relevant decision criterion?
+
+This does NOT require determining whether the collaborator is factually correct.
+
+The question is:
+
+**Does the agent examine the relationship between the collaborator-provided basis and the decision structure built from it?**
+
+### D. Structure-preservation check
+
+Does the agent automatically preserve the collaborator's proposed comparison or narrowing?
+
+Or does it revisit the structure when its supporting premises are not sufficiently established?
+
+Use this analysis to identify the interaction mechanism.
+
+---
+
+## 13. SELECT ONE CENTRAL INTERACTION FAILURE
+
+Identify exactly one primary interaction failure.
+
+The failure must explain the most important observable mismatch between:
+
+**the collaborator-created structure and the agent's handling of that structure.**
+
+The failure must describe:
+
+**what specific structure the collaborator introduced → what the agent did with that structure → what necessary handling was missing**
+
+Prefer a specific interaction mechanism over a generic quality judgment.
+
+Do NOT use the following as sufficient failures by themselves:
+
+- fails to engage with reasoning,
+- insufficient engagement,
+- insufficient critical thinking,
+- lacks nuance,
+- fails to clarify,
+- fails to reason carefully,
+- fails to communicate clearly,
+- fails to consider input,
+- provides insufficient detail.
+
+If the proposed failure can be summarized by one of these phrases, ask:
+
+**What exact collaborator-created structure was mishandled, and how was it mishandled?**
+
+Rewrite the failure using the answer.
+
+---
+
+## 14. FAILURE DEPTH TEST
+
+Before accepting the interaction failure, verify:
+
+### A.
+Did the agent answer the explicit surface request?
+
+If yes, the primary failure must occur at a deeper interaction level.
+
+### B.
+Did the collaborator shape the reasoning or decision beyond the surface request?
+
+If yes, identify exactly what structure was created.
+
+### C.
+Did the agent rely on that structure?
+
+If yes, identify what examination or response behavior should have occurred before relying on it.
+
+### D.
+Could the proposed failure describe almost any incorrect answer?
+
+If yes, it is too generic.
+
+### E.
+Does the failure identify both:
+
+- a specific collaborator-side trigger,
+- a specific agent-side handling failure?
+
+If no, refine it.
+
+---
+
+## 15. KNOWLEDGE-INDEPENDENCE TEST
+
+Ask:
+
+**Could this interaction failure be corrected without supplying a new domain fact or revealing the correct answer?**
+
+Reasoning over information already available in the conversation is allowed.
+
+Introducing missing domain knowledge is not.
+
+The ideal behavior may lead to a different final answer, the same final answer, or no immediate answer change.
+
+The rubric evaluates the interaction process, not the conclusion.
+
+---
+
+## 16. IDEAL RESPONSE BEHAVIOR
+
+Define the observable behavior that would adequately handle the same collaborator-created structure.
+
+The ideal behavior must:
+
+- directly address the identified interaction need,
+- use only information already available,
+- be observable in the response,
+- not reveal ground truth,
+- not introduce missing domain knowledge,
+- not require agreement,
+- not require disagreement,
+- not require answer revision,
+- not require answer preservation.
+
+When the failure involves reliance on a collaborator-created decision structure, the ideal behavior should specify what the agent must examine before relying on that structure.
+
+Describe the interaction behavior, not the final answer.
+
+---
+
+## 17. TRAJECTORY-SPECIFIC FAILURE BEFORE RUBRIC GENERALIZATION
+
+First determine:
+
+- `surface_request`
+- `decision_shaping_contribution`
+- `user_side_behavior`
+- `user_contribution`
+- `surface_handling`
+- `reasoning_handling`
+- `agent_side_behavior`
+- `interaction_failure`
+- `ideal_response_behavior`
+
+Only then construct the reusable rubric.
+
+Do not directly copy trajectory-analysis sentences into the reusable rubric.
+
+The rubric must be independently rewritten at a higher level of abstraction.
+
+---
+
+## 18. REUSABLE RUBRIC REWRITE PASS
+
+After completing the trajectory-specific analysis, perform a separate abstraction pass.
+
+Rewrite from scratch:
+
+- `rubric_name`
+- `applicability`
+- `score_0`
+- `score_1`
+- `score_2`
+
+Use only the underlying interaction mechanism.
+
+Do not copy wording from:
+
+- `user_contribution`,
+- `agent_side_behavior`,
+- `interaction_failure`,
+- `ideal_response_behavior`,
+- evidence quotations.
+
+The reusable rubric fields must contain ZERO case-specific domain entities.
+
+---
+
+## 19. PRESERVE THE INTERACTION MECHANISM DURING ABSTRACTION
+
+Do not generalize so aggressively that the distinctive interaction mechanism disappears.
+
+Whenever supported by the trajectory, preserve these three components:
+
+### 1. Collaborator-side structure
+
+What did the collaborator do to the reasoning or decision space?
+
+### 2. Agent handling
+
+How did the agent respond to, rely on, preserve, modify, question, or ignore that structure?
+
+### 3. Required response behavior
+
+What observable check or handling behavior was needed before the agent could appropriately rely on that structure?
+
+The reusable rubric should preserve these relationships.
+
+Do NOT collapse them into generic concepts such as:
+
+- engagement,
+- discussion,
+- clarification,
+- communication,
+- critical thinking,
+- careful reasoning.
+
+---
+
+## 20. RUBRIC NAME
+
+Generate a concise name that identifies the specific interaction capability.
+
+The name should identify the **object or interaction structure being handled**, not merely the quality of the response.
+
+Avoid vague names centered only on:
+
+- engagement,
+- reasoning,
+- clarification,
+- communication,
+- critical thinking,
+- careful evaluation.
+
+The name should make it possible to infer what kind of collaborator-created structure the rubric evaluates.
+
+Do not include domain-specific content.
+
+---
+
+## 21. APPLICABILITY
+
+`applicability` defines the observable collaborator-created situation that activates the rubric.
+
+It should answer:
+
+**What exactly does the collaborator do that creates the need for this behavior?**
+
+Do not merely say:
+
+- the collaborator asks a question,
+- the collaborator discusses multiple alternatives,
+- the collaborator seeks clarification,
+- the collaborator provides reasoning.
+
+Preserve the distinctive structure that makes the interaction special.
+
+Do not describe:
+
+- the desired agent behavior,
+- whether the collaborator is correct,
+- the final outcome.
+
+The condition must be narrow enough that unrelated turns are clearly not applicable.
+
+---
+
+## 22. SCORE 0 — INTERACTION FAILURE CAUSE
+
+Score 0 represents the generalized form of the central interaction failure.
+
+It must preserve:
+
+- the collaborator-side structure,
+- the agent's inadequate handling of that structure.
+
+The central interaction need remains unresolved.
+
+Score 0 should describe observable behavior.
+
+Do not mention:
+
+- ground truth,
+- final correctness,
+- future outcome,
+- hidden belief,
+- domain-specific entities.
+
+---
+
+## 23. SCORE 1 — BETTER BUT INCOMPLETE BEHAVIOR
+
+Score 1 represents a genuine intermediate interaction behavior.
+
+The agent must perform a meaningful part of the required handling while leaving one important gap unresolved.
+
+The difference from score 0 and score 2 must be concrete and observable.
+
+Do not create score 1 merely by adding:
+
+- partially,
+- somewhat,
+- incompletely.
+
+Instead, specify:
+
+- what part of the collaborator-created structure the agent revisits or examines,
+- and what important relationship or check remains unresolved.
+
+---
+
+## 24. SCORE 2 — IDEAL INTERACTION BEHAVIOR
+
+Score 2 represents adequate observable handling of the same collaborator-created situation.
+
+It should describe the behavior the agent should learn.
+
+When appropriate to the discovered interaction mechanism, score 2 should capture whether the agent examines the support for the collaborator-created decision structure before relying on it.
+
+Score 2 must not require:
+
+- agreement,
+- disagreement,
+- answer revision,
+- answer preservation,
+- task correctness,
+- a specific conclusion.
+
+Different conclusions may receive score 2 if the interaction behavior is appropriate.
+
+---
+
+## 25. SCORE CONSISTENCY
+
+The collaborator-side situation must remain fixed across scores 0, 1, and 2.
+
+Only the quality of agent handling changes.
+
+The progression must be:
+
+**[0] the interaction need remains unresolved**
+
+→
+
+**[1] a meaningful component is handled, but a specific gap remains**
+
+→
+
+**[2] the interaction need is adequately handled**
+
+All three scores must evaluate the same underlying interaction mechanism.
+
+---
+
+## 26. RUBRIC SPECIFICITY TEST
+
+After generating the rubric, ask:
+
+**Does this rubric describe a specific interaction mechanism, or could it be summarized simply as "engage better," "reason more carefully," "critically evaluate the collaborator's reasoning," or "clarify more"?**
+
+If the latter, it is too generic.
+
+Rewrite the rubric so that it explicitly identifies:
+
+1. **what observable structure the collaborator introduced into the reasoning or decision process,**
+2. **how the agent handled or relied on that structure,**
+3. **what specific relationship or assumption within that structure the agent should examine.**
+
+The rubric should not merely prescribe better reasoning quality. It should specify **what part of the collaborator-created reasoning structure requires evaluation.**
+
+Then ask:
+
+**Would this rubric apply to almost any multi-option conversation?**
+
+If yes, it is too broad.
+
+Narrow `applicability` so that it preserves the distinctive collaborator-side structure that triggered the failure, such as how the collaborator organized, narrowed, prioritized, compared, or redirected the alternatives.
+
+Do not make ordinary discussion of multiple alternatives sufficient for applicability.
+
+Then ask:
+
+**Could this rubric be applied unchanged in a completely different domain with the same interaction structure?**
+
+If no, it is too case-specific.
+
+Rewrite it using only abstract interaction relationships, while preserving the specific interaction mechanism.
+
+Finally ask:
+
+**If I remove the domain content, can I still tell exactly what the collaborator did and what the agent must check before relying on it?**
+
+If no, revise the rubric again.
+
+---
+
+## 27. INTERVENTION POINT
+
+Select the earliest agent response in which the chosen interaction failure becomes observable.
+
+The selected intervention must:
+
+- be an actual agent turn,
+- occur after the collaborator evidence that creates the relevant interaction structure,
+- use the exact turn identifier provided,
+- be correctable while all earlier turns remain fixed.
+
+Do not select a turn merely because it contains the first incorrect task conclusion.
+
+---
+
+## 28. FAILURE TURN IDS
+
+Include only agent turns that materially demonstrate the SAME selected interaction failure.
+
+Do not automatically include:
+
+- all later turns,
+- repeated conclusions,
+- collaborator turns,
+- unrelated mistakes.
+
+Use the exact turn identifiers from the input.
+
+---
+
+## 29. EVIDENCE SPANS
+
+`evidence_spans` must contain evidence from BOTH sides.
+
+Include at least:
+
+1. one collaborator quote establishing the user-side interaction structure,
+2. one agent quote establishing the inadequate handling.
+
+The collaborator quote must occur before the selected intervention response.
+
+Each quotation must be an exact excerpt from the original trajectory.
+
+Do not:
+
+- paraphrase inside quotation marks,
+- invent quotations,
+- provide only agent evidence,
+- provide only collaborator evidence,
+- use future evidence to justify an earlier interaction failure.
+
+If `decision_shaping_contribution` includes several judgments, premises, comparisons, or assumptions, the collaborator evidence must contain those elements.
+
+A short final question is insufficient evidence for a richer decision structure if the relevant structure appears in earlier parts of the same collaborator contribution.
+
+The collaborator evidence must support the full `decision_shaping_contribution`.
+
+---
+
+## 30. REQUIRED RUBRIC GENERATION
+
+Every failed trajectory must produce exactly one reusable rubric.
+
+Do not return:
+
+- no rubric,
+- null rubric fields,
+- a refusal to identify an interaction pattern.
+
+If several failures are plausible, select the one that is:
+
+1. most directly supported by the collaborator-agent exchange,
+2. most specific to the interaction structure,
+3. most behaviorally observable,
+4. most reusable across similar interaction situations.
+
+If the interaction signal is weak, choose the most conservative interaction weakness supported by the observable exchange.
+
+Do not invent a stronger failure merely because rubric generation is mandatory.
+
+---
+
+## 31. FINAL RUBRIC SANITIZATION
+
+Immediately before output, inspect:
+
+- `rubric_name`
+- `applicability`
+- `score_0`
+- `score_1`
+- `score_2`
+
+These fields must contain ZERO case-specific content.
+
+If ANY field contains:
+
+- a disease or diagnosis,
+- a syndrome,
+- a treatment or drug,
+- a medical test,
+- a procedure,
+- a specific clinical finding,
+- an option label,
+- a named alternative from the trajectory,
+- specific task content,
+- any named domain-specific entity,
+
+the rubric is not ready for output.
+
+Rewrite the entire affected field around the underlying interaction mechanism.
+
+Do not simply replace one case-specific noun with another.
+
+---
+
+## 32. OUTPUT
+
+Return exactly one valid JSON object.
+
+Do not output Markdown.
+
+Do not output explanation, commentary, analysis, or code fences.
+
+Use exactly this structure:
+
+{
+  "case_id": "string",
+  "trajectory_id": "string",
+
+  "surface_request": "string or null",
+  "decision_shaping_contribution": "string or null",
+
+  "user_side_behavior": "string",
+  "user_contribution": "string",
+
+  "surface_handling": "string or null",
+  "reasoning_handling": "string or null",
+
+  "agent_side_behavior": "string",
+  "interaction_failure": "string",
+  "ideal_response_behavior": "string",
+
+  "rubric_name": "string",
+  "applicability": "string",
+
+  "score_0": "string",
+  "score_1": "string",
+  "score_2": "string",
+
+  "intervention_turn_id": 0,
+  "failure_turn_ids": [0],
+
+  "evidence_spans": [
+    {
+      "turn_id": 0,
+      "speaker": "string",
+      "quote": "Exact quotation from the trajectory."
+    }
+  ]
+}
+
+Only the following fields may be null when genuinely absent:
+
+- `surface_request`
+- `decision_shaping_contribution`
+- `surface_handling`
+- `reasoning_handling`
+
+All reusable rubric fields must be populated.
+
+---
+
+## 33. FINAL VALIDATION
+
+Before returning, verify every item below.
+
+### Grounding
+
+1. Is every collaborator-side claim supported by actual collaborator speech?
+2. Does that speech occur before the selected intervention response?
+3. Did I accidentally use information from a future turn?
+4. Did I attribute agent-introduced reasoning to the collaborator?
+5. Does the collaborator evidence support the full `decision_shaping_contribution`?
+6. Did I infer uncertainty, concern, confidence, preference, rejection, or another internal state without explicit collaborator wording?
+
+### Interaction structure
+
+7. What is the actual surface request?
+8. Did the agent directly address it?
+9. If yes, did I avoid treating failure-to-answer or failure-to-engage as the primary failure?
+10. What additional decision-shaping structure did the collaborator introduce?
+11. How did that structure change the reasoning or decision space?
+12. Did the agent rely on or preserve that structure?
+13. If so, did the agent examine whether the collaborator-provided basis supported the relevant decision criterion?
+14. What exact structure was mishandled?
+
+### Failure quality
+
+15. Is the failure a concrete interaction mechanism rather than generic poor reasoning?
+16. Could the failure describe almost any incorrect answer?
+17. If yes, did I make it more specific?
+18. Does the failure identify both the collaborator-side trigger and agent-side handling?
+
+### Ground-truth independence
+
+19. Would I identify the same failure if the correct answer were hidden?
+20. Can the ideal behavior be performed without introducing new domain knowledge?
+
+### Abstraction
+
+21. Are generated descriptions free of case-specific domain entities except exact evidence quotations?
+22. Are `rubric_name`, `applicability`, `score_0`, `score_1`, and `score_2` completely domain-independent?
+23. Does the reusable rubric preserve the actual interaction mechanism rather than collapsing into generic engagement?
+24. Would the rubric remain unchanged in another domain with the same interaction structure?
+25. Is `applicability` narrow enough not to activate on most ordinary turns?
+
+### Scores
+
+26. Do all three scores evaluate the same collaborator-side structure?
+27. Are score 0, score 1, and score 2 behaviorally distinguishable?
+28. Is score 1 a genuine intermediate behavior?
+29. Does score 2 describe an observable interaction behavior rather than a desired conclusion?
+30. Can justified agreement and justified disagreement both receive score 2?
+
+### Evidence
+
+31. Is there at least one collaborator quote?
+32. Is there at least one agent quote?
+33. Are all quotations exact?
+34. Are all speakers correctly attributed?
+35. Does collaborator evidence establish the applicability condition?
+36. Does collaborator evidence support every substantive element of `decision_shaping_contribution`?
+37. Does agent evidence demonstrate the selected interaction failure?
+
+### Output
+
+38. Is exactly one rubric produced?
+39. Are all required fields populated?
+40. Is the final output valid JSON with no text outside it?
+
+If any condition fails, revise the analysis and rubric before returning.

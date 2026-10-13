@@ -1,0 +1,25 @@
+{
+  "extends": "v13_qwen4b_gemma12b_max7_train30_clean_majority.json",
+  "version": "agentclinic_agentfirst_frontierdoctor_v1",
+  "notes": "NEW PROTOCOL (user decision 2026-10-03): the clean TRAIN30 environment v13 with exactly two changes. (1) Doctor backbone: google/gemma-3-12b-it -> openai/gpt-6.1-sol (the only frontier-grade model already configured in the repo; OpenRouter; temperature 0.4 and max_tokens of v13). (2) Turn order: Agent-first (A1, D1, A2, D2, ..., A7, final); the Doctor gives no diagnosis before A1 and sees the whole case information (the Agent's information) and the conversation. Consequences of (2) in the prompts: the Doctor's system prompt says the consultant opens and asks for critical evaluation (prompts/agentclinic/doctor_agentfirst_v1.txt); the consultant's system prompt no longer says the Doctor lacks the examination and test findings (prompts/agentclinic/consultant_agentfirst_v1.txt); the Agent's first turn has an opening task (protocol.AGENT_FIRST_OPENING). Agent Qwen3-4B, split TRAIN30/DEV31/TEST60, max 7 turns with early stopping, the judge (gpt-4o-mini, majority-v1; the v13 mapping copied here and extended by the same policy) unchanged. No D1 history exists in this protocol: histories.jsonl holds an empty prefix per case. Nothing of the v13 runs (trajectories, failures, R_0, labels, predictor) is reused.",
+  "output_dir": "outputs/effectiveness/v14_agentclinic_agentfirst_frontierdoctor_v1",
+  "labels_dir": "outputs/effectiveness/v14_agentclinic_agentfirst_frontierdoctor_v1/labels",
+  "diagnosis_equivalence_frozen": "outputs/effectiveness/v14_agentclinic_agentfirst_frontierdoctor_v1/diagnosis_equivalence.frozen.jsonl",
+  "models": {
+    "doctor": {
+      "model_id": "openai/gpt-6.1-sol",
+      "revision": "openrouter openai/gpt-6.1-sol (pinned version id)",
+      "checkpoint": null,
+      "backend": "openrouter",
+      "tokenizer": "provider-managed"
+    }
+  },
+  "prompts": {
+    "doctor": "prompts/agentclinic/doctor_agentfirst_v1.txt",
+    "consultant": "prompts/agentclinic/consultant_agentfirst_v1.txt"
+  },
+  "protocol": {
+    "agent_first": true,
+    "doctor_view": "full"
+  }
+}

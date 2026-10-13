@@ -1,0 +1,13 @@
+{
+  "extends": "../../serl_agentclinic_qwen4b_max7_train30.json",
+  "notes": "Effectiveness + Outcome: R_t = 0.4 R_O + 0.3 R_E,t. No rubric is generated or scored. This run is also the component ablation 'Ours - Rubric'.",
+  "run_label": "train30_4b_effectiveness_outcome",
+  "condition": "effectiveness_outcome",
+  "reward": {
+    "weights": {
+      "outcome": 0.4,
+      "appropriateness": 0.0,
+      "effectiveness": 0.3
+    }
+  }
+}

@@ -30,50 +30,24 @@ def in_baseline(mode: str, fraction: float, run_seed: int, state_key: str) -> bo
 
 
 def protocol_sha256(cfg: dict, root: Path) -> str:
-    from src.online_rl.tree.rollout import ROLLOUT_BUDGETS
-    ro = cfg['rollout']
-    budget = ro.get('budget', 'initial_fanout')
-    if budget not in ROLLOUT_BUDGETS: raise ValueError(f'unknown rollout.budget {budget!r}')
-    from src.online_rl.tree.group_learning import enabled as group_enabled, identity as group_identity
-    if group_enabled(cfg):
-        from src.online_rl.doctor import OpenAIDoctor
-        if cfg.get('rollout_protocol_sha256_override') is not None:
-            raise ValueError('Group SHERPA cannot import a legacy rollout protocol override')
-        return sha256_json({'base_model': cfg['policy']['base_model'],
-            'rollout': {key: ro.get(key) for key in ('rounds', 'budget', 'branching', 'max_tokens_doctor',
-                'max_completion_length', 'temperature', 'top_p', 'top_k', 'agent_protocol', 'agent_sampling_protocol', 'halting')},
-            'agent_prompt': sha256_text((root / ro.get('agent_system_prompt_file', 'prompts/agent.txt')).read_text()),
-            'partner': OpenAIDoctor(ro['doctor_backend'], ro['halting'],
-                (root / ro['doctor_system_prompt_file']).read_text(), ro['max_tokens_doctor']).protocol,
-            'group_learning': group_identity(cfg)})
+    # Explicitly approved pre-commit transitions can change post-rollout training
+    # protocols while retaining the identical frozen dialogue-tree cache identity.
+    # The full config hash still binds the run/checkpoint to the new protocol.
+    override=cfg.get('rollout_protocol_sha256_override')
+    if override is not None:
+        if not isinstance(override,str) or len(override)!=64 or any(c not in '0123456789abcdef' for c in override):
+            raise ValueError('rollout_protocol_sha256_override must be a lowercase SHA256 hex digest')
+        return override
     from src.online_rl.tree.effectiveness import RERUN_OUTCOME_POLICY
+    ro = cfg['rollout']
     out = {'base_model': cfg['policy']['base_model'],
            'rollout': {k: ro[k] for k in ('rounds', 'doctor_model', 'max_tokens_doctor', 'max_completion_length', 'temperature', 'top_p', 'top_k')},
            'agent_prompt': sha256_text((root / ro.get('agent_system_prompt_file', 'prompts/agent.txt')).read_text()),
            'doctor_prompt': sha256_text(doctor_system := (root / ro.get('doctor_system_prompt_file', 'prompts/user_simulator.txt')).read_text())}
-    out['rollout_budget'] = {'protocol': 'initial_fanout_v1', 'branching': ro['branching']}
+    if cfg['policy'].get('base_revision'):
+        out['base_revision'] = cfg['policy']['base_revision']
     if cfg.get('rubric', {}).get('enabled', True):
-        if cfg.get('rubric', {}).get('cumulative_bank') is not None:
-            from src.online_rl.tree.cumulative_run import config_identity
-            out['cumulative_bank'] = config_identity(cfg, root)
         out['rerun_outcome_policy'] = RERUN_OUTCOME_POLICY
-        from src.online_rl.tree.applicability import APPLICABILITY_CONTRACT
-        from src.online_rl.tree.scoring import SCORE_RECORD_CONTRACT
-        out['applicability_contract'] = APPLICABILITY_CONTRACT
-        out['score_record_contract'] = SCORE_RECORD_CONTRACT
-        if cfg.get('judges', {}).get('gate_protocol') == 'evidence_gate_v2':
-            from scripts.online_rl.run_tree import evidence_gate_identity
-            out['evidence_gate'] = evidence_gate_identity(cfg, root)
-        if cfg.get('judges', {}).get('intervention_audit_protocol'):
-            from scripts.online_rl.run_tree import intervention_audit_identity
-            out['intervention_audit'] = intervention_audit_identity(cfg, root)
-        if cfg.get('rubric', {}).get('generation', {}).get('output_contract') == 'trajectory_analysis_candidate_v2_with_intervention':
-            from src.online_rl.tree.member_intervention import MEMBER_INTERVENTION_VERSION
-            out['member_intervention_protocol'] = MEMBER_INTERVENTION_VERSION
-        intervention_file = (cfg.get('intervention') or {}).get('instruction_template_file')
-        if intervention_file:
-            out['rerun_intervention_instruction'] = {'protocol': 'joint_generated_instruction_v1',
-                'template_sha256': sha256_text((root / intervention_file).read_text())}
     if ro.get('agent_protocol'):                       # Agent action protocol (src/online_rl/agent_protocol.py)
         from src.online_rl.agent_protocol import IDENTITY
         if ro['agent_protocol'] != IDENTITY['version']: raise ValueError(f"unknown rollout.agent_protocol {ro['agent_protocol']!r}")
@@ -83,8 +57,8 @@ def protocol_sha256(cfg: dict, root: Path) -> str:
         if ro['agent_sampling_protocol']!=PROTOCOL:raise ValueError('Unknown Agent batch sampling protocol')
         out['agent_sampling_protocol']=PROTOCOL
     if ro.get('doctor_backend'):                       # local Doctor protocol v2 (src/online_rl/doctor.py): backend, prompts, seeds, halting
-        from src.online_rl.doctor import OpenAIDoctor
-        out['doctor'] = OpenAIDoctor(ro['doctor_backend'], ro.get('halting'), doctor_system, ro['max_tokens_doctor']).protocol
+        from src.online_rl.doctor import OllamaDoctor
+        out['doctor'] = OllamaDoctor(ro['doctor_backend'], ro.get('halting'), doctor_system, ro['max_tokens_doctor']).protocol
     method = {k: v for k, v in (('verification', cfg.get('verification')),
                                 ('r_a_weighting', (cfg.get('agent_reward') or {}).get('r_a_weighting')),
                                 ('feedback_behavioral_locus', (cfg.get('feedback') or {}).get('behavioral_locus')),
@@ -98,9 +72,10 @@ def protocol_sha256(cfg: dict, root: Path) -> str:
         out['agent_state_rubrics'] = {'schema': SCHEMA, 'state_protocol': STATE_PROTOCOL,
                                      'addendum': sha256_text((root / cfg['rubric']['state_addendum_file']).read_text())}
     if cfg.get('prompt_update', {}).get('candidate_seed'):
-        from src.online_rl.tree.pipelined_prompt import SEED_MODE
-        if cfg['prompt_update']['candidate_seed'] != SEED_MODE: raise ValueError('unknown prompt candidate seed')
-        out['prompt_candidate_seed'] = SEED_MODE
+        seed_mode = cfg['prompt_update']['candidate_seed']
+        if seed_mode not in ('first_completed_P0_v1', 'all_p0_before_p1_v1'):
+            raise ValueError('unknown prompt candidate seed')
+        out['prompt_candidate_seed'] = seed_mode
     if cfg.get('rubric', {}).get('match_batch_size',1)!=1:
         from src.online_rl.tree.rubric_bank import BATCH_VERSION
         if cfg['rubric']['match_batch_size']!=8:raise ValueError('unsupported rubric match batch size')

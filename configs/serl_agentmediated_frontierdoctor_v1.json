@@ -1,0 +1,26 @@
+{
+  "extends": "serl_agentclinic_qwen4b_max7_train30_clean.json",
+  "notes": "NEW MAIN PROTOCOL agentclinic_agentmediated_frontierdoctor_v1 (frozen 2026-10-03, before its R_0): (1) Doctor openai/gpt-6.1-sol (OpenRouter, temperature 0.4, max_tokens 512); (2) Agent-first order A1, D1, ..., A7, final; (3) the Doctor never sees the case: its only clinical information is what the Agent communicates (agent-mediated); (4) Rubric Validation as the conceptual definition: one rerun of the failed turn under the candidate's ideal behavior, keep when its final diagnosis is correct (num_reruns 1, min_successes 1), with the clean intervention generation (no frozen intervention, no private re-assessment, no behavioral gate). Agent Qwen3-4B, split TRAIN30/DEV31/TEST60, judge (majority-v1), rubric models, consolidation, effectiveness gap, reward and GRPO settings are those of the clean configuration. The failure analyzer's prompt is unchanged; only the environment paragraph of its addendum follows this protocol (outputs/agentfirst/rubric_addendum_agentmediated_v1.diff). reward.effectiveness still names the old-protocol predictor until the new one is trained; its protocol-hash check refuses it here. Earlier protocols (Gemma Doctor-first, full-case frontier Doctor) and the 3-rerun results are diagnostic only.",
+  "output_root": "outputs/serl_agentmediated",
+  "cache_dir": "outputs/serl_agentmediated/_cache",
+  "environment": {
+    "config": "configs/effectiveness/v15_agentclinic_agentmediated_frontierdoctor_v1.json",
+    "histories": "outputs/effectiveness/v15_agentclinic_agentmediated_frontierdoctor_v1/histories.jsonl",
+    "base_trajectories": "outputs/effectiveness/v15_agentclinic_agentmediated_frontierdoctor_v1/base_trajectories.jsonl"
+  },
+  "collaboration": {
+    "protocol": "agentclinic_agentfirst_max7_early_stop_agent_mediated"
+  },
+  "validation": {
+    "intervention": null,
+    "num_reruns": 1,
+    "min_successes": 1,
+    "num_reruns_notes": "frozen 2026-10-03 before R_0: the PPT definition (one rerun, keep if correct). A 3-rerun check may only be run later as a sensitivity analysis; it never replaces this R_0."
+  },
+  "roles": {
+    "failure_analyzer": {
+      "prompt_addendum": "prompts/agentclinic/rubric_agent_state_addendum_agentmediated_v1.txt",
+      "prompt_version": "rubric-evaluator-v1+agentclinic-state-v1+agentmediated-env-v1"
+    }
+  }
+}

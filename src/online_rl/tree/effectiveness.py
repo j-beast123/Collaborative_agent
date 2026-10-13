@@ -6,7 +6,6 @@ from __future__ import annotations
 import inspect
 from typing import Callable, Optional
 from src.online_rl.integrated.continuation import derive_seed
-from src.online_rl.integrated.records import sha256_text, sha256_json
 from src.online_rl.tree.cache import CallCache
 from src.online_rl.tree.decisions import Strategies
 from src.online_rl.tree.records import AgentNode, InterventionRun, Leaf, TrajectoryRubric, RubricEffectiveness, SelectionDecision, to_dialogue
@@ -18,8 +17,8 @@ def intervention_level(source_outcome: float) -> str:
     return '0' if source_outcome == 1.0 else '2'
 
 
-RERUN_OUTCOME_POLICY = 'parsed_target_only_with_incomplete_v2'
-RERUN_CONTINUATION_PROTOCOL = 'fresh_agent_from_member_intervention_instruction_then_doctor_final_each_rerun_v6'
+RERUN_OUTCOME_POLICY = 'parsed_target_only_v1'
+RERUN_CONTINUATION_PROTOCOL = 'intervention_agent_once_doctor_final_once_v1'
 
 
 def reaches_target(level: str, outcome) -> bool:
@@ -33,15 +32,6 @@ def target_rate(level: str, outcomes: list) -> float:
     return sum(reaches_target(level, o) for o in outcomes) / len(outcomes)
 
 
-def selected_intervention_turn(rub: TrajectoryRubric):
-    if not getattr(rub, 'intervention_instruction', None): return None
-    analysis = ((rub.rubric or {}).get('source_provenance') or {}).get('analysis') or {}
-    turn = analysis.get('selected_agent_turn_id')
-    if isinstance(turn, bool) or not isinstance(turn, int) or turn < 1:
-        raise ValueError('generated intervention instruction lacks a valid analysis.selected_agent_turn_id')
-    return turn
-
-
 def rerun_turn_cache(cache: CallCache, case: dict, rerun: dict, index: int) -> Callable:
     """Cache the single Doctor FINAL for a rerun, keyed by the complete intervention identity plus the FINAL input.
     A failed call raises before anything is stored. The continuation protocol is in `rerun`, so old multi-turn records
@@ -52,58 +42,27 @@ def rerun_turn_cache(cache: CallCache, case: dict, rerun: dict, index: int) -> C
 
 def run_interventions(case: dict, leaf: Leaf, node: AgentNode, rub: TrajectoryRubric, *, reruns: int, run_seed: int, policy_sha256: str,
                       writer: Callable, continuation: Callable, cache: CallCache, workers: int = 1,
-                      indices: Optional[list[int]] = None, member_spec: Optional[dict] = None) -> list[InterventionRun]:
+                      indices: Optional[list[int]] = None) -> list[InterventionRun]:
     """writer(case, prefix, turn, rubric, level, seed) -> reply; continuation(case, prefix, turn, reply, seed) -> {'final_option', 'outcome'}.
-    member_spec supplies this trajectory's frozen target and guide while rub remains canonical.
-    Each rerun index gets a fresh guided Agent reply and exactly one Doctor FINAL. indices (default: all K) runs only those
-    rerun indices; each index keeps its own Agent/Doctor seeds and cache keys, so a subset is exactly the corresponding part
-    of the full K reruns."""
+    indices (default: all K) runs only those rerun indices; each index keeps its own seed and cache key, so a subset is
+    exactly the corresponding part of the full K reruns."""
     if not isinstance(reruns, int) or reruns < 1: raise ValueError('reruns_per_intervention (K) must be a positive integer')
     if node.node_id not in leaf.path: raise ValueError(f'{node.node_id} is not an Agent turn of {leaf.leaf_id}')
-    from src.online_rl.tree.member_intervention import resolve_member_intervention, source_member_intervention
-    if member_spec is None and getattr(rub, 'intervention_instruction', None):
-        # Direct, non-consolidated evaluation may use the creator's own instruction.
-        # A different member must provide its stored assignment; never copy the creator's guide.
-        member_spec = source_member_intervention(rub, leaf)
-    member_spec = resolve_member_intervention(rub, leaf, member_spec=member_spec, node=node)
-    if case['case_id'] != leaf.case_id: raise ValueError('intervention case differs from member case')
     level = intervention_level(leaf.outcome); prefix = to_dialogue(node.prefix); key = node.node_id   # seeds shared by every rubric on this target
     if getattr(node, 'prefix_doctor_status', None) is not None and prefix:                  # protocol v2: status of the last Doctor message
         prefix[-1] = {**prefix[-1], 'status': node.prefix_doctor_status}
-    instruction = member_spec['intervention_instruction'] if member_spec is not None else None
-    writer_owner = getattr(writer, '__self__', None)
-    instruction_template = getattr(writer_owner, 'intervention_instruction_template', None)
-    if callable(getattr(writer_owner, 'template_for', None)):
-        instruction_template = writer_owner.template_for(level, instruction)
-    instruction_template_sha = sha256_text(instruction_template) if instruction is not None and instruction_template else None
-    if instruction is not None and instruction_template_sha is None:
-        raise ValueError('generated intervention instruction requires a configured, hashed Agent template')
-    behavior_ident = {'rubric': rub.rubric_id, 'node': node.node_id, 'level': level, 'policy': policy_sha256,
-                      'rubric_sha256': sha256_json(rub.rubric), 'prefix_sha256': sha256_json(prefix),
-                      'case_sha256': sha256_json(case), 'selected_turn': node.depth,
-                      'writer_identity': writer_owner.cache_identity(level) if callable(getattr(writer_owner, 'cache_identity', None)) else None,
-                      'intervention_instruction_sha256': sha256_text(instruction) if instruction is not None else None,
-                      'intervention_template_sha256': instruction_template_sha,
-                      'member_intervention_spec': member_spec}
+    behavior_ident = {'rubric': rub.rubric_id, 'node': node.node_id, 'level': level, 'policy': policy_sha256}
+    text = cache.call('behavior_text', behavior_ident,
+                      lambda: writer(case, prefix, node.depth, rub.rubric, level, derive_seed(run_seed, key, 'guided', 0)))
     ident = {**behavior_ident, 'continuation_protocol': RERUN_CONTINUATION_PROTOCOL}
     turns = 'turn_cache' in inspect.signature(continuation).parameters
 
-    def one(i):                                                     # rerun i: fresh guided Agent reply + one Doctor FINAL
-        agent_seed = derive_seed(run_seed, key, 'guided', i)
-        agent_ident = {**ident, 'rerun_index': i, 'agent_seed': agent_seed}
-        def write_reply():
-            if 'intervention_instruction' in inspect.signature(writer).parameters:
-                return writer(case, prefix, node.depth, rub.rubric, level, agent_seed, intervention_instruction=instruction)
-            if instruction is not None: raise TypeError('writer cannot accept the generated intervention instruction')
-            return writer(case, prefix, node.depth, rub.rubric, level, agent_seed)
-        text = cache.call('rerun_agent_turn', agent_ident, write_reply)
-        seed = derive_seed(run_seed, key, 'rerun', i)
-        rerun = {**ident, 'rerun_index': i, 'text': text, 'agent_seed': agent_seed, 'seed': seed}
+    def one(i):                                                     # rerun i: its own seed, cache key and per-turn cache
+        seed = derive_seed(run_seed, key, 'rerun', i); rerun = {**ident, 'text': text, 'seed': seed}
         tc = rerun_turn_cache(cache, case, rerun, i) if turns else None
         r = cache.call('rerun', rerun, lambda: continuation(case, prefix, node.depth, text, seed, **({'turn_cache': tc} if tc else {})))
         return InterventionRun(rub.rubric_id, leaf.leaf_id, leaf.outcome, level, node.node_id, node.depth, text, seed,
-                               r.get('final_option') or '', r.get('outcome'), policy_sha256,
-                               agent_seed=agent_seed, rerun_index=i, intervention_spec=member_spec)
+                               r.get('final_option') or '', r.get('outcome'), policy_sha256)
     idx = list(range(reruns)) if indices is None else list(indices)
     if any(not 0 <= i < reruns for i in idx): raise ValueError(f'rerun indices {idx} outside 0..{reruns - 1}')
     if workers > 1 and len(idx) > 1:                                # independent reruns; the policy serialises its own generation
@@ -114,28 +73,15 @@ def run_interventions(case: dict, leaf: Leaf, node: AgentNode, rub: TrajectoryRu
 
 def evaluate_rubric(case: dict, nodes: dict, leaf: Leaf, rub: TrajectoryRubric, *, scorer: Callable, writer: Callable,
                     continuation: Callable, reruns: int, run_seed: int, policy_sha256: str, strategies: Strategies,
-                    cache: CallCache, workers: int = 1, member_spec: Optional[dict] = None) -> tuple[list, Optional[RubricEffectiveness]]:
+                    cache: CallCache, workers: int = 1) -> tuple[list, Optional[RubricEffectiveness]]:
     """Match the trajectory's rubric on its own source trajectory, intervene at every matched response, K reruns each,
     aggregate per target into s(tau). An invalid rubric (structure or gate) is not verified: ([], None)."""
-    if rub.leaf_id != leaf.leaf_id and member_spec is None:
-        raise ValueError(f'rubric {rub.rubric_id} was written for {rub.leaf_id}, not {leaf.leaf_id}; a member intervention spec is required')
+    if rub.leaf_id != leaf.leaf_id: raise ValueError(f'rubric {rub.rubric_id} was written for {rub.leaf_id}, not {leaf.leaf_id}')
     if not rub.valid: return [], None
-    from src.online_rl.tree.member_intervention import resolve_member_intervention, source_member_intervention
-    if member_spec is None and getattr(rub, 'intervention_instruction', None):
-        member_spec = source_member_intervention(rub, leaf)
-    member_spec = resolve_member_intervention(rub, leaf, member_spec=member_spec)
-    selected_turn = member_spec['selected_agent_turn_id'] if member_spec is not None else None
-    if selected_turn is not None:
-        resolve_member_intervention(rub, leaf, member_spec=member_spec, node=nodes[leaf.path[selected_turn - 1]])
     source_scores = score_nodes(case, [nodes[n] for n in leaf.path], [rub], scorer, cache); level = intervention_level(leaf.outcome)
     targets = [s.response_node_id for s in source_scores if s.match]
-    if selected_turn is not None:
-        if selected_turn > len(leaf.path): targets = []
-        else:
-            selected_node = leaf.path[selected_turn - 1]
-            targets = [target for target in targets if target == selected_node]
     runs = {t: run_interventions(case, leaf, nodes[t], rub, reruns=reruns, run_seed=run_seed, policy_sha256=policy_sha256, writer=writer,
-                                 continuation=continuation, cache=cache, workers=workers, member_spec=member_spec) for t in targets}
+                                 continuation=continuation, cache=cache, workers=workers) for t in targets}
     per_node = {t: target_rate(level, [r.outcome for r in rs]) for t, rs in runs.items()}
     if not targets: status, s = 'no_match', None
     elif len(targets) == 1: status, s = 'single_target', per_node[targets[0]]

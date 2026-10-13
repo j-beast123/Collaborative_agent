@@ -1,0 +1,18 @@
+{
+  "extends": "predictor_pilot.json",
+  "notes": "Diagnostic baseline (v3): choice-conditioned candidates on the generation protocol. A response arguing for another option left the outcome unchanged in almost every history, so this setting is kept for reproduction only.",
+  "labels": {
+    "max_histories": 60,
+    "agent_batch_size": 8,
+    "parallel_notes": "rollouts in flight per history; the GPU batches up to agent_batch_size agent generations",
+    "parallel_rollouts": 16,
+    "require_compliance": false
+  },
+  "candidates": {
+    "stances": [
+      "challenge",
+      "accept"
+    ],
+    "advocate_options": true
+  }
+}

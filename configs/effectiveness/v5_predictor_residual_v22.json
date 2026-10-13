@@ -1,0 +1,31 @@
+{
+  "extends": "v5_predictor_residual_frozen_before.json",
+  "notes": "Residual Effectiveness v2.2: the v2.1 architecture (B(h) = frozen baseline, G(h, r) = LoRA + residual head) with a stronger ranking term. The pairwise ranking loss weights each pair by its rollout success-rate gap. lambda_rank and the number of epochs are chosen on TRAIN only by cross-validation over histories (scripts/train_residual_cv.py); DEV is evaluated once for the chosen model.",
+  "predictor": {
+    "pilot_decision": "2026-10-01 user decision: v2.2 keeps the v2.1 architecture and strengthens response ranking; lambda_rank chosen by TRAIN cross-validation, DEV read once at the end"
+  },
+  "training": {
+    "epochs": 3,
+    "ranking": {
+      "lambda": 0.2,
+      "lambda_candidates": [
+        0.2,
+        0.5,
+        1.0
+      ],
+      "min_after_gap": 0.2222,
+      "gap_weighted": true
+    },
+    "residual": {
+      "regularization": 0.01
+    },
+    "selection": {
+      "folds": 3,
+      "seed": 0,
+      "nll_tolerance": 0.05,
+      "notes": "3 folds by case over the TRAIN histories. A (lambda, epoch) candidate is admissible when its held-out AFTER NLL is within nll_tolerance of the lowest one; among those the highest held-out within-history ordering wins, then delta sign accuracy. Fixed before any result."
+    },
+    "frozen_before_baseline_logits": null,
+    "training_notes": "ranking.lambda is replaced by each candidate during cross-validation and by the chosen value in the final run. gap_weighted: a pair's weight is the difference of its rollout AFTER rates. Learning rates and regularization as in v2.1."
+  }
+}

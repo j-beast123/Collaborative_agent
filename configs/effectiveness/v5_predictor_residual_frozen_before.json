@@ -1,0 +1,23 @@
+{
+  "extends": "v5_predictor_lora.json",
+  "notes": "Residual Effectiveness v2.1 on the same K = 9 labels. B(h) is the frozen baseline: base Qwen3-8B with the LoRA adapters switched off and the frozen-backbone baseline's head, never trained, so P(success | h) is exactly the baseline's. G(h, r) = e uses the LoRA adapters and a residual head that starts at 0. P(success | h, r) = sigmoid(b + e), delta = sigmoid(b + e) - sigmoid(b). Loss on AFTER examples only: binomial NLL + ranking.lambda * same-history pairwise ranking loss (pairs whose rollout AFTER rates differ by at least 2/9) + residual.regularization * mean(e^2). BEFORE NLL is monitored, not optimized.",
+  "predictor": {
+    "architecture": "residual_frozen_before",
+    "pilot_decision": "2026-10-01 user decision: residual predictor with a truly frozen B branch (v2.1), after v2 showed that detaching b does not keep B fixed when B and G share the LoRA-updated backbone"
+  },
+  "training": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "lora_learning_rate": 5e-05,
+    "init_head_from": "outputs/effectiveness/v5_agentclinic_full/model_frozen/best",
+    "frozen_before_baseline_logits": "outputs/effectiveness/v5_agentclinic_full/model_frozen/dev_logits_best.json",
+    "ranking": {
+      "lambda": 0.2,
+      "min_after_gap": 0.2222
+    },
+    "residual": {
+      "regularization": 0.01
+    },
+    "training_notes": "learning_rate is the residual head's rate, lora_learning_rate the adapter rate. init_head_from is the frozen baseline whose head is B. frozen_before_baseline_logits: that baseline's DEV logits, compared with B before training. Batches hold the AFTER examples of whole histories. Every epoch's checkpoint is kept."
+  }
+}

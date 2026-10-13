@@ -1,0 +1,11 @@
+{
+  "extends": "serl_agentclinic_max7.json",
+  "run_label": "serl_gemma12b_max7",
+  "notes": "Main Gemma3-12B Doctor / Qwen3-8B Agent max7 early-stop configuration. Separate fresh Qwen3-8B predictor remains unavailable until this protocol's labels, TRAIN CV/calibration, frozen DEV and actual RPC parity complete.",
+  "roles_notes": "Doctor google/gemma-3-12b-it (OpenRouter); Agent local Qwen3-8B; outcome/equivalence openai/gpt-4o-mini. No GPT Doctor rollout. No rubric or GRPO stage in the Effectiveness workflow.",
+  "environment": {
+    "config": "configs/effectiveness/v9_gemma_agentclinic_max7.json",
+    "histories": "outputs/effectiveness/v9_gemma_agentclinic_max7/histories.jsonl",
+    "base_trajectories": "outputs/effectiveness/v9_gemma_agentclinic_max7/base_trajectories.jsonl"
+  }
+}

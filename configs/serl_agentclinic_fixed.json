@@ -1,0 +1,9 @@
+{
+  "extends": "serl_agentclinic.json",
+  "notes": "RQ3 Fixed condition: the same pipeline, iterations, samples, reward weights and GRPO settings as serl_agentclinic.json; only the rubric schedule differs. The reward of every iteration uses the initial active rubric set R_0 of the Evolving run with its initial weights, and no rubric generation, validation or consolidation is run (no rubric manager call). The iteration's trajectories and failures are still recorded. fixed_rubric_set must name that R_0 before the run starts: FIXED_RUBRIC_SET=outputs/serl/<evolving run id>/iter0/rubrics/rubric_set.json with scripts/run_serl.sh.",
+  "run_label": "serl_fixed",
+  "rubric_registry": {
+    "schedule": "fixed",
+    "fixed_rubric_set": null
+  }
+}

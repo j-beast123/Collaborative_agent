@@ -1,7 +1,7 @@
 """Rubric-Generator harness: collaboration environment, rubric generation and parsing, leakage checks, Jev adherence.
 
-Environment = the MedMCQA collaboration of src/online_rl/environment.py (OpenAI gpt-6-luna Doctor
-T 0.4, Qwen3-8B Agent T 1.0 / top_p 1.0 / model top_k, Doctor-first, max 4 rounds, early stopping, Doctor FINAL).
+Environment = the MedMCQA collaboration of src/online_rl/environment.py (Gemma-3-12B Doctor
+T 0.4, Qwen3-8B Agent T 0.7 / top_p 0.9 / model top_k, Doctor-first, max 7 rounds, early stopping, Doctor FINAL).
 Rubric Generator = frozen Sol with prompt P; guided response = frozen base Qwen3-8B with the rubric appended through the
 frozen guided-arm template; judges = frozen Jev v5 (applicability + behaviour) plus the frozen v1 validator questions.
 """
@@ -17,7 +17,7 @@ from src.collaboration.generator import doctor_call, dialogue_text, case_text, f
 from src.judges.jev import JevClient
 from src.judges.rubric_scoring import validate_visible_rubric, behavior_questions, _batched_jev_decisions
 
-SOL = 'openai/gpt-6.1-sol'; DOCTOR = 'gpt-6-luna'; ROUNDS = 4
+SOL = 'openai/gpt-6.1-sol'; DOCTOR = 'google/gemma-3-12b-it'; ROUNDS = 7
 JEV = dict(endpoint='https://openrouter.ai/api/alpha/decisions', model='typesafe/jev-1.13', api_key_env='OPENROUTER_API_KEY')
 GEN_TEMPERATURE = 0.7; GEN_MAX_TOKENS = 1200
 GUIDED_TEMPLATE = (ROOT / 'prompts/prompt_opt/guided_response_template_v1.txt').read_text()
@@ -44,16 +44,11 @@ class Env:
         self.model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16).to('cuda:0').eval()
         self.agent_system = (ROOT / 'prompts/agent.txt').read_text(); self.doctor_system = (ROOT / 'prompts/user_simulator.txt').read_text()
         self.args = Namespace(rounds=ROUNDS, doctor_model=DOCTOR, max_tokens_doctor=512, max_completion_length=400,
-                              generation_temperature=1.0, top_p=1.0, top_k=ST.resolve_generation_top_k(self.model, None))
-
-        from src.online_rl.doctor import OpenAIDoctor
-        self.doctor = OpenAIDoctor({'engine': 'openai_direct', 'model': DOCTOR, 'options': {'temperature': 0.4},
-                                   'reasoning_effort': 'none'}, {'enabled': True, 'min_agent_turns': 2},
-                                  self.doctor_system, self.args.max_tokens_doctor)
+                              generation_temperature=0.7, top_p=0.9, top_k=ST.resolve_generation_top_k(self.model, None))
 
     def base(self, case: dict, seed: int) -> dict:
         self.torch.manual_seed(seed)
-        return ST.generate_trajectory(self.model, self.tok, case, self.doctor_system, self.agent_system, self.key, self.args, doctor=self.doctor, seed=seed)
+        return ST.generate_trajectory(self.model, self.tok, case, self.doctor_system, self.agent_system, self.key, self.args)
 
     def agent_user_prompt(self, case: dict, prefix: list[dict], t: int) -> str:
         if t == 1:
@@ -73,7 +68,22 @@ class Env:
         """One intervention continuation: append the single newly generated, rubric-guided Agent reply at round t,
         then request exactly one Doctor FINAL. No discussion Doctor or extra Agent turns are generated.
         turn_cache(kind, identity, fn), when given, wraps the FINAL call so a resumed run reuses the exact observed answer."""
-        return Env._continue_v2(self, case, prefix, t, fixed_agent_text, seed, turn_cache)
+        if getattr(self, 'doctor', None) is not None:              # Doctor protocol v2 (src/online_rl/doctor.py)
+            return Env._continue_v2(self, case, prefix, t, fixed_agent_text, seed, turn_cache)
+        getattr(self, 'seed_all', self.torch.manual_seed)(seed); a = self.args; dialogue = [dict(x) for x in prefix]
+        step = turn_cache or (lambda kind, identity, fn: fn())
+        h = lambda x: hashlib.sha256(x.encode()).hexdigest()
+        doctor_id = {'model': a.doctor_model, 'system_sha256': h(self.doctor_system), 'max_tokens': a.max_tokens_doctor, 'temperature': 0.4}
+
+        def doctor(stage: str, user: str) -> str:
+            return step('doctor', {**doctor_id, 'stage': stage, 'input_sha256': h(user)},
+                        lambda: doctor_call(self.key, a.doctor_model, self.doctor_system, user, a.max_tokens_doctor))
+
+        dialogue.append({'speaker': 'agent', 'stage': f'A{t}', 'round': t, 'text': fixed_agent_text})
+        final = doctor('FINAL', final_decision_prompt(case, dialogue))
+        opt = final_answer_option(final)
+        return {'final_option': opt, 'correct': ST.final_outcome(case, opt), 'termination_reason': 'intervention_agent_then_final', 'agent_turns': sum(x['speaker'] == 'agent' for x in dialogue),
+                'dialogue': dialogue + [{'speaker': 'doctor', 'stage': 'FINAL', 'text': final, 'final': True}]}
 
     def _continue_v2(self, case: dict, prefix: list[dict], t: int, fixed_agent_text: str, seed: int, turn_cache=None) -> dict:
         """Doctor-v2 one-step intervention: fixed guided Agent reply, followed immediately by the Doctor FINAL."""

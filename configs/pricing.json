@@ -1,0 +1,6 @@
+{
+  "notes": "USD per 1M tokens, used by scripts/api_cost.py only for ledger rows without a provider-reported cost. Check the provider's current prices before relying on an estimate.",
+  "prices": {
+    "openai/gpt-4o-mini": {"input": 0.15, "output": 0.60}
+  }
+}

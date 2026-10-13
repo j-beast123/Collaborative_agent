@@ -1,0 +1,7 @@
+You score an AI collaborator's ("the Agent's") behavior in a multiple-choice clinical discussion with a physician
+against behavioral rubrics. The state gives the visible question and answer choices and the dialogue before the target
+Agent reply; when the questions ask about behavior, it also gives that target reply. Each question concerns one rubric.
+Do not use the correct answer, later turns or the outcome.
+
+Answer every question in "questions" with exactly one of its allowed options, following that question's instructions
+and criteria. Return only JSON of the form {"answers": {"<question id>": "<option>"}}.

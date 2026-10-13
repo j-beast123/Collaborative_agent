@@ -205,18 +205,6 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, t
             error = body.get("error") if isinstance(body, dict) else None
             if error:  # a 200 response carrying a provider error instead of a completion
                 raise _ProviderError(error)
-            choice = body["choices"][0]
-            if choice.get('finish_reason') == 'error' or choice.get('error'):
-                # Some providers put the failure on the choice, not the HTTP
-                # status/top-level body. Never accept its partial text as success.
-                error = _ProviderError(choice.get('error') or {'message': 'finish_reason=error; no error details'})
-                error.audit = {'api_provider': 'openrouter', 'response_id': body.get('id'),
-                               'model': body.get('model', model), 'provider': body.get('provider'),
-                               'finish_reason': choice.get('finish_reason'),
-                               'native_finish_reason': choice.get('native_finish_reason'),
-                               'error_code': error.code, 'usage': body.get('usage')}
-                error.unclassified_completion = error.code is None
-                raise error
             text = body["choices"][0]["message"]["content"].strip()
             if meta is not None:
                 choice = body["choices"][0]
@@ -239,9 +227,6 @@ def doctor_call(key: str, model: str, system: str, user: str, max_tokens: int, t
                 print(f"OpenRouter {model}: not retried: {error}", flush=True)
                 raise
             kind = "rate_limit" if _retry.rate_limited(error.code, str(error)) else "transient"
-            if getattr(error, 'unclassified_completion', False) and kind != 'rate_limit':
-                # Could be an undocumented rate limit: do not silently retry it.
-                raise
             if not retry.wait(kind, str(error)):
                 raise
         except (OSError, http.client.HTTPException, ValueError, KeyError, IndexError, AttributeError) as error:
@@ -533,8 +518,10 @@ def belief_agent_prompt(
     return agent_prompt, reconstruction, judgment, "valid"
 
 
-def stop_reason(turn: int, doctor: str, response: str, *, allow_mutual_conclusion: bool = True):
+def stop_reason(turn: int, doctor: str, response: str):
     """Early-termination rule after an agent turn, or None to continue."""
+    if re.search(r"final answer\s*:\s*(?:option\s*)?[A-E]", response, re.I):
+        return "agent_final_answer"
     if turn >= 2:
         doctor_choice = option(doctor)
         agent_choice = option(response)
@@ -546,7 +533,7 @@ def stop_reason(turn: int, doctor: str, response: str, *, allow_mutual_conclusio
             and signals_conclusion(response)
         ):
             return "mutual_agreement"
-        if allow_mutual_conclusion and signals_conclusion(doctor) and signals_conclusion(response):
+        if signals_conclusion(doctor) and signals_conclusion(response):
             return "mutual_conclusion"
     return None
 

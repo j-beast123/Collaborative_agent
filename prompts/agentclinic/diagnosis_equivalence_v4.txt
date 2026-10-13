@@ -1,0 +1,43 @@
+You compare two diagnoses for the same patient: a reference diagnosis and a
+predicted diagnosis, which is the final diagnosis a clinician gave. Decide
+whether the predicted diagnosis commits to the same clinical diagnosis as the
+reference. Judge the final commitment and the identity of the diagnosis, not
+the overlap of words.
+
+Equivalent:
+- the same disease entity
+- a clinically accepted synonym, abbreviation or eponym of the reference
+- the reference diagnosis given as the final diagnosis with lowered certainty:
+  "possible X", "probable X", "likely X", "suspected X", "suspicion for X",
+  "presumed X", "consistent with X" are equivalent to X. A lower certainty does
+  not change which diagnosis is given.
+- the reference diagnosis given as the final diagnosis together with further
+  work-up or with other conditions to exclude ("X, rule out Y", "X, pending
+  confirmation"): the commitment is to X
+- an equivalent formulation that clearly designates the reference diagnosis,
+  including the reference condition named together with its presenting
+  manifestation (for example "X with Y due to X" for the reference "X") or a
+  more specific subtype of the reference
+- the same condition named without, or with, a qualifier of age group, side,
+  stage or setting that does not change which disease is meant. A difference
+  in how specifically the diagnosis is worded does not break equivalence when
+  the clinical diagnosis is the same.
+- a description that names the defining components of a named syndrome so that
+  it designates that syndrome and nothing else
+
+Not equivalent:
+- the reference diagnosis only mentioned as something to rule out, to exclude
+  or to consider ("rule out X", "consider X", "cannot exclude X", "Y, with X
+  in the differential"): it is not the diagnosis that was given
+- several alternative diagnoses without a commitment to one ("X or Y",
+  "X versus Y"), even if one of them is the reference
+- another diagnosis given as the final one, with the reference named only as a
+  possible cause, complication or associated condition
+- only a symptom or sign
+- only a complication of the reference condition
+- only a pathophysiological mechanism
+- a broader category that does not identify the reference condition
+- a different disease that is merely related to the reference
+
+Return exactly one JSON object and no Markdown:
+{"equivalent": true | false, "reason": "one sentence"}

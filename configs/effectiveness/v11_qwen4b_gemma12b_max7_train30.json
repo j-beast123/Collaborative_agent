@@ -1,0 +1,12 @@
+{
+  "extends": "v10_qwen4b_gemma12b_max7.json",
+  "version": "v11_qwen4b_gemma12b_max7_train30",
+  "notes": "Low-resource main environment (user decision of 2026-10-02): the v10 environment (Agent Qwen3-4B, Doctor google/gemma-3-12b-it, max 7 turns with early stopping, the same prompts, models and decoding) on the dataset version agentclinic_main_v2_train30: TRAIN 30 (a stratified subset of the 90 TRAIN cases of agentclinic_main_v2, scripts/freeze_train_subset.py) / DEV 31 / TEST 60. The base collaborations and D1 histories of its 61 TRAIN and DEV cases are those of v10 (scripts/derive_subset_environment.py): nothing is generated again. The protocol identity differs from v10's only through the dataset manifest hash. TEST is not used.",
+  "dataset": {
+    "manifest": "data/splits/agentclinic_main_v2_train30.json"
+  },
+  "output_dir": "outputs/effectiveness/v11_qwen4b_gemma12b_max7_train30",
+  "labels_dir": "outputs/effectiveness/v11_qwen4b_gemma12b_max7_train30/effectiveness_oof_v1/labels",
+  "diagnosis_equivalence_frozen": "outputs/effectiveness/v11_qwen4b_gemma12b_max7_train30/diagnosis_equivalence.frozen.jsonl",
+  "diagnosis_equivalence_frozen_notes": "User decision of 2026-10-02: one decision of the diagnosis-equivalence judge per normalized (correct diagnosis, predicted diagnosis) pair, for labels, GRPO outcome, evaluation and RQ analyses alike (src/agentclinic/outcome.py: FrozenEquivalence; scripts/freeze_equivalence.py). Not part of the protocol identity: prompts, models and decoding are unchanged."
+}

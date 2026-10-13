@@ -1,0 +1,273 @@
+{
+ "name": "tree_v21_five_gpu",
+ "output_dir": "outputs/sherpa_tree_v21_five_gpu/run500_ckpt24_20261008",
+ "policy": {
+  "base_model": "Qwen/Qwen3-8B",
+  "init_adapter": null,
+  "lora": {
+   "r": 16,
+   "alpha": 32,
+   "dropout": 0.0,
+   "target_modules": [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj"
+   ],
+   "use_rslora": true,
+   "init_seed": 20261006
+  }
+ },
+ "data": {
+  "train": "data/interim/medmcqa/five_gpu_train500/train500_excluding_calibration_seed20261008.jsonl",
+  "train_sha256": "cbe8db7d03cf2d06f3e7d754deabe4fcfb55daeae2b0f64881ec976c8e7af9cd",
+  "train_manifest": "data/interim/medmcqa/five_gpu_train500/train500_excluding_calibration.manifest.json",
+  "excluded_calibration_case_ids": [
+   "medmcqa_1b8e64f8-bbec-496b-8460-3359bd24d326",
+   "medmcqa_1d184378-ee3b-46c9-8391-3557e141e653",
+   "medmcqa_2335f0d1-c480-409a-a022-b7c84eca71ca",
+   "medmcqa_507feb54-647f-46c5-906b-4b2233c59ddf",
+   "medmcqa_52673829-5fed-493c-9c73-7f998842e442",
+   "medmcqa_5855dbc9-15c4-4305-8c7c-8cfd659b4f7b",
+   "medmcqa_78a5e288-2c7d-44a0-9e9b-816dfaa7f0f7",
+   "medmcqa_858f875a-344d-45da-bf0a-7f2b7fc93bac",
+   "medmcqa_899e79e3-37f6-46e1-ab3c-d585647f4d96",
+   "medmcqa_9422d9f9-0e8d-4aee-a4b1-93d09b399bb2",
+   "medmcqa_dfe8b671-5d53-4cf8-832a-c5bae5fb36c7",
+   "medmcqa_ecb57f7e-806c-414c-af8a-a90078b796fa",
+   "medmcqa_eda5f31a-9eac-42a8-8ce3-5b233cb3eb90"
+  ]
+ },
+ "rollout": {
+  "branching": 4,
+  "rounds": 5,
+  "budget": "full_tree",
+  "doctor_model": "ollama/gemma3:12b-it-q8_0@997a7c2c0975",
+  "max_tokens_doctor": 256,
+  "max_completion_length": 400,
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "top_k": null,
+  "doctor_backend": {
+   "engine": "ollama",
+   "endpoint": "http://127.0.0.1:11535",
+   "model": "gemma3:12b-it-q8_0",
+   "model_digest": "997a7c2c09753e9011ec18a3fcb498e27c0ba330599dfb26a2e05b58cfbdc1bc",
+   "quantization": "Q8_0",
+   "ollama_version": "0.9.3",
+   "source_model": "google/gemma-3-12b-it",
+   "gpu": "one pinned server per physical GPU 0..4 (five_gpu.doctor_urls)",
+   "options": {
+    "temperature": 0.4,
+    "top_p": 1.0,
+    "top_k": 0,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0,
+    "num_ctx": 8192
+   }
+  },
+  "halting": {
+   "enabled": true,
+   "min_agent_turns": 3
+  },
+  "doctor_system_prompt_file": "prompts/user_simulator_v3_concise.txt",
+  "doctor_system_prompt_sha256": "8f00a4ff5a14fc7d21d120aa9ffe04b966dfb8e838096a2d98fb842bbbc58a2e",
+  "agent_protocol": "precommit_v1"
+ },
+ "schedule": {
+  "seed": 0,
+  "cases": 500,
+  "calibration_only_cursors": []
+ },
+ "optimizer": {
+  "learning_rate": 1e-05,
+  "beta": 0.04,
+  "clip_epsilon": 0.2,
+  "grad_clip": 1.0,
+  "logprob_token_chunk_size": 16,
+  "pre_update_ratio_tolerance": 0.001
+ },
+ "advantage_normalization": {
+  "mode": "mean_center"
+ },
+ "rubric": {
+  "enabled": true,
+  "generator_prompt_file": "prompts/sherpa/trajectory_rubric_generator_P0_aoc_v2.txt",
+  "prompt_id": "P0aoc2",
+  "prompt_sha256": "bd0a2378753ed123cdb20e3601a73be251a5fab33990f8f813724348257a9aba",
+  "gold_answer_visible": false,
+  "generator_model": "google/gemini-3.8-flash-20260902",
+  "reuse": "assign_or_create_v1",
+  "generation": {
+   "max_tokens": 4096,
+   "temperature": 0.7,
+   "reasoning_effort": "low",
+   "response_format": "json_schema_strict"
+  },
+  "source_consistency": "source_locus_v1"
+ },
+ "feedback": {
+  "model": "anthropic/claude-4.5-haiku-20251001",
+  "protocol": "behavior_observer_v4",
+  "prompt_file": "prompts/sherpa/behavior_feedback_v4.txt",
+  "prompt_sha256": "d36b9ec30fa5a2c9b1b51274bd9fb845b4a36533af01d84006807fa9b792dfc8",
+  "max_tokens": 512,
+  "behavioral_locus": true,
+  "leakage_guard": "posthoc.leakage_problems v1"
+ },
+ "intervention": {
+  "reruns_per_intervention": 3,
+  "score2_template_file": "prompts/sherpa/guided_response_template_score2_v2.txt",
+  "score2_template_sha256": "d4284095d47215b827b9db06345a193db74b7f769269ae2c8c3c358af344b3e0",
+  "score0_template_file": "prompts/sherpa/guided_response_template_score0_v1.txt",
+  "score0_template_sha256": "820a81e1b1581f28240a1f6d0898cddcfee3be088ba3e70a0f8d8154bc388a68"
+ },
+ "selection": {
+  "mode": "threshold",
+  "min_R_O": 0.6666666666666666
+ },
+ "verification": {
+  "mode": "all_members_witness_v1",
+  "max_valid_supports": null,
+  "reruns_per_support": 3,
+  "short_circuit": "decide at two agreeing reruns (2 of K=3)",
+  "support_order": "source trajectory first, then greedy minimum shared path prefix; ties by leaf id",
+  "target": "member feedback behavioral locus (target_reply_id); Stage-1 Applicable required, No Match -> next candidate, not a support",
+  "stage2_in_verification": false,
+  "keep": "KEEP at the first member with two target flips out of K=3; otherwise test every same-ID member until exhausted"
+ },
+ "agent_reward": {
+  "w_outcome": 0.0,
+  "w_rubric": 1.0,
+  "r_a_weighting": "equal"
+ },
+ "prompt_update": {
+  "enabled": true,
+  "every_n_cases": 4,
+  "minimum_trajectories": 0,
+  "reruns_per_intervention": 3,
+  "candidate_count": 1,
+  "retain_top_k": 1,
+  "refinement_depth": 1,
+  "feedback_prompt_file": "prompts/sherpa/tree_prompt_feedback_v2.txt",
+  "feedback_prompt_sha256": "b57063a0b174849b1940d6d5a4ac84aa78a4fc094fab3dbf42cb538daee0f6a6",
+  "refiner_prompt_file": "prompts/sherpa/tree_prompt_refiner_v1.txt",
+  "refiner_prompt_sha256": "b3aae0adb4189ed6c7c61cc0e7b4a84005d06cd57ad9ad8d97db7bbec0228849",
+  "reflection_model": "anthropic/claude-4.5-haiku-20251001",
+  "refiner_model": "anthropic/claude-4.5-haiku-20251001",
+  "mode": "four_case_p0_p1_v1",
+  "aggregation": "mean_trajectory_effect_per_direction_product_v1",
+  "tie": "keep_parent",
+  "missing_direction": "keep_parent",
+  "training_rubrics": "union_both_kept_deduplicated_v1"
+ },
+ "evaluation": null,
+ "notes": {
+  "rounds": "maximum Agent turns per branch (G = rollout.branching children per decision point); also used by the Agent prompt and intervention reruns",
+  "budget": "full_tree only; pruning / subsampling is not defined",
+  "rubric": "one Rubric-Generator call -> one rubric per completed trajectory (success and failure alike)",
+  "rubric.gold_answer_visible": "Doctor feedback and the Rubric Generator never receive a gold field (the final decision plus the outcome can imply it)",
+  "post_hoc_gates": "blocking: schema, deterministic leakage / answer copy, Jev answer_presupposition, Jev new_domain_premise; recorded only: observable",
+  "intervention": "targets = source-trajectory responses the rubric matches (two-stage applicability); the same policy writes the intervention reply and runs the continuations; failure -> Score-2 template, success -> Score-0 template; one reply, then K continuations",
+  "reruns_per_intervention": "K = continuations per intervention target; a rerun count, not a rubric count",
+  "R_O": "Target flips / K: Score-2 counts parsed success (1), Score-0 counts parsed failure (0). Unparsed FINAL (None) stays in the denominator but never counts as a flip (parsed_target_only_v1).",
+  "selection": "unused for training under bounded_witness_v1 (min_R_O applies only to the exhaustive protocol); prompt-search J is unchanged",
+  "scoring": "kept rubrics score every response node of the tree with the two-stage scorer; No Match records are kept without a score",
+  "agent_reward": "frozen 2026-10-07: outcome_only 1.0 / 0.0 (arm override), outcome + rubric arms 0.5 / 0.5; a rubric-only condition would be 0.0 / 1.0. Per node: w_outcome * mean(descendant outcomes) + w_rubric * R_A | r_a_weighting = equal: R_A = unweighted mean of level/2 over the applicable KEEP rubrics; verification is a gate only (R_O(R) is no longer a weight).",
+  "prompt_update": "One common P0/P1 comparison per four-case batch, exact same frozen trees and rerun policy; J = product of trajectory-mean directional effects across the batch. Full member verification for J, all-members witness KEEP for training. Strictly higher J wins; ties or a missing direction keep P0. No bootstrap, delta, split, or multi-candidate search.",
+  "prompt_hashes": "scripts/online_rl/run_tree.py refuses to launch when a prompt/template file differs from its sha256",
+  "evaluation": "GPU4 evaluates all 622 CasiMedicos English cases while rollout workers are pending; resumes per case; yields to update at case boundaries.",
+  "data": "500 unique MedMCQA train cases (all subjects), random.Random(20261006).sample without replacement over source-order unique, non-protected train rows (manifest train_random500_seed20261006.manifest.json, source parquet sha b119434b...); gold = options[ABCD[cop]] (cop is 0-based in the source); not redistributed",
+  "schedule": "500 unique train cases: original 487 non-calibration cases in their original order, then 13 deterministic TRAIN replacements (seed20261008); no reserved calibration IDs.",
+  "arms": "scripts/online_rl/run_tree.py --condition {outcome_only, fixed, evolving} (src/online_rl/tree/conditions.py); outcome_only = rubric.enabled false (reward = outcome component only, no feedback / rubric / verification / scoring / prompt events), fixed = prompt_update.enabled false, evolving = both on; output_dir/<arm>",
+  "feedback": "Feedback Generator = feedback.model, a separate role from the Doctor (rollout.doctor_model); dated snapshot pinned",
+  "model_roles": "Doctor rollout.doctor_model (Gemma-3-12B); Agent Qwen3-8B + LoRA; Feedback feedback.model (Claude Haiku 4.5); Rubric Generator rubric.generator_model (Gemini 3.8 Flash); Rubric Gate judges.gate_model (Luna: hard Y/N on the rubric itself: answer_presupposition, new_domain_premise, observable recorded); Rubric Scorer judges.scorer_model (Luna: Applicable / No Match, then hard level 0/1/2 -> level/2 for R_A); Reflection and Refiner prompt_update.reflection_model / refiner_model (Claude Haiku 4.5). Each model id (and judge protocol) is part of its cache key and of the run manifest.",
+  "luna_alignment": "strict JSON-schema output; trivial canonicalisation; at most one repair request to the same Luna model with the same input; a second invalid output is an operational error (retried on resume), never mapped or filled in",
+  "rubric_reuse": "same-reason REUSE vs NEW per case and outcome stratum (src/online_rl/tree/rubric_bank.py): one MATCH-vs-NEW decision per later trajectory, a new rubric only for a new reason; every member verified on its own path; KEEP iff max_j s_j >= min_R_O; R_O(R) = max_j s_j; each kept rubric scored once",
+  "rubric.generation": "Gemini 3.8 Flash reasons mandatorily; effort low + 4096 tokens + strict JSON schema fixes the Stage-A truncation (16/32 cut off at 1200)",
+  "doctor_backend": "local Ollama Doctor, protocol v2 (src/online_rl/doctor.py): hidden status, adaptive halting (min 3 Agent turns, T_max 5), seeded calls",
+  "shared_training": "frozen 2026-10-07: learning_rate 1e-5, advantage_normalization mean_center (all arms)",
+  "verification": "all_members_witness_v1: same-ID consolidated rubric members in topology order, no support cap; each member uses its feedback locus and Stage-1 applicability. Stop at first 2-of-3 causal witness; None is never a flip.",
+  "output_root": "2026-10-07: final 100+100 runs on 165.132.141.140 (compute-node, 8x RTX A6000) from case 1; outputs/sherpa_tree_v1_d1frozen (RTX 4090, stopped after Outcome-only case 1) is an aborted diagnostic: Agent tokens are hardware-dependent, so hardware is not mixed within a run",
+  "doctor_opening": "New five-GPU protocol: immutable runtime D1 per case/protocol, shared across saved checkpoints; no frozen VAL50 table dependency.",
+  "agent_protocol": "frozen 2026-10-07: independent pre-assessment followed by collaborator-conditioned response (src/online_rl/agent_protocol.py); Stage A blind to the dialogue, Stage B sees its own Stage-A assessment as hidden context; joint two-stage GRPO action; shared by every reward arm; Agent prompt prompts/agent.txt and decoding unchanged",
+  "feedback_locus": "feedback v4 behavior_observer_v4 (behavior_feedback_v4.txt): the writer sees ONLY the labelled physician/Agent dialogue before the FINAL (no question, options, final decision, outcome or gold) and returns answer-neutral behavioral feedback ending with \"Behavioral locus: Agent reply N\". Deterministic guard (option labels, option texts, correctness wording) + labels + locus: one repair with the same input; leakage still present -> invalid feedback (no redaction), and that trajectory gets no rubric mapping / is not a witness support / is not a J unit. The success / failure stratum is used by the Rubric Generator and the matcher, not by the feedback writer.",
+  "prompt_search_J": "One common P0/P1 comparison per four-case batch, exact same frozen trees and rerun policy; J = product of trajectory-mean directional effects across the batch. Full member verification for J, all-members witness KEEP for training. Strictly higher J wins; ties or a missing direction keep P0. No bootstrap, delta, split, or multi-candidate search.",
+  "rubric_source_consistency": "v2.1 (source_locus_v1): the Rubric Generator sees the feedback behavioral locus (reply id, the conversation before it and its text) and must write an applicability condition that holds at that locus; a new rubric must be Stage-1 Applicable at its own source locus before the quality gate: No Match -> one repair (same locus and feedback) -> still No Match -> SOURCE_INCONSISTENT (not admitted). Repaired rubrics get a new id (-r1). Everything after admission (REUSE, witness, K, supports, R_A, J) is as in v2.",
+  "batch": "Four cases per batch, one on each GPU0..3. One P0/P1 comparison then one GPU4 update. Checkpoints every six batches (24 cases), plus final500."
+ },
+ "acceptance": {
+  "rule": "strictly_higher_product_v1"
+ },
+ "judges": {
+  "gate_model": "openai/gpt-5.6-luna",
+  "gate_prompt_file": "prompts/sherpa/luna_gate_v1.txt",
+  "gate_prompt_sha256": "7eff048f0db3d9259d76ab546edebeec8121150dc7c9edd2929f7c1573afb3ad",
+  "scorer_model": "openai/gpt-5.6-luna",
+  "scorer_prompt_file": "prompts/sherpa/luna_scorer_v2.txt",
+  "scorer_prompt_sha256": "881c7321bab30d9c1721edbce5bc735ed6c8656aa0e13c3c0f8f3818f5ad6af2",
+  "luna_canonical_slug": "openai/gpt-5.6-luna-20260709 (OpenRouter metadata; the routable id is openai/gpt-5.6-luna)",
+  "scorer_protocol": "structured_v2"
+ },
+ "execution": {
+  "doctor_workers": 6,
+  "rerun_workers": 3,
+  "note": "execution only (thread counts); values and cache keys are unchanged. Doctor worker endpoints come from SHERPA_DOCTOR_ENDPOINTS (provenance in the manifest)"
+ },
+ "condition": "rubric_only",
+ "five_gpu": {
+  "rollout_gpus": [
+   0,
+   1,
+   2,
+   3
+  ],
+  "lanes_per_gpu": 1,
+  "update_gpu": 4,
+  "checkpoint_every_cases": 24,
+  "doctor_urls": [
+   "http://127.0.0.1:11535",
+   "http://127.0.0.1:11536",
+   "http://127.0.0.1:11537",
+   "http://127.0.0.1:11538",
+   "http://127.0.0.1:11539"
+  ],
+  "eval_file": "data/interim/casimedicos/all_en_622.jsonl",
+  "eval_sha256": "e42077d006c4e8227564f99b06050b66e7df9989f9b2b17f5fc5d9dd083feb56",
+  "eval_cases": 622,
+  "eval_seed": 0,
+  "opening_mode": "immutable_runtime_D1_v1",
+  "api_workers": 3,
+  "opening_identity": {
+   "engine": "ollama",
+   "model": "gemma3:12b-it-q8_0",
+   "model_digest": "997a7c2c09753e9011ec18a3fcb498e27c0ba330599dfb26a2e05b58cfbdc1bc",
+   "quantization": "Q8_0",
+   "ollama_version": "0.9.3",
+   "source_model": "google/gemma-3-12b-it",
+   "options": {
+    "temperature": 0.4,
+    "top_p": 1.0,
+    "top_k": 0,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0,
+    "num_ctx": 8192,
+    "num_predict": 256
+   },
+   "system_prompt_sha256": "8f00a4ff5a14fc7d21d120aa9ffe04b966dfb8e838096a2d98fb842bbbc58a2e"
+  },
+  "train_order_file": "data/interim/medmcqa/five_gpu_train500/train500_order_seed20261008.json",
+  "train_order_sha256": "b527dc1a7bb237a9271f6db575ca155cb2d5f64b5a29b8a39bf2ce41b6e3f5f0",
+  "batch_cases": 4,
+  "base_evaluation": {
+   "enabled": true,
+   "mode": "original_base_no_precommit_v1",
+   "priority": "before_checkpoint_evaluation",
+   "cases": 622
+  }
+ }
+}

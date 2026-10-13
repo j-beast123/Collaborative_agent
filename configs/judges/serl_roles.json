@@ -1,0 +1,141 @@
+{
+  "notes": "Rubric roles, prompts and method settings of the SERL rubric pipeline. The main pipeline (configs/serl_agentclinic.json, AgentClinic two-turn protocol) extends this file. Used on its own it describes the earlier MedMCQA multiple-choice protocol (collaboration.max_rounds turns with a turn-local situation assessment), kept for reproducibility. Intended setup: agent = Qwen family, doctor = GPT family; rubric manager / failure analyzer = GPT 'Sol'; rubric scorer = Jev (compared against GPT on DEV). Model IDs marked TODO are set per run.",
+  "mode": "production",
+  "data": {
+    "split_manifest": null,
+    "source_dataset": null
+  },
+  "roles": {
+    "agent": {
+      "family": "qwen",
+      "model_id": null,
+      "revision": null,
+      "model_id_status": "TODO"
+    },
+    "collaborator_simulator": {
+      "family": "gpt",
+      "model_id": null,
+      "revision": null,
+      "model_id_status": "TODO"
+    },
+    "failure_analyzer": {
+      "family": "gpt",
+      "alias": "sol",
+      "backend": "openai_compatible",
+      "base_url": null,
+      "api_key_env": null,
+      "model_id": null,
+      "revision": null,
+      "params": {
+        "temperature": 0,
+        "max_tokens": 2000
+      },
+      "prompt": "prompts/rubric_evaluator.txt",
+      "prompt_version": "rubric-evaluator-v1+agent-state-v1",
+      "prompt_addendum": "prompts/rubric_agent_state_addendum.txt",
+      "model_id_status": "TODO"
+    },
+    "rubric_manager": {
+      "family": "gpt",
+      "alias": "sol",
+      "backend": "openai_compatible",
+      "base_url": null,
+      "api_key_env": null,
+      "model_id": null,
+      "revision": null,
+      "params": {
+        "temperature": 0,
+        "max_tokens": 1500
+      },
+      "assign_prompt": "prompts/rubric_category_assign.txt",
+      "assign_prompt_version": "rubric-category-assign-v1",
+      "construct_prompt": "prompts/rubric_final_construct.txt",
+      "construct_prompt_version": "rubric-final-construct-v1",
+      "min_failure_count": null,
+      "max_active_rubrics": null,
+      "reconcile_prompt": "prompts/rubric_category_reconcile.txt",
+      "reconcile_prompt_version": "rubric-category-reconcile-v1",
+      "max_active_rubrics_notes": "null = every category observed in the iteration gets an active rubric. The number of keywords in the RQ3 figure is a separate plotting setting (run_eval rq3 --top-keywords).",
+      "model_id_status": "TODO",
+      "retention_policy": "reactivation",
+      "retention_policy_status": "decided 2026-10-01: a category that is observed again becomes active again with its rubric; inactive categories stay in the registry",
+      "max_active_rubrics_status": "decided 2026-10-01: no fixed number; look at the rubrics that are actually discovered first, then set a limit if needed"
+    }
+  },
+  "scorers": {
+    "prompt": "prompts/rubric_scorer.txt",
+    "prompt_version": "rubric-scorer-v1+agent-state-v1",
+    "candidates": {
+      "jev": {
+        "backend": "jev",
+        "enabled": true,
+        "model_id": null,
+        "revision": null,
+        "endpoint": null,
+        "api_key_env": null,
+        "model_id_status": "TODO"
+      },
+      "gpt": {
+        "backend": "openai_compatible",
+        "enabled": true,
+        "base_url": null,
+        "api_key_env": null,
+        "model_id": null,
+        "revision": null,
+        "params": {
+          "temperature": 0,
+          "max_tokens": 1500
+        },
+        "model_id_status": "TODO"
+      }
+    },
+    "prompt_addendum": "prompts/rubric_scorer_agent_state_addendum.txt",
+    "primary": "jev",
+    "notes": "Rubric scorer: Jev (structured scorer, primary) compared against GPT on DEV. Scores collaboration turns (round >= 2) only."
+  },
+  "cache_dir": "outputs/judge_cache",
+  "validation": {
+    "notes": "Step 2-1. Rerun from the failed turn with the candidate's ideal behavior using the same protocol as generation, num_reruns times; keep the candidate when at least min_successes reruns end correct (decided 2026-10-01: 3 reruns, keep at 2).",
+    "enabled": true,
+    "num_reruns": 3,
+    "min_successes": 2,
+    "max_rerun_attempts": 3,
+    "reconstructor_model": null,
+    "max_tokens": 512
+  },
+  "reward": {
+    "notes": "R = w_O*R_Outcome + w_A*SoftMin_tau({R^A_t}) + w_E*SoftMin_tau({R^E_t}). R^A_t = weighted mean of the normalized rubric scores (0->0, 1->0.5, 2->1) over the applicable rubrics, with the rubric weights of the active set; R^E_t = transform(P(success|h,r) - P(success|h)). Weights are placeholders.",
+    "weights": {
+      "outcome": 0.4,
+      "appropriateness": 0.3,
+      "effectiveness": 0.3
+    },
+    "weights_status": "placeholder",
+    "softmin_temperature": 0.5,
+    "missing_component_policy": "renormalize",
+    "effectiveness": {
+      "provider": null,
+      "provider_status": "METHOD_TBD: learned_predictor or rollout; required whenever weights.effectiveness > 0",
+      "checkpoint": null,
+      "expected_continuation_protocol_hash": null,
+      "transform": "affine_unit",
+      "transform_status": "METHOD_TBD: (delta + 1) / 2 by default; replaceable"
+    }
+  },
+  "collaboration": {
+    "notes": "Passed to src/collaboration/generator.py (--rounds, --final-decision-role).",
+    "max_rounds": 7,
+    "final_decision_role": "doctor",
+    "max_rounds_status": "MedMCQA protocol only (7 turns); the main pipeline overrides it",
+    "final_decision_role_status": "decided 2026-10-01: the Doctor makes the final decision"
+  },
+  "scoring": {
+    "include_initial_turn": true,
+    "include_initial_turn_status": "decided 2026-10-01: the initial (round-1) agent response is scored",
+    "notes": "Whether the initial (round-1) agent response is rubric-scored. Smoke/tests without the setting exclude it."
+  },
+  "rubric_importance": {
+    "strategy": "failure_frequency",
+    "notes": "Weight of an active rubric in the appropriateness reward: its category's share of the iteration's failures (split evenly over the category's rubrics). uniform gives every rubric the same weight. Effectiveness gaps (delta_k) are not used as weights."
+  }
+}

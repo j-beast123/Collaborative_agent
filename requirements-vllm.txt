@@ -1,2 +1,0 @@
-# Isolated server environment; never install this into the GRPO .venv.
-vllm==0.31.0

@@ -1,6 +1,5 @@
 """Batch barriers and durable, case-at-a-time evaluation for one GPU4 owner."""
 import json
-import random
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
@@ -8,13 +7,11 @@ from src.online_rl.integrated.records import atomic_write_json, from_dict, sha25
 from src.online_rl.tree.records import Tree
 
 
-def batch_slots(cursor, total, interval=24, workers=4, lanes=1, batch_cases=None):
+def batch_slots(cursor, total, interval=24, workers=4, lanes=1):
     if min(interval, workers, lanes) < 1 or not 0 <= cursor <= total:
         raise ValueError('Invalid batch dimensions or cursor')
-    if batch_cases is not None and batch_cases < 1:
-        raise ValueError('batch_cases must be positive')
-    size = min(total-cursor, interval-cursor % interval, batch_cases if batch_cases is not None else workers*lanes)
-    return [{'index': cursor+i, 'worker': i % workers, 'lane': (i // workers) % lanes} for i in range(size)]
+    size = min(total-cursor, interval-cursor % interval, workers*lanes)
+    return [{'index': cursor+i, 'worker': i % workers, 'lane': i // workers} for i in range(size)]
 
 
 
@@ -60,10 +57,6 @@ def update_batch(updater, records, expected, actual):
                       'agent_traces': [nodes[nid].trace]} for nid in ids]
             assert_single_prompt(group)
             groups.append(group)
-    if not groups:
-        return {'optimizer_step': False, 'groups_total': 0, 'groups_used': 0, 'groups_skipped': 0,
-                'skip_reason': 'no_verified_scored_groups', 'used_agent_completions': 0,
-                'optimizer_steps': getattr(updater, 'steps', 0)}
     return updater.update_groups(groups)
 
 
@@ -80,9 +73,6 @@ def save_checkpoint(updater, path, receipt):
     try:
         updater.save(pending)
         torch = updater.policy.torch
-        torch.save(random.getstate(), pending/'python_rng.pt')
-        import numpy as np
-        torch.save(np.random.get_state(), pending/'numpy_rng.pt')
         if torch.cuda.is_available():
             torch.save(torch.cuda.get_rng_state_all(), pending/'cuda_rng.pt')
         atomic_write_json(pending/'COMPLETE.json', receipt)
@@ -96,13 +86,6 @@ def save_checkpoint(updater, path, receipt):
 def load_checkpoint(updater, path):
     updater.load(str(path))
     torch = updater.policy.torch
-    python_rng = Path(path)/'python_rng.pt'
-    numpy_rng = Path(path)/'numpy_rng.pt'
-    if python_rng.exists():
-        random.setstate(torch.load(python_rng, weights_only=False, map_location='cpu'))
-    if numpy_rng.exists():
-        import numpy as np
-        np.random.set_state(torch.load(numpy_rng, weights_only=False, map_location='cpu'))
     rng = Path(path)/'cuda_rng.pt'
     if rng.exists() and torch.cuda.is_available():
         torch.cuda.set_rng_state_all(torch.load(rng, weights_only=True, map_location='cpu'))
@@ -248,18 +231,15 @@ def wait_with_evaluation(futures, evaluate_one):
     return [f.result() for f in futures]
 
 
-def cache_openings(doctor, path, identity, cache=None):
+def cache_openings(doctor, path, identity):
     """D1 is independent of Agent weights; one durable opening per case/protocol."""
     from src.online_rl.tree.cache import CallCache
-    cache = cache if cache is not None else CallCache(path)
-    doctor._shared_opening_cache, doctor._shared_opening_path, doctor._shared_opening_identity = cache, path, identity
+    cache = CallCache(path)
     turn = doctor.turn
     def cached(case, dialogue, round_, rounds, seed):
         if round_ != 1: return turn(case, dialogue, round_, rounds, seed)
         view = {k: case.get(k) for k in ('case_id','scenario','question','options')}
         key = {'case': view, 'protocol': identity, 'rounds': rounds}
-        if getattr(doctor, 'private_state_protocol', None):
-            key['doctor_protocol'] = doctor.protocol
         # Stable seed independent of checkpoint, lane and rollout branch.
         fixed_seed = int(sha256_json(key)[:8],16) % (2**31-1)
         return cache.call('shared_D1', key, lambda: turn(case, [], 1, rounds, fixed_seed))

@@ -1,19 +1,65 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
-outputs/
-runtime/
-.env
-
-.env*
-credentials*
-*.pem
-*.key
-runtime/
-outputs/
-__pycache__/
-.pytest_cache/
-*.pyc
-
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
 .venv/
-.venv-vllm/
+.ipynb_checkpoints/
+
+# Local env / secrets
+.env
+.env.*
+secrets*
+*.key
+*.pem
+
+# OS / editor / assistants
+.DS_Store
+.vscode/
+.idea/
+*.swp
+.claude/
+
+# Generated runs, logs, caches
+outputs/
+logs/
+runs/
+wandb/
+checkpoints/
+cache/
+.cache/
+*.log
+artifacts/
+labels/
+candidates/
+
+# Model artifacts
+*.ckpt
+*.safetensors
+*.bin
+*.pt
+
+# Data: raw/interim text is not redistributed; protected splits ship as an id/hash manifest only
+data/raw/
+data/interim/
+data/pilot/
+data/splits/prompt_opt_v1/
+data/splits/online_rl_v1/
+metadata/medmcqa_*
+
+# Generated analysis (strata, prompt-optimisation histories, snapshots, reports)
+analysis/
+
+# One-off run configs and local approval records
+configs/online_rl/*_smoke*.json
+configs/online_rl/*_micro_pilot*.json
+configs/online_rl/*_approval*.json
+*.PROVENANCE.txt
+
+# Internal documentation: only README.md is published
+docs/
+*.md
+!README.md

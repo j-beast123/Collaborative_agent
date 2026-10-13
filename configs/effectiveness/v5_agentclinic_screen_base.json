@@ -1,0 +1,8 @@
+{
+  "extends": "v5_agentclinic_pilot.json",
+  "notes": "TRAIN-wide prepare screening (--scope screen), Doctor view: the full patient-reported block. No candidate and no K rollout. The Agent's standalone assessments are shared with the other screening config, so the two runs differ only in what the Doctor sees.",
+  "screen": {
+    "standalone_file": "outputs/effectiveness/v5_agentclinic_screen/agent_standalone.jsonl"
+  },
+  "output_dir": "outputs/effectiveness/v5_agentclinic_screen/base"
+}

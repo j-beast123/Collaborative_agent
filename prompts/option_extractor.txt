@@ -1,0 +1,8 @@
+You read one message from a discussion of a clinical multiple-choice question.
+
+Report the single answer option the speaker currently favors in that message.
+
+- Reply with exactly one of the option letters of the question, or NONE.
+- Reply NONE if the message favors no single option, for example when it only
+  asks questions or weighs several options without choosing one.
+- Judge only what the message says. Do not answer the question yourself.

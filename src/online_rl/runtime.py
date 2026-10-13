@@ -35,12 +35,10 @@ class SharedPolicy:
         from src.online_rl import environment as ST
         self.ST = ST
         self.torch, self.cfg, self.key = torch, cfg, key; p = cfg['policy']
-        model_source = p.get('local_model_path') or p['base_model']
-        self.tok = AutoTokenizer.from_pretrained(model_source, trust_remote_code=True)
+        revision = p.get('base_revision')
+        self.tok = AutoTokenizer.from_pretrained(p['base_model'], revision=revision, trust_remote_code=True)
         if self.tok.pad_token is None: self.tok.pad_token = self.tok.eos_token
-        # Transformers 4.53 forwards `dtype` to remote-code model constructors;
-        # use the compatible `torch_dtype` keyword to avoid passing it to Qwen3.
-        base = AutoModelForCausalLM.from_pretrained(model_source, torch_dtype=torch.bfloat16, trust_remote_code=True)
+        base = AutoModelForCausalLM.from_pretrained(p['base_model'], revision=revision, dtype=torch.bfloat16, trust_remote_code=True)
         lc = p['lora']
         if p.get('init_adapter'): self.model = PeftModel.from_pretrained(base, p['init_adapter'], is_trainable=True)
         elif lc.get('init_seed') is not None: self.model = seeded_lora(base, lc)
@@ -54,11 +52,11 @@ class SharedPolicy:
         self.agent_system = (ROOT / ro.get('agent_system_prompt_file', 'prompts/agent.txt')).read_text()
         self.doctor_system = (ROOT / ro.get('doctor_system_prompt_file', 'prompts/user_simulator.txt')).read_text()
         from src.online_rl.doctor import make_doctor
-        self.doctor = make_doctor(ro, self.doctor_system)
+        self.doctor = make_doctor(ro, self.doctor_system)              # None: legacy OpenRouter Doctor
         import threading; self.gen_lock = threading.RLock()            # one generation at a time on the shared model
         self.precommit = ro.get('agent_protocol') == 'precommit_v1'
         if ro.get('agent_protocol') not in (None, 'precommit_v1'): raise ValueError(f"unknown rollout.agent_protocol {ro['agent_protocol']!r}")
-        self._init_replicas(base_model=model_source, lc=lc, init_adapter=p.get('init_adapter'))
+        self._init_replicas(base_model=p['base_model'], lc=lc, init_adapter=p.get('init_adapter'))
 
     # ---------- execution only: Agent replicas (SHERPA_AGENT_REPLICAS, default 1 = the single shared model) ----------
     # Replica i is the same base model + LoRA on cuda:i (cuda:0 = the trained primary). Every logical generation is still ONE
@@ -83,7 +81,7 @@ class SharedPolicy:
             from peft import LoraConfig, PeftModel, get_peft_model
             from transformers import AutoModelForCausalLM
             for k in range(1, n):
-                b = AutoModelForCausalLM.from_pretrained(base_model, torch_dtype=torch.bfloat16, trust_remote_code=True)
+                b = AutoModelForCausalLM.from_pretrained(base_model, dtype=torch.bfloat16, trust_remote_code=True)
                 m = (PeftModel.from_pretrained(b, init_adapter, is_trainable=True) if init_adapter else
                      get_peft_model(b, LoraConfig(task_type='CAUSAL_LM', r=lc['r'], lora_alpha=lc['alpha'], lora_dropout=lc.get('dropout', 0.0),
                                                   target_modules=lc['target_modules'], use_rslora=lc.get('use_rslora', True))))
@@ -222,12 +220,6 @@ class SharedPolicy:
         with self.gen_lock:                                       # seed + generate atomically (threaded reruns)
             self.model.eval(); return self._H().Env.agent(self, user, seed)
 
-    def respond_with_system(self, system: str, user: str, seed: int) -> str:
-        """One intervention reply with an explicit role envelope, on the same frozen
-        policy and shared GPU queue. Do not mutate the rollout system in concurrent work."""
-        prompt = self.ST.chat_prompt(self.tok, system, user)
-        return self._generate(prompt, self.args.max_completion_length, seed)['completion_text']
-
     def natural(self, case, prefix, turn, seed): return self.agent(self.agent_user_prompt(case, prefix, turn), seed)
 
     def continue_from(self, case, prefix, turn, fixed_action, seed, turn_cache=None):
@@ -248,9 +240,8 @@ class SharedPolicy:
                 with self.gen_lock:
                     if not hasattr(self,'_batcher'):
                         capacity=int(os.environ.get('SHERPA_AGENT_BATCH_SIZE',self.cfg.get('five_gpu',{}).get('agent_batch_size',1)))
-                        if capacity not in (1,2,4,8,16,32,64):raise ValueError('Agent batch size must be a power of two from 1 to 64')
-                        limit=os.environ.get('SHERPA_AGENT_MAX_INFLIGHT')
-                        self._batcher=Batcher(self,capacity,max_inflight=int(limit) if limit is not None else None)
+                        if capacity not in (1,2,4,8):raise ValueError('Agent batch size must be 1, 2, 4 or 8')
+                        self._batcher=Batcher(self,capacity)
             return self._batcher.submit(prompt,max_new_tokens,seed)
         if self._procs is not None: return self._generate_process(prompt, max_new_tokens, seed, segment)
         if self.n_replicas == 1:
@@ -314,9 +305,7 @@ class SharedPolicy:
         pb = self.ST.chat_prompt(self.tok, self.agent_system, user + AP.HIDDEN_BLOCK.format(assessment=z['completion_text'].strip()))
         r = self._generate(pb, self.args.max_completion_length, sb, *_segment(self, f'A{turn}/visible_reply'))
         seg = lambda role, prompt, t, s: {'role': role, 'prompt_text': prompt, 'seed': s,
-                                         **{k: t[k] for k in ('prompt_input_ids', 'completion_ids', 'old_policy_logprobs', 'completion_text',
-                                             'sampling_logprobs', 'sampling_temperature', 'sampling_top_p', 'sampling_top_k',
-                                             'logprob_semantics', 'batch_sampling_protocol') if k in t}}
+                                         **{k: t[k] for k in ('prompt_input_ids', 'completion_ids', 'old_policy_logprobs', 'completion_text')}}
         return {'stage': f'A{turn}', 'prompt_text': pb, 'seed': seed, **r, 'private_assessment': z['completion_text'],
                 'state_prompt_hash': AP.state_hash(z['prompt_input_ids'], base), 'agent_protocol': AP.VERSION,
                 'segments': [seg('private_assessment', pa, z, sa), seg('visible_reply', pb, r, sb)]}

@@ -1,0 +1,182 @@
+[Role]
+
+You generate one answer-neutral behavioral rubric for an AI collaborator
+("the Agent") in a multi-turn clinical discussion with a physician.
+
+[Task]
+
+Use the completed discussion, source outcome, answer-neutral partner-side
+reflection, and selected behavioral locus to produce one rubric for one
+observable Agent reply.
+
+The reflection identifies the target reply. Use that exact reply. Do not select
+a different turn.
+
+[Evidence Rules]
+
+- The correct answer is not provided. Do not infer or encode it from the
+  discussion, physician FINAL, or source outcome.
+- Ground the evaluated behavior in the target Agent reply and the supplied
+  reflection.
+- Determine applicability only from dialogue visible before the target reply.
+- Do not use later turns, physician FINAL, source outcome, hidden beliefs, or
+  inferred intent as applicability evidence.
+- Keep the public rubric reusable and answer-neutral. Do not include diagnoses,
+  drugs, anatomical entities, case-specific facts, option text, or option
+  labels.
+- Describe observable conversational actions rather than medical correctness.
+- A physician maintaining a position can still follow a useful Agent response.
+  Do not require agreement or answer revision.
+
+[Score Construction]
+
+Evaluate one behavioral construct across all three levels.
+
+For a successful source trajectory:
+
+- Score 2 describes the helpful behavior actually observed in the target reply
+  and supported by the reflection.
+- Score 1 describes a partial performance of that same behavior.
+- Score 0 removes only that helpful behavior. Do not add a new harmful behavior.
+
+For a failed source trajectory:
+
+- Score 0 describes the observed problem or omission in the target reply.
+- Score 1 describes a partial correction and states what remains incomplete.
+- Score 2 corrects that same problem without adding answer-specific knowledge or
+  an unrelated ideal behavior.
+
+For both outcomes:
+
+- Distinguish levels using what the Agent observably says or does.
+- Do not equate score 2 with a correct final answer or score 0 with an incorrect
+  final answer.
+- The outcome alone is not evidence that a particular behavior helped or harmed.
+
+[Applicability]
+
+Applicability has two parts that must be visible before the target reply:
+
+1. `user_side_context`: the physician's request, objection, reasoning,
+   uncertainty, or interaction state.
+2. `agent_side_state`: relevant earlier Agent behavior, or the explicit statement
+   that the Agent has not replied yet.
+
+Use the exact same two context strings in `applicability` and in scores 0, 1,
+and 2. Only each score's `behavior` field may differ. Do not place the target
+reply's behavior in an applicability field.
+
+[Reuse Decision]
+
+When `CURRENT_BANK` is absent or empty, create one new rubric.
+
+When `CURRENT_BANK` is supplied, first decide whether the trajectory is already
+covered. Reuse an existing rubric only when every condition holds:
+
+- `same_construct`: it evaluates the same collaborative behavior.
+- `applicability_visible`: its applicability is visibly satisfied as written.
+- `same_required_behavior`: the same response behavior matters here.
+- `same_direction`: helpful and problematic performance point in the same
+  direction.
+- `score_semantics_apply`: its 0, 1, and 2 descriptions apply without
+  reinterpretation.
+- `no_new_premise`: reuse needs no new case-specific premise or broader scope.
+
+Similar wording, topic, or clinical subject is insufficient. If any condition is
+false or uncertain, choose `CREATE_NEW`.
+
+[Input]
+
+REQUEST_MODE:
+{request_mode}
+
+SOURCE_CASE_ID:
+{source_case_id}
+
+SOURCE_TRAJECTORY_ID:
+{source_trajectory_id}
+
+SOURCE_OUTCOME:
+{source_outcome}
+
+TARGET_REPLY_ID:
+{target_reply_id}
+
+QUESTION:
+{question}
+
+OPTIONS:
+{options}
+
+COMPLETED_DISCUSSION:
+{completed_discussion}
+
+PARTNER_SIDE_REFLECTION:
+{partner_side_reflection}
+
+CURRENT_BANK:
+{current_bank}
+
+[Output]
+
+Return exactly one JSON object and no Markdown or surrounding text.
+
+When `REQUEST_MODE` is `ASSIGN_OR_CREATE`, return:
+
+{
+  "decision": "REUSE_EXISTING",
+  "rubric_id": "existing rubric id",
+  "checks": {
+    "same_construct": true,
+    "applicability_visible": true,
+    "same_required_behavior": true,
+    "same_direction": true,
+    "score_semantics_apply": true,
+    "no_new_premise": true
+  },
+  "rationale": "One or two answer-neutral sentences explaining the reuse."
+}
+
+When `REQUEST_MODE` is `CREATE`, return the original reported checkpoint rubric object without
+an additional wrapper:
+
+{
+  "name": "brief behavior name",
+  "applicability": {
+    "user_side_context": "observable pre-reply physician context",
+    "agent_side_state": "observable pre-reply Agent state"
+  },
+  "required_behavior": "one observable and answer-neutral response behavior",
+  "scores": {
+    "0": {
+      "user_side_context": "exactly the same user-side context",
+      "agent_side_state": "exactly the same Agent-side state",
+      "behavior": "observable score-0 behavior"
+    },
+    "1": {
+      "user_side_context": "exactly the same user-side context",
+      "agent_side_state": "exactly the same Agent-side state",
+      "behavior": "observable partial behavior and remaining gap"
+    },
+    "2": {
+      "user_side_context": "exactly the same user-side context",
+      "agent_side_state": "exactly the same Agent-side state",
+      "behavior": "observable complete behavior"
+    }
+  }
+}
+
+[Final Check]
+
+Before returning, verify that:
+
+- the target reply matches `TARGET_REPLY_ID`;
+- applicability uses only the strict pre-reply dialogue;
+- all public wording is answer-neutral and reusable;
+- scores 0, 1, and 2 evaluate one behavior;
+- the three applicability copies are identical;
+- no later response, physician FINAL, or source outcome appears as evidence;
+- `CREATE` returns only the rubric object expected by the original reported checkpoint parser;
+- `ASSIGN_OR_CREATE` returns only the reuse decision object expected by the
+  original reported checkpoint matcher;
+- the output is one valid JSON object matching the selected output form.

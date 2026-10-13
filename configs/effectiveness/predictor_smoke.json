@@ -1,0 +1,54 @@
+{
+  "notes": "SYNTHETIC smoke test only: tiny seeded backbone, toy labels, no downloads. Never a research result.",
+  "mode": "smoke",
+  "predictor": {
+    "role": "effectiveness_predictor",
+    "backbone_source": "synthetic_tiny",
+    "model_id": null,
+    "revision": null,
+    "max_length": 128,
+    "training_mode": "frozen_backbone_scalar_head",
+    "design_status": "METHOD_TBD",
+    "pilot_decision": null,
+    "lora": null
+  },
+  "training": {
+    "seed": 0,
+    "epochs": 40,
+    "learning_rate": 0.05,
+    "weight_decay": 0.0,
+    "batch_size": 8,
+    "grad_clip": 1.0,
+    "selection_metric": "binomial_nll",
+    "cache_features": true,
+    "require_k_equals_spec": true
+  },
+  "continuation": {
+    "turn_order": [
+      "doctor",
+      "agent"
+    ],
+    "max_rounds": 3,
+    "stopping_rule": "generator_stop_reason",
+    "final_decision_role": "doctor",
+    "success_criterion": "final_option_matches_ground_truth",
+    "k": 2,
+    "seed_policy": {
+      "mode": "paired_by_history",
+      "base_seed": 0
+    }
+  },
+  "data": {
+    "split_manifest": null,
+    "source_dataset": null
+  },
+  "labels": {
+    "turn_scope": "first_collaboration_turn",
+    "include_initial_turn": false,
+    "max_histories": null,
+    "include_original_response": true,
+    "candidate_files": [],
+    "max_rollout_attempts": 3,
+    "max_rollout_attempts_notes": "reruns a rollout (same seed) that ended in a format failure; outcomes are never retried"
+  }
+}

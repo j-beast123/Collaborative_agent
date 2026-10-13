@@ -1,0 +1,22 @@
+{
+  "extends": "v5_predictor_lora.json",
+  "notes": "Residual Effectiveness v2 on the same K = 9 labels: b = B(h) is the BEFORE logit, e = G(h, r) the response effect, P(success | h, r) = sigmoid(b + e), delta = sigmoid(b + e) - sigmoid(b). G starts at 0, so training starts from P(success | h, r) = P(success | h). Loss: BEFORE binomial NLL + AFTER binomial NLL + ranking.lambda * same-history pairwise ranking loss (AFTER pairs whose rollout rates differ by at least 2/9) + residual.regularization * mean(e^2). B is trained by the BEFORE labels; in the AFTER terms b enters without gradient.",
+  "predictor": {
+    "architecture": "residual",
+    "pilot_decision": "2026-10-01 user decision: train a residual predictor (B(h) + G(h, r)) as Effectiveness v2 and compare it with v1 (LoRA epoch 3 + temperature)"
+  },
+  "training": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "lora_learning_rate": 5e-05,
+    "init_head_from": "outputs/effectiveness/v5_agentclinic_full/model_frozen/best",
+    "ranking": {
+      "lambda": 0.2,
+      "min_after_gap": 0.2222
+    },
+    "residual": {
+      "regularization": 0.01
+    },
+    "training_notes": "learning_rate is the rate of both heads, lora_learning_rate the adapter rate. The B head starts from the frozen-backbone baseline's head; the G head starts at zero. Batches hold whole histories. Every epoch's checkpoint is kept (epochs/), with best (DEV NLL) and best_ordering. regularization 0.01 and the two learning rates are first values, not tuned."
+  }
+}

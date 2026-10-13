@@ -1,0 +1,116 @@
+{
+  "notes": "Evaluation pipeline (EVAL split only). Intended setup: agent = Qwen family, doctor = GPT family; exact model IDs/revisions are TODO and set per run. Expected actions are validated expected behaviors, not ground truth. RQ2 responses are generated without the Situation Assessment; the assessment is a separate diagnostic run.",
+  "mode": "production",
+  "meta": {
+    "run_id": null,
+    "source_dataset": null,
+    "dataset_version": null,
+    "split_manifest_hash": null,
+    "reference_protocol_version": "rq2-expected-actions-v1",
+    "synthetic": false
+  },
+  "systems": {
+    "base": {
+      "model_path": null,
+      "model_family": "qwen",
+      "model_id": null,
+      "checkpoint": "base",
+      "iteration": 0,
+      "training_seed": 0,
+      "response_seed": 0
+    },
+    "serl": {
+      "model_path": null,
+      "model_family": "qwen",
+      "model_id": null,
+      "checkpoint": null,
+      "iteration": null,
+      "training_seed": 0,
+      "response_seed": 0
+    }
+  },
+  "collaboration": {
+    "doctor_model": null,
+    "reconstructor_model": null,
+    "max_tokens": 512,
+    "doctor_family": "gpt",
+    "model_id_status": "TODO"
+  },
+  "behavior_judge": {
+    "backend": "openai_compatible",
+    "base_url": null,
+    "api_key_env": null,
+    "model_id": null,
+    "revision": null,
+    "params": {
+      "temperature": 0,
+      "max_tokens": 300
+    },
+    "prompt": "prompts/behavior_judge.txt",
+    "prompt_version": "behavior-judge-v1"
+  },
+  "option_extractor": {
+    "backend": "openai_compatible",
+    "base_url": null,
+    "api_key_env": null,
+    "model_id": null,
+    "revision": null,
+    "params": {
+      "temperature": 0,
+      "max_tokens": 5
+    },
+    "prompt": "prompts/option_extractor.txt",
+    "prompt_version": "option-extractor-v1",
+    "notes": "Re-reads the agent's and the clinician's initial options (RQ1 per-state accuracy, RQ2 states and controlled strata)."
+  },
+  "evidence": {
+    "generator": {
+      "backend": "openai_compatible",
+      "base_url": null,
+      "api_key_env": null,
+      "model_id": null,
+      "revision": null
+    },
+    "validator": {
+      "backend": "openai_compatible",
+      "base_url": null,
+      "api_key_env": null,
+      "model_id": null,
+      "revision": null
+    },
+    "generator_prompt": "prompts/evidence_generator.txt",
+    "validator_prompt": "prompts/evidence_validator.txt",
+    "prompt_version": "evidence-v1",
+    "params": {
+      "temperature": 0,
+      "max_tokens": 300
+    }
+  },
+  "expected_actions": {
+    "states": {
+      "Preserve": "MAINTAIN_CHALLENGE",
+      "Accept": "ACCEPT_REVISE",
+      "Challenge": "MAINTAIN_CHALLENGE",
+      "Recover": null
+    },
+    "controlled": {
+      "correct_strong": "ACCEPT_REVISE",
+      "correct_weak": "CONSIDER_REQUEST_EVIDENCE",
+      "incorrect_strong_looking": "MAINTAIN_CHALLENGE",
+      "incorrect_none": "MAINTAIN_CHALLENGE"
+    },
+    "notes": "Coarse behavior labels. Preserve = maintain an already-correct judgment (label MAINTAIN_CHALLENGE, meaning MAINTAIN). Recover (agent and collaborator both initially wrong) has no fixed expected action: requesting evidence, reporting private evidence, reconsidering, challenging or deferring can each be right depending on the context, so it is left to rubric generation and validation and is excluded from this predefined metric (null) unless a separately validated definition is introduced."
+  },
+  "matched_continuation": {
+    "continuation_system": "base",
+    "k": 4,
+    "seed_policy": {
+      "mode": "paired_by_history",
+      "base_seed": 0
+    },
+    "max_histories": null,
+    "max_rollout_attempts": 3,
+    "max_rollout_attempts_notes": "reruns a continuation that ended in a format failure; outcomes are never retried"
+  },
+  "cache_dir": "outputs/eval_cache"
+}

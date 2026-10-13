@@ -1,17 +1,19 @@
-"""One immutable common P1 from the first completed P0, evaluated as cases become ready."""
+"""One immutable common P1 proposed from all five completed P0 records."""
 import json
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor
 from src.online_rl.integrated.records import atomic_write_json, sha256_json
 
-SEED_MODE = 'first_completed_P0_v1'
+SEED_MODE = 'all_p0_before_p1_v1'
 
 
 def evaluate(jobs, parent, submit, propose, batchdir, policy_sha256, eager_union=False):
     """submit(phase, job, prompt) returns a Future. Policy preparation must finish BEFORE this call.
 
-    The seed case and candidate are persisted before P1 work. A resumed batch uses
-    exactly that seed/candidate, regardless of which cached P0 happens to finish first.
+    P1 generation waits for every P0 record. The ordered five-record evidence set
+    and candidate are persisted before P1 work; resume validates the same evidence.
+    Production waits for every P1 rubric/KEEP set before returning; final union scoring
+    is dispatched by the caller only after this barrier.
     """
     batchdir.mkdir(parents=True, exist_ok=True)
     seed_path = batchdir / 'prompt_seed.json'
@@ -40,6 +42,20 @@ def evaluate(jobs, parent, submit, propose, batchdir, policy_sha256, eager_union
         prompt = {'text': candidate['text'], 'sha256': candidate['sha256'], 'id': candidate['id']}
         watch('P1', index, submit('P1', jobs[index], prompt))
 
+    def propose_from_all_p0():
+        rows = [p0[i] for i in range(len(jobs))]
+        if seed is None:
+            evidence = {'record_sha256': [sha256_json(row) for row in rows]}
+            seed_value = {**identity, 'p0_evidence_sha256': sha256_json(evidence),
+                          'p0_record_sha256': evidence['record_sha256']}
+            atomic_write_json(seed_path, seed_value)
+            return seed_value, proposal_pool.submit(propose, rows)
+        expected = seed.get('p0_record_sha256')
+        actual = [sha256_json(row) for row in rows]
+        if expected != actual:
+            raise RuntimeError('Saved P0 evidence set changed')
+        return seed, proposal_pool.submit(propose, rows)
+
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix='common-P1-proposal') as proposal_pool:
         for i, job in enumerate(jobs): watch('P0', i, submit('P0', job, parent))
         while len(unions if eager_union else p1) < len(jobs):
@@ -49,22 +65,23 @@ def evaluate(jobs, parent, submit, propose, batchdir, policy_sha256, eager_union
                 if value['case_id'] != jobs[index]['case']['case_id'] or value['policy_sha256'] != policy_sha256:
                     raise RuntimeError('P0 case or frozen policy mismatch')
                 p0[index] = value
-                if seed is None:
-                    seed = {**identity, 'seed_case_id': value['case_id'], 'seed_job_index': index,
-                            'seed_record_sha256': sha256_json(value)}
-                    atomic_write_json(seed_path, seed)
-                    print(json.dumps({'stage':'prompt_seed_selected','seed_case_id':seed['seed_case_id'],
-                                      'candidate_seed':SEED_MODE}),flush=True)
-                if index == seed['seed_job_index']:
-                    if sha256_json(value) != seed['seed_record_sha256']: raise RuntimeError('Saved seed P0 evidence changed')
+                if len(p0) == len(jobs):
                     if candidate is None and not proposing:
                         proposing = True
-                        watch('proposal', index, proposal_pool.submit(propose, [value]))
-                if candidate is not None: start_p1(index)
+                        seed, proposal_future = propose_from_all_p0()
+                        print(json.dumps({'stage':'prompt_seed_selected','p0_cases':len(p0),
+                                          'p0_evidence_sha256':seed['p0_evidence_sha256'],
+                                          'candidate_seed':SEED_MODE}),flush=True)
+                        watch('proposal', -1, proposal_future)
+                    elif candidate is not None:
+                        expected = seed.get('p0_record_sha256') if seed else None
+                        if expected != [sha256_json(p0[i]) for i in range(len(jobs))]:
+                            raise RuntimeError('Saved P0 evidence set changed')
+                        for ready_index in range(len(jobs)): start_p1(ready_index)
             elif kind == 'proposal':
                 candidate = {**value, 'id': f'P1-{value["sha256"][:12]}', 'seed_sha256': sha256_json(seed)}
                 atomic_write_json(proposal_path, candidate)
-                print(json.dumps({'stage':'prompt_P1_fixed','seed_case_id':seed['seed_case_id'],
+                print(json.dumps({'stage':'prompt_P1_fixed','p0_cases':len(p0),
                                   'prompt_sha256':candidate['sha256']}),flush=True)
                 for i in sorted(p0): start_p1(i)
             elif kind == 'P1':
