@@ -1,0 +1,43 @@
+{
+  "artifact": "C30 LoRA portable inference bundle",
+  "base_model": {
+    "repo_id": "Qwen/Qwen3-8B",
+    "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "trust_remote_code": true,
+    "dtype": "bfloat16",
+    "quantization": null,
+    "chat_template_sha256": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8",
+    "enable_thinking": false
+  },
+  "adapter": {
+    "policy_sha256": "bbbfc75889508d0438094559c6c3066759c1d4a35548f75f86125c56b68e8299",
+    "r": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.0,
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
+    "use_rslora": true,
+    "task_type": "CAUSAL_LM"
+  },
+  "agent_decoding": {
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": "model_default",
+    "max_new_tokens": 400,
+    "sampling": true
+  },
+  "doctor": {
+    "engine": "ollama",
+    "model": "qwen3-8b-med:latest",
+    "digest": "18a0a4422604cb17ebf082b6dfbb558a9a840055cd75c40d89db618611451afc",
+    "source_model": "Qwen/Qwen3-8B",
+    "quantization": "Q4_K_M",
+    "server_version": "0.12.5",
+    "temperature": 0.4,
+    "top_p": 1.0,
+    "top_k": 0,
+    "num_ctx": 8192,
+    "num_batch": 64,
+    "discussion_max_tokens": 256,
+    "final_max_tokens": 32
+  }
+}
