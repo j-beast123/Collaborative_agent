@@ -1,0 +1,9 @@
+{
+  "evaluated": 88,
+  "total": 622,
+  "correct": 67,
+  "unparsed": 3,
+  "accuracy": 0.7613636363636364,
+  "mean_agent_turns": 3.7613636363636362,
+  "status": "running"
+}

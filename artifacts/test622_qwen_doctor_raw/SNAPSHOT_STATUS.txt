@@ -1,0 +1,4 @@
+Raw evaluator output snapshot; files are copied without transformation.
+base completed cases: 64/622
+lora30 completed cases: 90/622
+The source evaluations were still running when this snapshot was taken.

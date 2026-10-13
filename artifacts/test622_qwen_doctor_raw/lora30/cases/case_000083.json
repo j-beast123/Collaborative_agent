@@ -1,0 +1,47 @@
+{
+  "index": 83,
+  "case_id": "casimedicos_en_train_104_91",
+  "dialogue": [
+    {
+      "speaker": "doctor",
+      "stage": "D1",
+      "text": "You are to simulate a natural discussion between two clinicians, not a monologue.\n\nYou are to act as the physician, not the AI assistant. You are to simulate a discussion between two clinicians, not a monologue. Do not use markdown. Do not use any formatting. Keep the language natural and conversational.\n\nOkay, let's see. The patient has very high LDL cholesterol, 278 mg/dL, and family history of early heart attacks. The physical findings include xanthomas on elbows, knees, and eyelids. These are classic signs of familial hypercholesterolemia. The question is about which statement is false regarding the disease.\n\nLooking at the options, A says it's autosomal codominant with high penetrance. That's correct because FH is indeed autosomal dominant. B mentions the LDL receptor gene and over 900 mutations. That's accurate too. C claims the disease affects triglyceride synthesis, leading to levels over 500 mg/dL in advanced stages. Wait, I thought FH primarily affects LDL, not triglycerides. In fact, triglycerides are usually normal or only mildly elevated in FH. So C might be the false statement. D and E are correct—statins are used",
+      "round": 1
+    },
+    {
+      "speaker": "agent",
+      "stage": "A1",
+      "text": "You're right that C is likely the false statement. While familial hypercholesterolemia primarily affects LDL cholesterol, triglycerides are typically not significantly elevated, and levels above 500 mg/dl are not a hallmark of the disease. This distinction is important because it differentiates FH from other lipid disorders like familial combined hyperlipidemia.",
+      "round": 1,
+      "trace_index": 0
+    },
+    {
+      "speaker": "doctor",
+      "stage": "D2",
+      "text": "Do not use false unless you are confident.\n\nDo not use markdown. Do not use any formatting. Keep the language natural and conversational.\nOkay, so the patient has FH, right? The key here is that C says the disease affects triglyceride synthesis, leading to levels over 500 mg/dl. But in FH, triglycerides are usually normal or only slightly elevated. The main issue is LDL, not triglycerides. So C is the false statement. I think that's correct. The other options align with what I know about FH.",
+      "round": 2
+    },
+    {
+      "speaker": "agent",
+      "stage": "A2",
+      "text": "You're correct that C is the false statement. Familial hypercholesterolemia primarily affects LDL metabolism, not triglycerides, which are typically normal or only mildly elevated. The claim about triglycerides exceeding 500 mg/dl in advanced stages isn't a defining feature of the disease. The other options align with established clinical knowledge about FH.",
+      "round": 2,
+      "trace_index": 1
+    },
+    {
+      "speaker": "doctor",
+      "stage": "D3",
+      "text": "If you are certain, use false. Do not use unknown or other values.\nOkay, so the patient has FH, right? The key here is that C says the disease affects triglyceride synthesis, leading to levels over 500 mg/dl. But in FH, triglycerides are usually normal or only slightly elevated. The main issue is LDL, not triglycerides. So C is the false statement. I think that's correct. The other options align with established clinical knowledge about FH.",
+      "round": 3
+    },
+    {
+      "speaker": "doctor",
+      "stage": "FINAL",
+      "text": "Keep it to one line.\nFinal answer: option C\nOkay, so the patient has FH, right? The key here is that C says the disease affects",
+      "final": true
+    }
+  ],
+  "final_option": "C",
+  "num_discussion_rounds": 2,
+  "outcome": 1.0
+}
