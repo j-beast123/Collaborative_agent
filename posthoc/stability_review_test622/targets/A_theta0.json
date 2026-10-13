@@ -1,0 +1,10 @@
+{
+ "frozen_utc": "2026-10-12T15:16:15Z",
+ "targets": {
+  "A_theta0": {
+   "case": 0,
+   "policy_sha256": "9018ce3bbacd319049576e8ace88afb4777621a8769919bf46676fca8a85b17c",
+   "rule": "fresh theta0, no checkpoint"
+  }
+ }
+}

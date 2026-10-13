@@ -1,0 +1,40 @@
+{
+ "title": "Final TEST622 protocol (frozen before any TEST episode)",
+ "frozen_utc": "2026-10-12T15:05:07Z",
+ "by": "user instructions 2026-10-12 ~14:45Z-15:00Z",
+ "targets": [
+  "C: Online case-120 (OES did not trigger)",
+  "A: fresh theta0 (no adapter update; policy 9018ce3b...), same settings, once",
+  "B: Offline Stage B selected checkpoint (OES clean-stop, else case-120)",
+  "D: E3-private T4/OFF DEV-selected checkpoint"
+ ],
+ "theta0": "evaluated once as target A under the identical TEST settings (user instruction 2026-10-12 ~15:20Z, restoring the original A/B/C/D set)",
+ "settings_all_targets": {
+  "cases": "CasiMedicos622, all 622, one episode per case, seed = eval_seed + case index",
+  "thinking": "OFF",
+  "rounds": 4,
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "generation_batch": 1,
+  "harness": "test_eval_final.py (= main120_queue/test_eval_think.py with the selection check replaced by the frozen-target check) in /home/sj/col/d_dev_eval/repo @5098c6f, config configs/experiments/fixed_t2/main120/e3_private_5_5_t4_off.json",
+  "agent_prompt_and_protocol": "prompts/agent.txt and agent_protocol.py are byte-identical in both code lines",
+  "doctor": "same Gemma3-12B Q8 identity, prompt, options and halting",
+  "opening_bank_sha256": "1bdd4fab9d0571b306ed28af67fb62b0b0b43dd69495ed2ac5baa5af7160107b",
+  "host": "Server 3 only (A6000)"
+ },
+ "note_sampling": "B and C were trained with Agent temperature 1.0 / top_p 1.0; D with 0.7 / 0.9. The user fixed 0.7 / 0.9 for all TEST targets before any result.",
+ "order": "C first; then A; B and D as soon as each target is frozen; GPUs 5-7 yield to D's DEV evaluation",
+ "each_target_once": true,
+ "no_setting_change_before_results": true,
+ "files_sha256": {
+  "test_eval_final.py": "cc0bb7ff9b92905febfeb73b1570907e0a7b6f798a11774fc949b44660b142aa",
+  "test_orch.py": "5eb6de3ad46ab81383b1dccfbe6b3d9070f2b7357f381b411f005c93245cd080"
+ },
+ "amendments": [
+  {
+   "utc": "2026-10-12T15:16:15Z",
+   "change": "theta0 added back as target A",
+   "state": "no TEST episode had been generated; no TEST result existed"
+  }
+ ]
+}

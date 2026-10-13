@@ -1,0 +1,13 @@
+{
+ "frozen_utc": "2026-10-12T15:05:07Z",
+ "targets": {
+  "C_online": {
+   "case": 120,
+   "policy_sha256": "610e0032a224430a4d0ea2b480e982877167a3e6fd981d908425a40ccd769393",
+   "local_checkpoint": "/home/sj/col/final_test622/checkpoints/C_online_case120",
+   "source_checkpoint": "sj@165.132.142.214:/data/sj_col/max4/Collaborative_agent/outputs/train120_max4_online_chunk8_final120_r2_20261011/r05_o05__p0fixed__gemma3doctor__seed0__max4_online_chunk8_bank_final120_r2/checkpoints/checkpoint_000120",
+   "rule": "case-120 (OES did not trigger)",
+   "oes_triggered": false
+  }
+ }
+}

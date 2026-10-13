@@ -1,0 +1,14 @@
+{
+ "frozen_utc": "2026-10-12T17:17:28Z",
+ "targets": {
+  "B_offline": {
+   "case": 120,
+   "policy_sha256": "275839b82037931bba96b6cf385713383c267403079c64d9cd2aff4b7d6315f4",
+   "local_checkpoint": "/home/sj/col/final_test622/checkpoints/B_offline_selected",
+   "source_checkpoint": "sj@165.132.143.27:/data/sj/max4/Collaborative_agent/outputs/train120_max4_offline_frozen_bank_stageB_final120_20261012/r05_o05__p0fixed__gemma3doctor__seed0__max4_offline_frozen_bank_stage_b_final120/checkpoints/checkpoint_000120",
+   "rule": "case-120 (OES did not trigger)",
+   "oes_triggered": false,
+   "rubric_bank_sha256": "3bd2680e32ef4f2207256c22da8b7c7a3ae11c0af12d81ee12ab9ccbf3261882"
+  }
+ }
+}

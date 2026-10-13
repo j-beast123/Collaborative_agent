@@ -1,0 +1,74 @@
+{
+ "dataset": "CasiMedicos622 (all 622 cases, one episode per case)",
+ "settings": "Qwen3-8B Agent, Thinking OFF, 4 rounds, temperature 0.7, top_p 0.9, Gemma3-12B Doctor, one frozen Doctor-opening bank, server 3 (A6000)",
+ "accuracy": {
+  "theta0_canonical": {
+   "correct": 425,
+   "n": 622,
+   "accuracy": 0.6833
+  },
+  "offline_canonical": {
+   "correct": 434,
+   "n": 622,
+   "accuracy": 0.6977
+  },
+  "online_canonical": {
+   "correct": 430,
+   "n": 622,
+   "accuracy": 0.6913
+  },
+  "theta0_stability_v1": {
+   "correct": 437,
+   "n": 622,
+   "accuracy": 0.7026
+  },
+  "offline_stability_v1": {
+   "correct": 438,
+   "n": 622,
+   "accuracy": 0.7042
+  },
+  "online_stability_v1": {
+   "correct": 435,
+   "n": 622,
+   "accuracy": 0.6994
+  },
+  "offline_stability_v1_blind_review": {
+   "correct": 448,
+   "n": 622,
+   "accuracy": 0.7203
+  }
+ },
+ "paired": {
+  "review_vs_offline_stability_v1": {
+   "incorrect_to_correct": 26,
+   "correct_to_incorrect": 16,
+   "mcnemar_exact_p": 0.1641
+  },
+  "review_vs_offline_canonical": {
+   "incorrect_to_correct": 38,
+   "correct_to_incorrect": 24,
+   "mcnemar_exact_p": 0.098
+  },
+  "review_vs_theta0_canonical": {
+   "incorrect_to_correct": 53,
+   "correct_to_incorrect": 30,
+   "mcnemar_exact_p": 0.0152
+  },
+  "offline_stability_v1_vs_offline_canonical": {
+   "incorrect_to_correct": 35,
+   "correct_to_incorrect": 31,
+   "mcnemar_exact_p": 0.7122
+  },
+  "theta0_stability_v1_vs_theta0_canonical": {
+   "incorrect_to_correct": 46,
+   "correct_to_incorrect": 34,
+   "mcnemar_exact_p": 0.2185
+  },
+  "online_stability_v1_vs_online_canonical": {
+   "incorrect_to_correct": 39,
+   "correct_to_incorrect": 34,
+   "mcnemar_exact_p": 0.64
+  }
+ },
+ "label": "POST-HOC / EXPLORATORY: the stance rule and the review were designed after CasiMedicos622 results had been inspected; single run per configuration"
+}
