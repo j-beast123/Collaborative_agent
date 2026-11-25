@@ -1,0 +1,70 @@
+{
+  "policy": {
+    "base_model": "REPLACE_WITH_LOCAL_QWEN3_8B_SNAPSHOT",
+    "init_adapter": null,
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.0,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "use_rslora": true,
+      "init_seed": 20261006
+    }
+  },
+  "rollout": {
+    "branching": 4,
+    "rounds": 4,
+    "budget": "full_tree",
+    "doctor_model": "ollama/gemma3:12b-it-q8_0@997a7c2c0975",
+    "max_tokens_doctor": 256,
+    "max_completion_length": 400,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": null,
+    "doctor_backend": {
+      "engine": "ollama",
+      "endpoint": "http://127.0.0.1:11434",
+      "model": "gemma3:12b-it-q8_0",
+      "model_digest": "997a7c2c09753e9011ec18a3fcb498e27c0ba330599dfb26a2e05b58cfbdc1bc",
+      "quantization": "Q8_0",
+      "ollama_version": "0.12.5",
+      "source_model": "google/gemma-3-12b-it",
+      "options": {
+        "temperature": 0.4,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "num_ctx": 8192,
+        "num_batch": 64
+      },
+      "final_response": {
+        "mode": "label_only_v1",
+        "max_tokens": 32
+      }
+    },
+    "halting": {
+      "enabled": true,
+      "min_agent_turns": 2,
+      "repeat_agent_reply_after_turns": 4
+    },
+    "doctor_system_prompt_file": "prompts/user_simulator_v4_final_label.txt",
+    "doctor_system_prompt_sha256": "026f3771659f97b16f7d8985169478bd0b9eb5c141316a982eb49f3f60cff3a2",
+    "agent_protocol": "precommit_v1",
+    "agent_sampling_protocol": "per_row_rng_batch_v1",
+    "agent_system_prompt_file": "prompts/agent_v2.txt",
+    "agent_system_prompt_sha256": "5ef5bb764ee955f067e66d1cb8e51950e40c3e7e021994fc8b561cfeaa22942f"
+  },
+  "five_gpu": {
+    "agent_batch_size": 1,
+    "doctor_concurrency": 1
+  },
+  "output_dir": "outputs/agent_v2_local/base"
+}
